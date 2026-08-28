@@ -13,7 +13,7 @@ name: Worker CI
 #     issues: write
 #     actions: write   # nested qodana（PR 限频 cache）/ ocr（cache）
 #     checks: read     # nested notify-blocked
-#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.5.0
+#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.0
 #   secrets: inherit
 #   with:
 #     sync_packages_lock: true
@@ -85,12 +85,12 @@ jobs:
   workflow-lint:
     permissions:
       contents: read
-    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.1.0
   verify:
     permissions:
       contents: write
       packages: read
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.0
     secrets: inherit
     with:
       materialize_sdk: ${{ inputs.materialize_sdk }}
@@ -107,9 +107,9 @@ jobs:
       github.event_name == 'push' &&
       startsWith(github.ref_name, 'dev_') &&
       github.event.deleted != true
-    # PAT 建 PR（WORKERS_WORLD_GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
+    # PAT 建 PR（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.0
     secrets: inherit
     with:
       release_branch: ${{ github.ref_name }}
@@ -128,7 +128,7 @@ jobs:
       issues: write
       # nested worker-qodana-scan 需 actions: write（qodana-scan-gate PR 限频 cache）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.1.0
     secrets: inherit
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
@@ -154,12 +154,12 @@ jobs:
       pull-requests: write
       # nested open-code-review 需 actions: write（actions/cache session save）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.0
     secrets: inherit
     with:
       rule: ${{ inputs.ocr_rule }}
       skip: ${{ inputs.skip_ocr }}
-      actions_bundle_ref: actions/v0.4.34
+      actions_bundle_ref: actions/v0.1.0
 
   release-auto-merge:
     needs: [workflow-lint, verify, qodana, ocr]
@@ -175,9 +175,9 @@ jobs:
       needs.verify.result == 'success' &&
       needs.qodana.result == 'success' &&
       needs.ocr.result == 'success'
-    # PAT merge（WORKERS_WORLD_GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
+    # PAT merge（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.1.0
     secrets: inherit
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
@@ -200,7 +200,7 @@ jobs:
       )
     permissions:
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.1.0
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_ref: ${{ github.head_ref }}
@@ -243,7 +243,7 @@ jobs:
           needs.ocr.result == 'success'
         )
       )
-    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.1.0
     secrets: inherit
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
@@ -253,4 +253,4 @@ jobs:
       qodana_result: ${{ needs.qodana.result }}
       ocr_result: ${{ needs.ocr.result }}
       merge_result: ${{ needs.release-auto-merge.result }}
-      actions_bundle_ref: actions/v0.4.34
+      actions_bundle_ref: actions/v0.1.0

@@ -6,7 +6,7 @@ name: Worker ensure release PR
 # Caller（push job）：
 #   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.5.0
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.0
 #   with:
 #     release_branch: ${{ github.ref_name }}
 on:
@@ -29,7 +29,7 @@ on:
         description: 当前 dev_* → master 的 open Release PR 号（已有或新建）
         value: ${{ jobs.ensure.outputs.pr_number }}
     secrets:
-      WORKERS_WORLD_GHA_TOKEN:
+      GHA_TOKEN:
         description: PAT（repo 权限）；创建 PR 必填。Org 常禁止 GITHUB_TOKEN 建 PR。
         required: true
 
@@ -38,7 +38,7 @@ permissions: {}
 
 jobs:
   ensure:
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     timeout-minutes: 60
     permissions: {}
     outputs:
@@ -65,14 +65,14 @@ jobs:
       - name: Open release PR if missing
         id: open-pr
         env:
-          GH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
           RELEASE_BRANCH: ${{ inputs.release_branch }}
           MASTER_BRANCH: ${{ inputs.master_branch }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::缺少 WORKERS_WORLD_GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
+            echo "::error::缺少 GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
             echo "::error::或在本仓 Settings → Actions → General 开启「Allow GitHub Actions to create and approve pull requests」（仍建议用 PAT）。"
             exit 1
           fi

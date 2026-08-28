@@ -1,6 +1,6 @@
 name: Worker Qodana scan
 
-# 各 Worker 经 worker-ci.yml 调用。Org Variable WORKERS_WORLD_QODANA_ENABLED 控制是否扫描。
+# 各 Worker 经 worker-ci.yml 调用。Org Variable QODANA_ENABLED 控制是否扫描。
 # 路径过滤 + PR 限频减少 Docker 扫描次数。
 # 调用方仓库根目录须有 qodana.yaml（见 templates/qodana.yaml；Org 未启用时可无）。
 # Org Secret: QODANA_TOKEN（必填）
@@ -60,7 +60,7 @@ permissions:
 
 jobs:
   qodana:
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     permissions:
       contents: read
       pull-requests: write
@@ -81,7 +81,7 @@ jobs:
           fetch-depth: 0
 
       - name: Restore last scan state
-        if: contains(fromJSON('["true","1","yes","True","TRUE","Yes","YES"]'), vars.WORKERS_WORLD_QODANA_ENABLED)
+        if: contains(fromJSON('["true","1","yes","True","TRUE","Yes","YES"]'), vars.QODANA_ENABLED)
         uses: actions/cache/restore@v6
         id: cache-qodana
         with:
@@ -94,7 +94,7 @@ jobs:
         id: gate
         uses: $/.github/actions/qodana-scan-gate
         with:
-          org_enabled: ${{ vars.WORKERS_WORLD_QODANA_ENABLED }}
+          org_enabled: ${{ vars.QODANA_ENABLED }}
           base_ref: ${{ inputs.base_ref }}
           head_sha: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
           throttle_minutes: ${{ inputs.throttle_minutes }}

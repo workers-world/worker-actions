@@ -21,7 +21,7 @@ on:
         type: string
         default: master
     secrets:
-      WORKERS_WORLD_GHA_TOKEN:
+      GHA_TOKEN:
         description: PAT（repo 权限）；merge PR 必填
         required: true
 
@@ -30,7 +30,7 @@ permissions: {}
 
 jobs:
   merge:
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     timeout-minutes: 60
     permissions: {}
     steps:
@@ -53,7 +53,7 @@ jobs:
 
       - name: Merge release PR
         env:
-          GH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_REF: ${{ inputs.head_ref }}
           MASTER_BRANCH: ${{ inputs.master_branch }}
@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::缺少 WORKERS_WORLD_GHA_TOKEN，无法 auto-merge Release PR。"
+            echo "::error::缺少 GHA_TOKEN，无法 auto-merge Release PR。"
             exit 1
           fi
           if ! [[ "$HEAD_REF" =~ ^dev_ ]]; then

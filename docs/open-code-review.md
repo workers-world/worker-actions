@@ -131,7 +131,7 @@ node tools/ocr-eval/run.mjs --rule docs/templates/opencodereview-rule.base.json
     permissions:
       contents: read
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.0
     secrets: inherit
     with:
       rule: .opencodereview/rule.json
@@ -179,7 +179,7 @@ OCR 有评论导致 job fail 时，可选用 Cursor CLI **restricted autonomy** 
 | **Session 缓存** | [ocr-pr-review](../.github/actions/ocr-pr-review)：`actions/cache` 持久化 `~/.opencodereview/sessions` + `ocr review --resume`；**未改文件不调 LLM** |
 | 接入 | `worker-ci.yml` → `enable_autofix: true`（默认 `false`） |
 | Secret | `CURSOR_API_KEY`（Org；Dashboard → Integrations） |
-| Push | 复用 `WORKERS_WORLD_GHA_TOKEN`（默认**无** `workflow` scope） |
+| Push | 复用 `GHA_TOKEN`（默认**无** `workflow` scope） |
 | 不可 autofix push | **仅** `.github/workflows/`（GitHub 强制）、`tools/ocr-autofix*`、`wrangler.toml` |
 | 可 autofix push | `.github/actions/`、dependabot、issue 模板等其余 `.github/` 下文件 |
 | 轮次 | commit message `[ocr-autofix N/3]`，达上限 fail → `notify-blocked` |
@@ -189,7 +189,7 @@ OCR 有评论导致 job fail 时，可选用 Cursor CLI **restricted autonomy** 
 业务仓示例：
 
 ```yaml
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.0
     with:
       enable_autofix: true
       autofix_verify_command: "npm run check"

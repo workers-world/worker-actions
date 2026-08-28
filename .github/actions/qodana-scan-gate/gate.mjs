@@ -97,7 +97,7 @@ function evaluate(options) {
         return {
             shouldScan: false,
             skipReason:
-                'Org Variable WORKERS_WORLD_QODANA_ENABLED 未设置或非 true/1/yes（全组织关闭 Qodana 扫描）',
+                'Org Variable QODANA_ENABLED 未设置或非 true/1/yes（全组织关闭 Qodana 扫描）',
             lastScanSha: cached?.last_scan_sha ?? null,
             lastScanAt: cached?.last_scan_at ?? null,
         };

@@ -13,7 +13,7 @@ name: update package-lock.json file
 on:
   workflow_call:
     secrets:
-      WORKERS_WORLD_GHA_TOKEN:
+      GHA_TOKEN:
         description: read:packages PAT；未传则尝试 GITHUB_TOKEN
         required: false
 
@@ -23,12 +23,12 @@ permissions:
 
 jobs:
   sync-lock:
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v7
         with:
@@ -36,7 +36,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.5.0
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.1.0
         id: lock_check
 
       - name: Lock already in sync
@@ -46,8 +46,8 @@ jobs:
       - name: Regenerate package-lock.json from GitHub Packages
         if: steps.lock_check.outputs.in_sync != 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
-          PUSH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          PUSH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if ! grep -q 'framework_sdk_worker' package.json; then
@@ -109,7 +109,7 @@ jobs:
           echo "按 package.json 刷新 lock → framework_sdk_worker@${WANT_VER}"
           npm install --no-fund --no-audit
           if ! lock_matches_version; then
-            echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。请确认 Packages 已发布且 WORKERS_WORLD_GHA_TOKEN/read 权限正常。"
+            echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。请确认 Packages 已发布且 GHA_TOKEN/read 权限正常。"
             exit 1
           fi
           if ! root_deps_in_sync; then

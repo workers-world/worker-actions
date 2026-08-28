@@ -1,15 +1,15 @@
 name: Worker notify Release PR blocked
 
 # Release PR（dev_* → master）未能 auto-merge、需人工介入时发邮件。
-# 通道：ONGOING-Z/action-notify-email@v1 → notify-worker /v1/send。
+# 通道：workers-world/action-notify-email@v1 → notify-worker /v1/send。
 #
 # Caller（pull_request → master，needs 含 release-auto-merge）：
 #   if: always() && needs.release-auto-merge.result != 'success' && …
-#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.5.0
+#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.1.0
 #   secrets: inherit
 # caller 须授予 annotations 拉取权限（发信仍走 NOTIFY_*；GHA nested 权限不能超过 caller）：
 #   permissions: { actions: read, checks: read }
-# 跨仓拉取 workers-world/worker-actions 可传 WORKERS_WORLD_GHA_TOKEN；公开仓可省略，回退 github.token
+# 跨仓拉取 workers-world/worker-actions 可传 GHA_TOKEN；公开仓可省略，回退 github.token
 # Org：NOTIFY_WORKER_URL = Variable；NOTIFY_GHA_TOKEN = Secret（secrets: inherit）
 # 勿在 caller 显式 secrets: NOTIFY_WORKER_URL（本 workflow 未声明该 secret；属历史破坏性变更，升级 bundle 时须同步迁移）
 # 发送前 Guard：vars/secret 为空则 fail；发信瞬时失败仍 fail-on-error:false
@@ -48,7 +48,7 @@ on:
         description: 拉取 tools/gh-run-annotations.mjs 的 workers-world/worker-actions git ref（仅 actions/vX.Y.Z 或 40 位 SHA）
         required: false
         type: string
-        default: actions/v0.5.0
+        default: actions/v0.1.0
       node_version:
         description: Node.js 版本（gh-run-annotations.mjs；self-hosted 由 setup-node 安装）
         type: string
@@ -57,26 +57,26 @@ on:
       NOTIFY_GHA_TOKEN:
         description: 与 notify-worker NOTIFY_GHA_TOKEN 同值（Org Secret）
         required: true
-      WORKERS_WORLD_GHA_TOKEN:
+      GHA_TOKEN:
         description: 跨仓拉取 workers-world/worker-actions 用 PAT（私有仓须传；公开仓可省略，回退 github.token）
         required: false
 
 jobs:
   notify:
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     timeout-minutes: 5
     permissions:
       checks: read
       actions: read
     steps:
-      - name: Guard WORKERS_WORLD_GHA_TOKEN
+      - name: Guard GHA_TOKEN
         env:
-          WW_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN }}
+          WW_TOKEN: ${{ secrets.GHA_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "${WW_TOKEN:-}" ]; then
-            echo "::notice::未传 WORKERS_WORLD_GHA_TOKEN，checkout workers-world/worker-actions 将回退 github.token（公开仓可用）。"
+            echo "::notice::未传 GHA_TOKEN，checkout workers-world/worker-actions 将回退 github.token（公开仓可用）。"
           fi
 
       - name: Validate actions_bundle_ref
@@ -101,7 +101,7 @@ jobs:
           ref: ${{ inputs.actions_bundle_ref }}
           path: .ww-gha
           fetch-depth: 1
-          token: ${{ secrets.WORKERS_WORLD_GHA_TOKEN != '' && secrets.WORKERS_WORLD_GHA_TOKEN || github.token }}
+          token: ${{ (secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN) || github.token }}
           persist-credentials: false
 
       - uses: actions/setup-node@v7
@@ -231,8 +231,8 @@ jobs:
 
       - name: Send notify email
         id: notify
-        # Pin full commit（tag v1 / v1.1.0 → 259fd263…；核验：git ls-remote ONGOING-Z/action-notify-email）
-        uses: ONGOING-Z/action-notify-email@259fd263f33db718aaccf2b2f161a351d22a6dd4 # v1.1.0
+        # Pin full commit（tag v1 / v1.1.0 → 259fd263…；核验：git ls-remote workers-world/action-notify-email）
+        uses: workers-world/action-notify-email@259fd263f33db718aaccf2b2f161a351d22a6dd4 # v1.1.0
         with:
           subject: ${{ steps.meta.outputs.subject }}
           body: ${{ steps.meta.outputs.body }}
@@ -244,7 +244,7 @@ jobs:
           NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
 
       # fail-on-error:false 吞掉瞬时失败；此处对 ok!=true 显式失败，避免无效配置/通道故障静默
-      # 契约已核实：ONGOING-Z/action-notify-email@259fd263 输出 ok / skipped / error
+      # 契约已核实：workers-world/action-notify-email@259fd263 输出 ok / skipped / error
       - name: Fail if notify send unsuccessful
         if: steps.notify.outputs.ok != 'true' && steps.notify.outputs.skipped != 'true'
         env:

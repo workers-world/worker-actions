@@ -44,7 +44,7 @@ permissions:
 
 jobs:
   lint:
-    runs-on: ${{ inputs.runner != '' && inputs.runner || (vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest') }}
+    runs-on: ${{ inputs.runner != '' && inputs.runner || ((vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest')) }}
     timeout-minutes: 8
     permissions:
       contents: read

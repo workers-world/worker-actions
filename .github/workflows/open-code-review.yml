@@ -4,7 +4,7 @@ name: Open Code Review
 #
 # Caller 典型用法：
 #   permissions: { contents: read, pull-requests: write, actions: write }
-#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.5.0
+#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.0
 #   secrets: inherit
 #
 # Org 配置（配一次）：
@@ -65,7 +65,7 @@ on:
       actions_bundle_ref:
         description: ocr-pr-review composite action 的 git ref（仅允许 actions/vX.Y.Z 或 40 位 commit SHA；dogfood 可传 head SHA）
         type: string
-        default: actions/v0.5.0
+        default: actions/v0.1.0
     secrets:
       OCR_LLM_TOKEN:
         description: LLM API Key（当前 provider；OCR_LLM_TOKEN）；skip=true 时可不传
@@ -82,7 +82,7 @@ on:
       OCR_LLM_EXTRA_HEADERS:
         description: 额外请求头（推荐用 Org Variable；此处声明以兼容 Secret 配置）
         required: false
-      WORKERS_WORLD_GHA_TOKEN:
+      GHA_TOKEN:
         description: 跨仓拉取 workers-world/worker-actions 用 PAT（私有仓须传；公开仓可省略，回退 github.token）
         required: false
 
@@ -100,7 +100,7 @@ concurrency:
 jobs:
   skip-ack:
     if: ${{ inputs.skip }}
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -110,7 +110,7 @@ jobs:
   review:
     # 非 PR 事件（push / workflow_dispatch）下 pr_number 为空，composite 会失败
     if: ${{ inputs.skip != true && github.event.pull_request.number != '' }}
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     timeout-minutes: 25
     steps:
       - name: Validate review_mode
@@ -190,7 +190,7 @@ jobs:
           fi
 
       # GHA 禁止在 action @ref 使用 inputs；先 checkout bundle 再本地 uses（勿 sparse，易漏 action.yml）
-      # token：跨仓调用（业务仓）须传 WORKERS_WORLD_GHA_TOKEN；同仓 dogfood 回退 github.token
+      # token：跨仓调用（业务仓）须传 GHA_TOKEN；同仓 dogfood 回退 github.token
       - name: Checkout ocr-pr-review action
         uses: actions/checkout@v7
         with:
@@ -198,7 +198,7 @@ jobs:
           ref: ${{ inputs.actions_bundle_ref }}
           path: .gha-actions-bundle
           fetch-depth: 1
-          token: ${{ secrets.WORKERS_WORLD_GHA_TOKEN != '' && secrets.WORKERS_WORLD_GHA_TOKEN || github.token }}
+          token: ${{ (secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN) || github.token }}
           persist-credentials: false
 
       - name: Verify ocr-pr-review action

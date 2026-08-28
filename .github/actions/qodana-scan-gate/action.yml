@@ -2,7 +2,7 @@ name: Qodana scan gate
 description: Org opt-in + 路径过滤 + PR 内限频，判定是否执行 Qodana Docker 扫描
 inputs:
   org_enabled:
-    description: Org Variable WORKERS_WORLD_QODANA_ENABLED（true/1/yes 才扫描）
+    description: Org Variable QODANA_ENABLED（true/1/yes 才扫描）
     required: false
     default: ""
   base_ref:

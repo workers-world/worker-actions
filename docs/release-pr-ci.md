@@ -27,7 +27,7 @@ flowchart LR
 
 ### Runner 调度（self-hosted）
 
-Leaf workflow 的 `runs-on` 由 Org Variable **`WORKERS_WORLD_GHA_RUNNER`** 控制（空则 `ubuntu-latest`）。详见 [self-hosted-runner.md](./self-hosted-runner.md)。
+Leaf workflow 的 `runs-on` 由 Org Variable **`GHA_RUNNER`** 控制（空则 `ubuntu-latest`）。详见 [self-hosted-runner.md](./self-hosted-runner.md)。
 
 ## Org 可复用 workflow
 
@@ -58,7 +58,7 @@ legacy：[worker-promote.yml](../.github/workflows/worker-promote.yml) / [worker
 
 ## 前置条件（必配）
 
-### 1. Org Secret `WORKERS_WORLD_GHA_TOKEN`
+### 1. Org Secret `GHA_TOKEN`
 
 创建/merge Release PR **不能**依赖默认 `GITHUB_TOKEN`（多数 Org 开启「禁止 Actions 创建/批准 PR」）。
 
@@ -66,7 +66,7 @@ legacy：[worker-promote.yml](../.github/workflows/worker-promote.yml) / [worker
 |----|------|
 | 类型 | classic PAT |
 | 权限 | `repo`（含 PR 读写）+ `read:packages`（npm 拉 SDK） |
-| 配置位置 | GitHub Org **workers-world** → Secrets → `WORKERS_WORLD_GHA_TOKEN` |
+| 配置位置 | GitHub Org **workers-world** → Secrets → `GHA_TOKEN` |
 | Caller | `secrets: inherit`（与 worker-verify 相同） |
 
 > 旧名 `GH_DEPS_TOKEN` 已废弃；Org 中请改名或新建同名 Secret（PAT 值不变）。
@@ -102,7 +102,7 @@ Caller `secrets: inherit`（**仅**传 `NOTIFY_GHA_TOKEN`；**勿**再显式 `se
 
 **Settings → Actions → General → Workflow permissions** → 勾选 **Allow GitHub Actions to create and approve pull requests**
 
-Org 级仍可能覆盖禁止；**推荐始终使用 `WORKERS_WORLD_GHA_TOKEN`**。
+Org 级仍可能覆盖禁止；**推荐始终使用 `GHA_TOKEN`**。
 
 ## 业务仓 `ci.yml` 模板（薄 caller）
 
@@ -148,7 +148,7 @@ OCR 启用时必须在 **Release PR** 上运行（`pull_request` → `master`）
 
 ## 与 Qodana（成本策略）
 
-**Org opt-in（`actions/v0.4.36+`）**：须 Org Variable `WORKERS_WORLD_QODANA_ENABLED` = `true`/`1`/`yes` 才进入下方路径/限频逻辑；未设置则全组织 skip（job 仍 success）。详见 [qodana-ci.md](./qodana-ci.md) §Org 级开关。
+**Org opt-in（`actions/v0.4.36+`）**：须 Org Variable `QODANA_ENABLED` = `true`/`1`/`yes` 才进入下方路径/限频逻辑；未设置则全组织 skip（job 仍 success）。详见 [qodana-ci.md](./qodana-ci.md) §Org 级开关。
 
 **默认策略（`actions/v0.4.32+`）**：`worker-qodana-scan` 在 job **内部**短路，**不用** `skipped`（branch protection / auto-merge 仍要求 `qodana` job **success**）。
 

@@ -18,7 +18,7 @@ jobs:
       issues: write
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.0
     secrets: inherit
     with:
       sync_packages_lock: true
@@ -29,8 +29,8 @@ jobs:
 跨仓嵌套须写全路径并与 bundle **同 tag**（`$` / `./` 会解析到业务仓）：
 
 ```yaml
-uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.5.0
-uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.5.0
+uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.0
+uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.1.0
 ```
 
 当前推荐 tag 见 [manifest/actions-bundle.yaml](manifest/actions-bundle.yaml)（第一条 tag 在首次 push `master` 后由 `release-actions-bundle` 打出）。
@@ -39,14 +39,15 @@ uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/
 
 | 名称 | 类型 | 用途 |
 |------|------|------|
-| `WORKERS_WORLD_GHA_TOKEN` | Secret | classic PAT：`read:packages`（建议加 `repo` 以便 promote / 建 PR） |
+| `GHA_TOKEN` | Secret | classic PAT：`read:packages`（建议加 `repo` 以便 promote / 建 PR） |
 | `OCR_LLM_TOKEN` | Secret | OCR 用的 LLM API Key（可选；`skip_ocr: true` 时不需要） |
 | `QODANA_TOKEN` | Secret | JetBrains Qodana（可选；未开 Org Variable 则 skip） |
 | `NOTIFY_GHA_TOKEN` | Secret | 阻断邮件（可选） |
 | `OCR_LLM_URL` / `OCR_LLM_MODEL` | Variable | 默认 DeepSeek chat completions |
-| `WORKERS_WORLD_QODANA_ENABLED` | Variable | `true`/`1`/`yes` 才跑 Qodana Docker |
-| `WORKERS_WORLD_GHA_RUNNER` | Variable | 空则 `ubuntu-latest`；在 **caller** 上下文求值 |
+| `QODANA_ENABLED` | Variable | `true`/`1`/`yes` 才跑 Qodana Docker |
+| `GHA_RUNNER` | Variable | 空则 `ubuntu-latest`；在 **caller** 上下文求值 |
 | `NOTIFY_WORKER_URL` | Variable | 通知 HTTP 根 URL（可选） |
+
 
 本仓自己的 CI **写死 `ubuntu-latest`**，不读 runner Variable。
 

@@ -5,7 +5,7 @@ name: Worker verify
 #
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.5.0
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.0
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #
@@ -17,7 +17,7 @@ name: Worker verify
 # 无 framework_sdk_worker 的仓（如 manim-playground）：materialize_sdk: false；无 npm test 时 run_tests: false。
 #
 # 鉴权（403 read_package 时按序检查）：
-# 1. Org/仓 Secret WORKERS_WORLD_GHA_TOKEN（PAT：read:packages，推荐）
+# 1. Org/仓 Secret GHA_TOKEN（PAT：read:packages，推荐）
 # 2. 或 Package「Manage Actions access」授权调用方仓库 + caller permissions.packages:read
 on:
   workflow_call:
@@ -47,7 +47,7 @@ on:
         type: boolean
         default: true
     secrets:
-      WORKERS_WORLD_GHA_TOKEN:
+      GHA_TOKEN:
         description: 读 Packages / 写 master 的 PAT；未传则尝试 GITHUB_TOKEN
         required: false
 
@@ -63,7 +63,7 @@ jobs:
       github.event_name == 'push' &&
       startsWith(github.ref_name, 'dev_')
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
-    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.1.0
     secrets: inherit
 
   verify:
@@ -71,7 +71,7 @@ jobs:
     if: >
       always() &&
       (needs.sync-lock.result == 'success' || needs.sync-lock.result == 'skipped')
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     permissions:
       contents: read
       packages: read
@@ -87,7 +87,7 @@ jobs:
 
       - name: Wait for sync-lock bot on PR head (if lock stale)
         if: github.event_name == 'pull_request' && inputs.sync_packages_lock
-        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.5.0
+        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.1.0
         with:
           branch: ${{ github.head_ref }}
 
@@ -100,12 +100,12 @@ jobs:
       - name: Materialize SDK from GitHub Packages
         if: inputs.materialize_sdk
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
-          HAS_GHA_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN != '' }}
+          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_GHA_TOKEN: ${{ secrets.GHA_TOKEN != '' }}
         run: |
           set -euo pipefail
           if [ "${HAS_GHA_TOKEN}" != "true" ]; then
-            echo "::warning::未配置 WORKERS_WORLD_GHA_TOKEN，改用 GITHUB_TOKEN。跨仓读 Packages 常 403；请设 Org Secret WORKERS_WORLD_GHA_TOKEN（read:packages），或在包设置里给本仓开 Actions read。"
+            echo "::warning::未配置 GHA_TOKEN，改用 GITHUB_TOKEN。跨仓读 Packages 常 403；请设 Org Secret GHA_TOKEN（read:packages），或在包设置里给本仓开 Actions read。"
           fi
           SDK_SPEC="$(node -e '
             const dep = require("./package.json").dependencies?.framework_sdk_worker || "";
@@ -123,7 +123,7 @@ jobs:
             cd "$pack_dir"
             npm pack "${SDK_SPEC}"
           ); then
-            echo "::error::npm pack ${SDK_SPEC} 失败（多为 403 read_package）。修复：1) Org Secrets 增加 WORKERS_WORLD_GHA_TOKEN（classic PAT: read:packages）；2) github.com/orgs/workers-world/packages → framework_sdk_worker → Package settings → Manage Actions access → 添加本仓库 Read。"
+            echo "::error::npm pack ${SDK_SPEC} 失败（多为 403 read_package）。修复：1) Org Secrets 增加 GHA_TOKEN（classic PAT: read:packages）；2) github.com/orgs/workers-world/packages → framework_sdk_worker → Package settings → Manage Actions access → 添加本仓库 Read。"
             exit 1
           fi
           tar -xzf "$pack_dir"/*.tgz -C "$sdk_dir" --strip-components=1
@@ -155,15 +155,15 @@ jobs:
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
       - run: npm ci
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
       - run: npm run check
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
       - name: npm test
         if: inputs.run_tests
         run: npm test
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
   promote:
     needs: verify
@@ -173,7 +173,7 @@ jobs:
       startsWith(github.ref_name, 'dev_')
     # 写操作走 PAT；勿给 GITHUB_TOKEN contents:write 直推 master
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.1.0
     secrets: inherit
     with:
       release_branch: ${{ github.ref_name }}

@@ -8,7 +8,7 @@ Worker 仓通过 **semver tag** 引用可复用 workflow，**禁止** `@master`�
 |----|------|
 | Tag 格式 | `actions/vX.Y.Z`（与业务 `v*` Release 区分） |
 | 当前版本 | 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml) |
-| Caller 示例 | `uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.5.0` |
+| Caller 示例 | `uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.0` |
 | 跨仓嵌套（门面 / leaf 对业务仓暴露） | **reusable workflow 与 composite action 一律全路径** `workers-world/worker-actions/.github/…@actions/vX.Y.Z`。跨仓 `workflow_call` 时 `$/`/`./` 会解析到 **业务仓**（workflow：`workflow was not found`；composite：`Can't find 'action.yml' under …/counter-worker/.github/actions/…`）。 |
 | 同仓例外 | 本仓 smoke / dogfood、或 **先 checkout** `workers-world/worker-actions` 再 `uses: ./.gha-actions-bundle/...`（如 OCR）仍可用相对路径。 |
 
@@ -129,7 +129,7 @@ manifest 自动 bump 合进 master 后：给**下一档分支**用，不是给**
 适用：`action-notify-email` / `framework_sdk_worker` 等尚未完全迁到 `worker-ci` 门禁的仓，以及手动 `workflow_dispatch`。  
 **日常 Worker 仍用 `worker-ci`**（ensure-release-pr → OCR → release-auto-merge），不要再开独立 promote 与 OCR 门禁抢跑。
 
-Caller：`permissions: {}` + `secrets: inherit`（须 `WORKERS_WORLD_GHA_TOKEN`）。
+Caller：`permissions: {}` + `secrets: inherit`（须 `GHA_TOKEN`）。
 
 ## 升级 Worker
 
@@ -160,7 +160,7 @@ sed -i '' 's|@actions/v0\.4\.31|@actions/v0.4.33|g' .github/workflows/*.yml
 | `actions/v0.4.5` | e6df1a5 | 2026-08-11 | 嵌套 pin / templates 与 bundle 同版本；OCR `Checkout base`→`path: base` |
 | `actions/v0.4.4` | e8012f0 | 2026-08-11 | PR #54：OCR/AI Gateway/权限与阻断阈值等（嵌套仍指向 v0.4.3，由 v0.4.5 修正） |
 | `actions/v0.6.0` | （合入 master 后 workflow_dispatch 指定 `0.6.0`） | 2026-08-07 | `ocr-autofix` + `enable_autofix`；嵌套 pin 同版本（计划中） |
-| `actions/v0.5.0` | （合入 master 后 workflow_dispatch 指定 `0.5.0`） | 2026-08-07 | `worker-ci` 一键编排；嵌套 pin 同版本（计划中，实际已由 0.4.x 覆盖） |
+| `actions/v0.1.0` | （合入 master 后 workflow_dispatch 指定 `0.5.0`） | 2026-08-07 | `worker-ci` 一键编排；嵌套 pin 同版本（计划中，实际已由 0.4.x 覆盖） |
 | `actions/v0.4.0` | （合入 master 后由 Actions 自动打） | 2026-08-07 | 相对路径嵌套；sync-default / notify permissions；首版 pin |
 
 ## 相关

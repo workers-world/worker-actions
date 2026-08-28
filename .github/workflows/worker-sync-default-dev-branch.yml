@@ -18,13 +18,13 @@ on:
         type: boolean
         default: true
     secrets:
-      WORKERS_WORLD_GHA_TOKEN:
+      GHA_TOKEN:
         description: PAT（repo 权限，改默认分支需 Admin）
         required: true
 
 jobs:
   sync:
-    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     timeout-minutes: 10
     permissions: {}
     steps:
@@ -47,14 +47,14 @@ jobs:
 
       - name: Set default branch to latest dev_*
         env:
-          GH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN }}
+          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
           REPO: ${{ github.repository }}
           PUSH_BRANCH: ${{ inputs.push_branch }}
           ONLY_IF_LATEST: ${{ inputs.only_if_push_branch_is_latest }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::缺少 WORKERS_WORLD_GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
+            echo "::error::缺少 GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
             exit 1
           fi
 

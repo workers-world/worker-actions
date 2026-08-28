@@ -4,12 +4,12 @@
 
 ## 前置条件
 
-1. **Org Variable** `WORKERS_WORLD_QODANA_ENABLED` = `true` / `1` / `yes`（**opt-in**；未设置或为空则全组织跳过 Docker 扫描，见下节）
+1. **Org Variable** `QODANA_ENABLED` = `true` / `1` / `yes`（**opt-in**；未设置或为空则全组织跳过 Docker 扫描，见下节）
 2. **Org Secret** `QODANA_TOKEN`（JetBrains Qodana Cloud token）
 3. **workers-world/worker-actions** `master` 含：`worker-qodana-scan.yml`、`.github/actions/qodana-parse/`
 4. 调用方仓库根目录有 **`qodana.yaml`**（`linter` 主版本须与 workflow 中 `qodana-action@v20**.*` 一致，当前为 `2026.2`；Org 未启用 Qodana 时可无）
 
-## Org 级开关（`WORKERS_WORLD_QODANA_ENABLED`）
+## Org 级开关（`QODANA_ENABLED`）
 
 **workers-world** Org → Settings → Secrets and variables → Actions → **Variables**。
 
@@ -19,11 +19,11 @@
 | `true` / `1` / `yes`（大小写不敏感） | 启用 Qodana；再应用路径过滤 / PR 限频（见 §频次优化） |
 | 其它非空值（如 `false`） | 视为未启用，不扫描 |
 
-配置位置与 [`WORKERS_WORLD_GHA_RUNNER`](./self-hosted-runner.md) 相同；**无需**各业务仓改 `ci.yml` 即可全组织生效（但 bundle 须 pin 到含本逻辑的 `@actions/vX.Y.Z`）。
+配置位置与 [`GHA_RUNNER`](./self-hosted-runner.md) 相同；**无需**各业务仓改 `ci.yml` 即可全组织生效（但 bundle 须 pin 到含本逻辑的 `@actions/vX.Y.Z`）。
 
 ### Breaking（`actions/v0.4.36+` 起）
 
-合入本逻辑并打 tag 后，若 Org **未**设置 `WORKERS_WORLD_QODANA_ENABLED=true`，**全仓 Qodana 会静默跳过**。请在 **合入前或 bump 业务仓 pin 后立即** 在 Org 创建该 Variable 并设为 `true`，否则 Release PR 上不再有真实静态分析。
+合入本逻辑并打 tag 后，若 Org **未**设置 `QODANA_ENABLED=true`，**全仓 Qodana 会静默跳过**。请在 **合入前或 bump 业务仓 pin 后立即** 在 Org 创建该 Variable 并设为 `true`，否则 Release PR 上不再有真实静态分析。
 
 恢复扫描后 verify / OCR / auto-merge 行为不变；跳过时不强制仓内有 `qodana.yaml`。
 
@@ -54,7 +54,7 @@ jobs:
     permissions:
       contents: write
       packages: read
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.0
     secrets: inherit
     with:
       sync_packages_lock: true   # SDK 版本以 package.json 为准
@@ -66,7 +66,7 @@ jobs:
       pull-requests: write
       issues: write
       actions: write   # PR 限频 cache（qodana-scan-gate）
-    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.1.0
     secrets: inherit
     with:
       pr_number: ${{ github.event_name == 'pull_request' && format('{0}', github.event.pull_request.number) || '' }}
@@ -77,7 +77,7 @@ jobs:
     if: always()
     permissions:
       contents: write
-    uses: workers-world/worker-actions/.github/workflows/worker-promote-gated.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-promote-gated.yml@actions/v0.1.0
     secrets: inherit
     with:
       release_branch: ${{ github.ref_name }}
@@ -143,7 +143,7 @@ legacy 要点：
 
 | 策略 | 行为 |
 |------|------|
-| **Org opt-in** | `WORKERS_WORLD_QODANA_ENABLED` 未设置或非 `true`/`1`/`yes` → 全组织 skip（不调 Docker、不校验 `qodana.yaml`） |
+| **Org opt-in** | `QODANA_ENABLED` 未设置或非 `true`/`1`/`yes` → 全组织 skip（不调 Docker、不校验 `qodana.yaml`） |
 | **路径过滤** | 仅当 PR diff 触及业务代码路径（`src/**`、`test/**`、`*.ts` 等，见 `qodana-scan-gate`）才启动 Docker 扫描；纯 docs / lock / workflow 变更 → 合成 pass 摘要，不调 Qodana |
 | **PR 限频** | 默认同一 PR **30 分钟**内不重复全量扫描（`actions/cache` 存 `last_scan_at`）；`opened` / `reopened` / `ready_for_review` **始终**全扫 |
 | **增量 checkout** | checkout `pull_request.head.sha` + `fetch-depth: 0`，启用 JetBrains `pr-mode` |

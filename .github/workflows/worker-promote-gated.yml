@@ -41,7 +41,7 @@ jobs:
         (!inputs.require_qodana && inputs.qodana_result == 'skipped')
       )
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.5.0
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.1.0
     secrets: inherit
     with:
       release_branch: ${{ inputs.release_branch }}
