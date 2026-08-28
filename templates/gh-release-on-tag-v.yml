@@ -1,0 +1,20 @@
+# 复制到消费仓 .github/workflows/gh-release-on-tag.yml
+# 业务 / 个人仓：push v* tag → GitHub Release 页面
+# workers-world actions bundle: actions/v0.1.0（合入 create-gh-release 后 bump 到新 tag）
+# 说明见 workers-world/worker-actions docs/gh-release.md
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: workers-world/worker-actions/.github/workflows/create-gh-release.yml@actions/v0.1.0
+    secrets: inherit
+    with:
+      tag_name: ${{ github.ref_name }}

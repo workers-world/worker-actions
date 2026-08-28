@@ -24,7 +24,7 @@ jobs:
       sync_packages_lock: true
 ```
 
-模板：[templates/ci-release-pr.yml](templates/ci-release-pr.yml)。完整说明：[docs/release-pr-ci.md](docs/release-pr-ci.md)、[docs/actions-releases.md](docs/actions-releases.md)。
+模板：[templates/ci-release-pr.yml](templates/ci-release-pr.yml)。完整说明：[docs/release-pr-ci.md](docs/release-pr-ci.md)、[docs/actions-releases.md](docs/actions-releases.md)、[docs/gh-release.md](docs/gh-release.md)（GitHub Release 页，跨仓通用）。
 
 跨仓嵌套须写全路径并与 bundle **同 tag**（`$` / `./` 会解析到业务仓）：
 

@@ -31,7 +31,7 @@
 | 轨 | 入口 | 用途 |
 |----|------|------|
 | Worker Release PR | `worker-ci.yml`（业务仓）/ `ci.yml`（本仓 dogfood） | `dev_*` → Release PR → 门禁 → auto-merge → `master` |
-| Actions Bundle | `release-actions-bundle.yml` | 打 `actions/vX.Y.Z`；各业务仓手工 bump pin |
+| Actions Bundle | `release-actions-bundle.yml` + `gh-release-on-tag.yml` | 打 `actions/vX.Y.Z` + GitHub Release 页；各业务仓手工 bump pin |
 
 ---
 
@@ -45,6 +45,7 @@ flowchart TB
     WCI[worker-ci.yml]
     CI[ci.yml]
     REL[release-actions-bundle.yml]
+    GHR[gh-release-on-tag.yml]
     SYNC[worker-sync-default-dev-branch.yml]
   end
 
@@ -355,15 +356,22 @@ sequenceDiagram
   participant CI as ci_yml
   participant Master as master
   participant Rel as release-actions-bundle
+  participant GHR as gh-release-on-tag
   participant Consumers as worker_repos
 
   Dev->>CI: push
   CI->>Master: Release_PR_auto-merge
   Master->>Rel: push_paths_workflows_or_actions
   Rel->>Rel: tag_actions_vX_Y_Z
+  Rel->>GHR: push_tag_event
+  GHR->>GHR: create_gh_release
   Rel->>Master: open_manifest_PR_skip_release
   Note over Consumers: 各仓手工 bump @actions/v pin
 ```
+
+### `gh-release-on-tag.yml`
+
+`push` → `actions/v*` tag 时调用 [`create-gh-release.yml`](../.github/workflows/create-gh-release.yml)（同仓 dogfood）。与 `release-actions-bundle` 解耦。详见 [gh-release.md](./gh-release.md)。
 
 ### `release-actions-bundle.yml`
 
@@ -436,6 +444,8 @@ flowchart TB
 | `worker-promote.yml` | `workflow_call` | Leaf / legacy | worker-verify, promote-gated | — |
 | `worker-promote-gated.yml` | `workflow_call` | Leaf / legacy | 遗留 caller | worker-promote |
 | `release-actions-bundle.yml` | push `master`（paths）；dispatch | 本仓发版 | — | tag + manifest PR |
+| `gh-release-on-tag.yml` | push `actions/v*` | 本仓入口 | tag push | create-gh-release |
+| `create-gh-release.yml` | `workflow_call` | Leaf（跨仓通用） | gh-release-on-tag / 业务仓 caller | softprops Release |
 
 内层嵌套 pin 与外层入口 pin 须同版本；勿长期「外层已升、内层仍旧」。权威 tag 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml)。
 
@@ -443,6 +453,7 @@ flowchart TB
 
 - [release-pr-ci.md](./release-pr-ci.md) — Release PR 模型与前置 Secret
 - [actions-releases.md](./actions-releases.md) — Bundle tag / bump 消费者
+- [gh-release.md](./gh-release.md) — GitHub Release 页面（跨仓 `create-gh-release`）
 - [open-code-review.md](./open-code-review.md) — OCR
 - [qodana-ci.md](./qodana-ci.md) — Qodana
 - Java Maven CI：独立仓 [workers-world/java-actions](https://github.com/workers-world/java-actions)

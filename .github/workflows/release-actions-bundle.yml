@@ -113,37 +113,27 @@ jobs:
           MANIFEST="manifest/actions-bundle.yaml"
           TODAY="$(date -u +%Y-%m-%d)"
           BRANCH="chore/actions-bundle-${VERSION}"
-          mkdir -p "$(dirname "$MANIFEST")"
-          {
-            echo "# Actions bundle 当前版本（Worker 仓 pin 此 tag）"
-            echo "# 完整变更见 docs/actions-releases.md；权威来源为 git tag"
-            echo "current: ${TAG}"
-            echo "sha: \"${REF}\""
-            echo "released_at: \"${TODAY}\""
-            echo "notes: |"
-            if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
-              echo "  Released via workflow_dispatch."
-            else
-              echo "  Auto-released on push to master (actions paths changed)."
-            fi
-          } > "$MANIFEST"
+
+          write_manifest() {
+            mkdir -p "$(dirname "$MANIFEST")"
+            {
+              echo "# Actions bundle 当前版本（Worker 仓 pin 此 tag）"
+              echo "# 完整变更见 docs/actions-releases.md；权威来源为 git tag"
+              echo "current: ${TAG}"
+              echo "sha: \"${REF}\""
+              echo "released_at: \"${TODAY}\""
+              echo "notes: |"
+              if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+                echo "  Released via workflow_dispatch."
+              else
+                echo "  Auto-released on push to master (actions paths changed)."
+              fi
+            } > "$MANIFEST"
+          }
 
           git fetch origin master
           git checkout -B "$BRANCH" origin/master
-          # 工作区可能已有 MANIFEST 改动；确保在 branch 上
-          {
-            echo "# Actions bundle 当前版本（Worker 仓 pin 此 tag）"
-            echo "# 完整变更见 docs/actions-releases.md；权威来源为 git tag"
-            echo "current: ${TAG}"
-            echo "sha: \"${REF}\""
-            echo "released_at: \"${TODAY}\""
-            echo "notes: |"
-            if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
-              echo "  Released via workflow_dispatch."
-            else
-              echo "  Auto-released on push to master (actions paths changed)."
-            fi
-          } > "$MANIFEST"
+          write_manifest
           git add "$MANIFEST"
           if git diff --cached --quiet; then
             echo "Manifest already up to date on master"

@@ -2,7 +2,7 @@
 
 Worker 仓通过 **semver tag** 引用可复用 workflow，**禁止** `@master`。
 
-发版链 Mermaid（`release-actions-bundle`）见 [actions-workflows.md §6](./actions-workflows.md#6-bundle-发版链)。
+发版链 Mermaid（`release-actions-bundle` + `gh-release-on-tag`）见 [actions-workflows.md §6](./actions-workflows.md#6-bundle-发版链)。GitHub Release 页面见 [gh-release.md](./gh-release.md)。
 
 | 项 | 约定 |
 |----|------|
@@ -83,7 +83,8 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
    - 取最新 `actions/v*` → **patch +1**
    - 打 tag 并 push
    - 开 PR 回填 `manifest/actions-bundle.yaml`（master 禁止直推；commit 含 `[skip actions-release]`）
-2. tag 推送成功后，在需要升级的 **各业务仓** 手工 bump `@actions/v…` 并走 Release PR（无 org 级自动 bump bot）。
+2. tag push 触发 [`gh-release-on-tag.yml`](../.github/workflows/gh-release-on-tag.yml) → [`create-gh-release.yml`](../.github/workflows/create-gh-release.yml) 建 GitHub Release 页（见 [gh-release.md](./gh-release.md)）
+3. tag 推送成功后，在需要升级的 **各业务仓** 手工 bump `@actions/v…` 并走 Release PR（无 org 级自动 bump bot）。
 
 **嵌套 reusable workflow / composite action（跨仓暴露路径）**：一律全路径 `@actions/vX.Y.Z`（与本 bundle 同版本）。  
 本仓 dogfood `ci.yml` / `smoke-dollar-self` 仍可用 `./` 或 `$/` 验证同仓相对路径。
