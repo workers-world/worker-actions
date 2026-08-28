@@ -1,0 +1,256 @@
+name: Worker CI
+
+# =============================================================================
+# 业务仓 CI 门面（唯一入口）— Worker 仓请只 uses 本文件，勿直接拼 leaf workflow。
+# =============================================================================
+# 内嵌：verify / ensure-release-pr / qodana / OCR / release-auto-merge / notify-blocked
+#
+# Caller（业务仓 .github/workflows/ci.yml）典型用法：
+#   permissions:
+#     contents: write
+#     packages: read
+#     pull-requests: write
+#     issues: write
+#     actions: write   # nested qodana（PR 限频 cache）/ ocr（cache）
+#     checks: read     # nested notify-blocked
+#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.5.0
+#   secrets: inherit
+#   with:
+#     sync_packages_lock: true
+#
+# SDK 版本由各仓 package.json 决定；无 SDK：materialize_sdk: false；无 test：run_tests: false。
+# OCR 默认 skip_ocr: true（临时：每次 PR OCR 过重；目标「一版本结尾 OCR 一次」待设计）。
+# 版本收尾/需要审查时 caller 显式 skip_ocr: false。
+# sync-default-branch 须用独立 workflow（templates/sync-default-branch.yml），勿并入本门面。
+#
+# 嵌套 reusable workflow 须全路径 @actions/vX.Y.Z（跨仓时 $/ 会被解析成 caller 的 ./，见 docs/actions-releases.md）。composite action 仍可用 $/
+on:
+  workflow_call:
+    inputs:
+      materialize_sdk:
+        description: 是否从 GitHub Packages 物化 framework_sdk_worker
+        type: boolean
+        default: true
+      run_tests:
+        description: 是否执行 npm test
+        type: boolean
+        default: true
+      sync_packages_lock:
+        description: push dev_* 时是否按 package.json 刷新并提交 package-lock（含普通依赖增删）
+        type: boolean
+        default: true
+      promote:
+        description: verify 内是否 FF master（Release PR 仓须 false）
+        type: boolean
+        default: false
+      ocr_rule:
+        description: 仓内 OCR 规则 JSON 路径
+        type: string
+        default: ".opencodereview/rule.json"
+      skip_ocr:
+        description: "true 跳过 OCR（默认 true：临时控成本；版本收尾可传 false）"
+        type: boolean
+        default: true
+      skip_branch_deleted_check:
+        description: "已废弃：分支删除事件始终跳过建 PR（deleted head 无法 gh pr create）；保留 input 兼容旧 caller"
+        type: boolean
+        default: false
+      require_non_draft_pr:
+        description: "true：auto-merge 要求 PR 非 draft（deploy-tracker）"
+        type: boolean
+        default: true
+      qodana_throttle_minutes:
+        description: "Qodana 同一 PR 全量扫描最小间隔（分钟）；0=禁用限频"
+        type: number
+        default: 30
+      qodana_code_paths:
+        description: "覆盖 Qodana 业务代码路径 filter（每行 glob，空=内置默认）"
+        type: string
+        default: ""
+
+# 顶层兜底最小权限；各 job 自行显式声明
+permissions: {}
+
+concurrency:
+  group: worker-ci-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  # Release PR 公共过滤（GHA 不支持 YAML anchor 跨 job if，以下四处须保持一致）：
+  #   event_name==pull_request && action in opened|synchronize|reopened|ready_for_review
+  #   && base_ref==master && head_ref startsWith dev_ && same-repo
+  # 调整触发范围时请同步改：qodana / ocr / release-auto-merge / notify-blocked
+  #
+  # workflow-lint 须先于 OCR（及 push 建 Release PR），避免 YAML/GHA 语法错误浪费 LLM。
+  workflow-lint:
+    permissions:
+      contents: read
+    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.5.0
+  verify:
+    permissions:
+      contents: write
+      packages: read
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      materialize_sdk: ${{ inputs.materialize_sdk }}
+      run_tests: ${{ inputs.run_tests }}
+      sync_packages_lock: ${{ inputs.sync_packages_lock }}
+      promote: ${{ inputs.promote }}
+
+  ensure-release-pr:
+    needs: [workflow-lint]
+    # 始终跳过分支删除事件（deleted head 无法建 PR）；skip_branch_deleted_check 已废弃
+    if: |
+      always() &&
+      needs.workflow-lint.result == 'success' &&
+      github.event_name == 'push' &&
+      startsWith(github.ref_name, 'dev_') &&
+      github.event.deleted != true
+    # PAT 建 PR（WORKERS_WORLD_GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
+    permissions: {}
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      release_branch: ${{ github.ref_name }}
+
+  qodana:
+    # 仅同仓 Release PR（dev_* → master）；与 OCR / auto-merge 门禁一致
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      # nested worker-qodana-scan 需 actions: write（qodana-scan-gate PR 限频 cache）
+      actions: write
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+      throttle_minutes: ${{ inputs.qodana_throttle_minutes }}
+      code_paths: ${{ inputs.qodana_code_paths }}
+      pr_action: ${{ github.event.action }}
+      base_ref: ${{ github.base_ref }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
+
+  ocr:
+    needs: [workflow-lint]
+    # 仅同仓 Release PR（dev_* → master）；排除 fork（无 secrets）与非 dev_* head
+    if: |
+      always() &&
+      needs.workflow-lint.result == 'success' &&
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+      # nested open-code-review 需 actions: write（actions/cache session save）
+      actions: write
+    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      rule: ${{ inputs.ocr_rule }}
+      skip: ${{ inputs.skip_ocr }}
+      actions_bundle_ref: actions/v0.4.34
+
+  release-auto-merge:
+    needs: [workflow-lint, verify, qodana, ocr]
+    if: |
+      always() &&
+      needs.workflow-lint.result == 'success' &&
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (inputs.require_non_draft_pr != true || github.event.pull_request.draft == false) &&
+      needs.verify.result == 'success' &&
+      needs.qodana.result == 'success' &&
+      needs.ocr.result == 'success'
+    # PAT merge（WORKERS_WORLD_GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
+    permissions: {}
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+      head_ref: ${{ github.head_ref }}
+
+  ci-failure-comment:
+    needs: [workflow-lint, verify, qodana, ocr]
+    if: |
+      always() &&
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (
+        needs.workflow-lint.result == 'failure' ||
+        needs.verify.result == 'failure' ||
+        needs.qodana.result == 'failure' ||
+        needs.ocr.result == 'failure'
+      )
+    permissions:
+      pull-requests: write
+    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.5.0
+    with:
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+      head_ref: ${{ github.head_ref }}
+      workflow_lint_result: ${{ needs.workflow-lint.result }}
+      verify_result: ${{ needs.verify.result }}
+      qodana_result: ${{ needs.qodana.result }}
+      ocr_result: ${{ needs.ocr.result }}
+
+  notify-blocked:
+    needs: [workflow-lint, verify, qodana, ocr, release-auto-merge]
+    # reusable workflow 的 job 权限不能超过 caller；被调 notify 需要 actions/checks: read 拉 annotations
+    permissions:
+      actions: read
+      checks: read
+    if: |
+      always() &&
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false &&
+      needs.release-auto-merge.result != 'success' &&
+      needs.release-auto-merge.result != 'cancelled' &&
+      needs.verify.result != 'cancelled' &&
+      needs.qodana.result != 'cancelled' &&
+      needs.ocr.result != 'cancelled' &&
+      needs.workflow-lint.result != 'cancelled' &&
+      (
+        needs.workflow-lint.result == 'failure' ||
+        needs.verify.result == 'failure' ||
+        needs.qodana.result == 'failure' ||
+        needs.ocr.result == 'failure' ||
+        needs.release-auto-merge.result == 'failure' ||
+        (
+          needs.release-auto-merge.result == 'skipped' &&
+          needs.workflow-lint.result == 'success' &&
+          needs.verify.result == 'success' &&
+          needs.qodana.result == 'success' &&
+          needs.ocr.result == 'success'
+        )
+      )
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+      head_ref: ${{ github.head_ref }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      verify_result: ${{ needs.verify.result }}
+      qodana_result: ${{ needs.qodana.result }}
+      ocr_result: ${{ needs.ocr.result }}
+      merge_result: ${{ needs.release-auto-merge.result }}
+      actions_bundle_ref: actions/v0.4.34

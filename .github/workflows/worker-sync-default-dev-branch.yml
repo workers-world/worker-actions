@@ -1,0 +1,85 @@
+name: 更新默认分支为当前开发分支
+
+# push dev_* 时把仓库默认分支设为数值最高的 dev_XX_YY_ZZ（主分支 = 开发中）。
+# master 仍为 Release PR / CF Builds 发布轨；本 workflow 只改 GitHub Default branch 设置。
+#
+# Caller：使用独立 workflow（推荐，与 CI 解耦）：
+#   见 templates/sync-default-branch.yml
+# Caller job 须显式 permissions: {}（勿 contents: write / administration），与 callee 交集后 GITHUB_TOKEN 无权限；写操作仅 PAT。
+on:
+  workflow_call:
+    inputs:
+      push_branch:
+        description: 本次 push 的分支名（用于 skip 优化；空则总是扫描远程）
+        type: string
+        default: ""
+      only_if_push_branch_is_latest:
+        description: 仅当 push_branch 等于远程最高 dev 时才执行（减少旧 dev push 的 API 调用）
+        type: boolean
+        default: true
+    secrets:
+      WORKERS_WORLD_GHA_TOKEN:
+        description: PAT（repo 权限，改默认分支需 Admin）
+        required: true
+
+jobs:
+  sync:
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Ensure GitHub CLI
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          GH_VERSION="2.63.2"
+          bindir="${RUNNER_TEMP}/gha-bin"
+          mkdir -p "$bindir"
+          curl -fsSL \
+            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          chmod +x "$bindir/gh"
+          echo "$bindir" >> "$GITHUB_PATH"
+          "$bindir/gh" --version
+
+      - name: Set default branch to latest dev_*
+        env:
+          GH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN }}
+          REPO: ${{ github.repository }}
+          PUSH_BRANCH: ${{ inputs.push_branch }}
+          ONLY_IF_LATEST: ${{ inputs.only_if_push_branch_is_latest }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::缺少 WORKERS_WORLD_GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
+            exit 1
+          fi
+
+          latest="$(gh api "repos/${REPO}/branches" --paginate -q '.[].name' \
+            | grep -E '^dev_[0-9]+_[0-9]+_[0-9]+$' \
+            | sort -t_ -k2,2n -k3,3n -k4,4n \
+            | tail -1)"
+          if [ -z "${latest}" ]; then
+            echo "No dev_XX_YY_ZZ branch found, skip."
+            exit 0
+          fi
+          echo "Latest dev branch: ${latest}"
+
+          if [ "${ONLY_IF_LATEST}" = "true" ] && [ -n "${PUSH_BRANCH}" ] && [ "${PUSH_BRANCH}" != "${latest}" ]; then
+            echo "Skip: push branch ${PUSH_BRANCH} is not latest (${latest})"
+            exit 0
+          fi
+
+          current="$(gh api "repos/${REPO}" -q .default_branch)"
+          echo "Current default: ${current}"
+
+          if [ "${current}" = "${latest}" ]; then
+            echo "Already default: ${latest}"
+            exit 0
+          fi
+
+          gh api "repos/${REPO}" -X PATCH -f "default_branch=${latest}"
+          echo "Default branch updated: ${current} → ${latest}"

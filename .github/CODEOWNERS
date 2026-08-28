@@ -1,0 +1,6 @@
+# GitHub CODEOWNERS 要求有效 @user 或 @org/team。
+
+/.github/ @ongoing-z
+/templates/ @ongoing-z
+/manifest/ @ongoing-z
+/docs/templates/ @ongoing-z

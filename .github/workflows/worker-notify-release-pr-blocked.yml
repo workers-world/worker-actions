@@ -1,0 +1,258 @@
+name: Worker notify Release PR blocked
+
+# Release PR（dev_* → master）未能 auto-merge、需人工介入时发邮件。
+# 通道：ONGOING-Z/action-notify-email@v1 → notify-worker /v1/send。
+#
+# Caller（pull_request → master，needs 含 release-auto-merge）：
+#   if: always() && needs.release-auto-merge.result != 'success' && …
+#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.5.0
+#   secrets: inherit
+# caller 须授予 annotations 拉取权限（发信仍走 NOTIFY_*；GHA nested 权限不能超过 caller）：
+#   permissions: { actions: read, checks: read }
+# 跨仓拉取 workers-world/worker-actions 可传 WORKERS_WORLD_GHA_TOKEN；公开仓可省略，回退 github.token
+# Org：NOTIFY_WORKER_URL = Variable；NOTIFY_GHA_TOKEN = Secret（secrets: inherit）
+# 勿在 caller 显式 secrets: NOTIFY_WORKER_URL（本 workflow 未声明该 secret；属历史破坏性变更，升级 bundle 时须同步迁移）
+# 发送前 Guard：vars/secret 为空则 fail；发信瞬时失败仍 fail-on-error:false
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: github.event.pull_request.number
+        required: true
+        type: string
+      head_ref:
+        description: PR head 分支名（dev_*）
+        required: true
+        type: string
+      pr_url:
+        description: PR html_url
+        required: true
+        type: string
+      verify_result:
+        description: needs.verify.result
+        required: true
+        type: string
+      qodana_result:
+        description: needs.qodana.result
+        required: true
+        type: string
+      ocr_result:
+        description: needs.ocr.result
+        required: true
+        type: string
+      merge_result:
+        description: needs.release-auto-merge.result
+        required: true
+        type: string
+      actions_bundle_ref:
+        description: 拉取 tools/gh-run-annotations.mjs 的 workers-world/worker-actions git ref（仅 actions/vX.Y.Z 或 40 位 SHA）
+        required: false
+        type: string
+        default: actions/v0.5.0
+      node_version:
+        description: Node.js 版本（gh-run-annotations.mjs；self-hosted 由 setup-node 安装）
+        type: string
+        default: "22"
+    secrets:
+      NOTIFY_GHA_TOKEN:
+        description: 与 notify-worker NOTIFY_GHA_TOKEN 同值（Org Secret）
+        required: true
+      WORKERS_WORLD_GHA_TOKEN:
+        description: 跨仓拉取 workers-world/worker-actions 用 PAT（私有仓须传；公开仓可省略，回退 github.token）
+        required: false
+
+jobs:
+  notify:
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      checks: read
+      actions: read
+    steps:
+      - name: Guard WORKERS_WORLD_GHA_TOKEN
+        env:
+          WW_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${WW_TOKEN:-}" ]; then
+            echo "::notice::未传 WORKERS_WORLD_GHA_TOKEN，checkout workers-world/worker-actions 将回退 github.token（公开仓可用）。"
+          fi
+
+      - name: Validate actions_bundle_ref
+        env:
+          ACTIONS_BUNDLE_REF: ${{ inputs.actions_bundle_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^actions/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            :
+          elif echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^[0-9a-f]{40}$'; then
+            :
+          else
+            echo "::error::actions_bundle_ref 须为 actions/vX.Y.Z 或 40 位 commit SHA，当前格式非法"
+            exit 1
+          fi
+
+      - name: Checkout annotation helper
+        uses: actions/checkout@v7
+        with:
+          repository: workers-world/worker-actions
+          ref: ${{ inputs.actions_bundle_ref }}
+          path: .ww-gha
+          fetch-depth: 1
+          token: ${{ secrets.WORKERS_WORLD_GHA_TOKEN != '' && secrets.WORKERS_WORLD_GHA_TOKEN || github.token }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Collect workflow annotations
+        id: ann
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTIONS_BUNDLE_REF: ${{ inputs.actions_bundle_ref }}
+        run: |
+          set -euo pipefail
+          HELPER=".ww-gha/tools/gh-run-annotations.mjs"
+          if [ ! -f "${HELPER}" ]; then
+            {
+              echo "annotations<<EOF"
+              echo "(annotation helper 未在 ref=${ACTIONS_BUNDLE_REF} 中发布)"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node "${HELPER}"
+
+      - name: Build reason
+        id: meta
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_REF: ${{ inputs.head_ref }}
+          PR_URL: ${{ inputs.pr_url }}
+          VERIFY: ${{ inputs.verify_result }}
+          QODANA: ${{ inputs.qodana_result }}
+          OCR: ${{ inputs.ocr_result }}
+          MERGE: ${{ inputs.merge_result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ANNOTATIONS: ${{ steps.ann.outputs.annotations }}
+          ACTIONS_BUNDLE_REF: ${{ inputs.actions_bundle_ref }}
+        run: |
+          set -euo pipefail
+          reasons=()
+          if [ "$VERIFY" = "failure" ]; then
+            reasons+=("verify 失败：检查 dev_* push / 测试 / SDK 依赖")
+          fi
+          if [ "$QODANA" = "failure" ]; then
+            reasons+=("Qodana 未通过：查看 PR Checks / SARIF 评论")
+          fi
+          if [ "$OCR" = "failure" ]; then
+            reasons+=("OCR 有审查意见或 job 失败：PR 保持 OPEN，请在 dev_* 修复后 push，或 Apply suggestion")
+          fi
+          if [ "$MERGE" = "failure" ]; then
+            reasons+=("release-auto-merge 失败：可能冲突或不可 merge，查看 merge job 日志")
+          elif [ "$MERGE" = "skipped" ] && [ "$OCR" = "success" ] && \
+               { [ "$VERIFY" = "success" ] || [ "$VERIFY" = "skipped" ]; } && \
+               { [ "$QODANA" = "success" ] || [ "$QODANA" = "skipped" ]; }; then
+            if [ "$VERIFY" = "success" ] && [ "$QODANA" = "success" ]; then
+              reasons+=("门禁已通过但 release-auto-merge 被跳过（merge=skipped）：常见原因是 PR 仍为 draft（require_non_draft_pr），或 merge job 的 if 未满足；请 Ready for review 后重跑")
+            else
+              reasons+=("release-auto-merge 被跳过（merge=skipped；verify=${VERIFY} qodana=${QODANA} ocr=${OCR}）：门禁 job 可能未实际运行（skipped），请检查 job if / 路径过滤，勿仅按 draft 排查")
+            fi
+          elif [ "$VERIFY" = "success" ] && [ "$QODANA" = "success" ] && [ "$OCR" = "success" ] && [ "$MERGE" != "success" ]; then
+            reasons+=("门禁全绿但未 merge（merge=${MERGE}）：查看 release-auto-merge 日志")
+          fi
+          if [ "${#reasons[@]}" -eq 0 ]; then
+            reasons+=("未能 auto-merge（verify=${VERIFY} qodana=${QODANA} ocr=${OCR} merge=${MERGE}）")
+          fi
+
+          # 将 reasons 用换行传给邮件构建脚本（避免 bash 内嵌复杂 HTML）
+          REASONS="$(printf '%s\n' "${reasons[@]}")"
+          export REASONS
+          MAIL_HELPER=".ww-gha/tools/build-release-pr-blocked-email.mjs"
+          if [ -f "${MAIL_HELPER}" ]; then
+            node "${MAIL_HELPER}"
+          else
+            echo "::warning::邮件 HTML 构建脚本未在 ref=${ACTIONS_BUNDLE_REF:-} 中发布；仅发纯文本（notify-worker 仍会 auto-linkify URL）"
+            {
+              echo "subject=[Release PR] ${REPO} #${PR_NUMBER} 需人工处理"
+              echo "body<<EOF"
+              echo "Release PR 未能自动合入 master，需要人工介入。"
+              echo ""
+              echo "Repo: ${REPO}"
+              echo "PR: #${PR_NUMBER} (${HEAD_REF} → master)"
+              echo "URL: ${PR_URL}"
+              echo "Actions: ${RUN_URL}"
+              echo ""
+              echo "Results: verify=${VERIFY} qodana=${QODANA} ocr=${OCR} merge=${MERGE}"
+              echo ""
+              echo "原因："
+              for r in "${reasons[@]}"; do
+                echo "- ${r}"
+              done
+              echo ""
+              echo "Actions 产物 / Annotations："
+              echo "----------------------------------------"
+              if [ -n "${ANNOTATIONS:-}" ]; then
+                printf '%s\n' "${ANNOTATIONS}" | sed 's/^::/ ::/'
+              else
+                echo "(无 annotations 或未拉取到)"
+              fi
+              echo "----------------------------------------"
+              echo ""
+              echo "修复后 push 到 ${HEAD_REF} 会更新本 PR 并重跑门禁。"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      # vars 无 required；空 URL + fail-on-error:false 会让发信静默跳过。配置缺失必须显式失败。
+      - name: Guard notify channel config
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          if [ -z "${NOTIFY_WORKER_URL:-}" ]; then
+            echo "::error::Org Variable NOTIFY_WORKER_URL 未配置或对本仓库不可见（vars 求值为空）。阻断邮件通道不可用。"
+            missing=1
+          fi
+          if [ -z "${NOTIFY_AUTH_TOKEN:-}" ]; then
+            echo "::error::Org Secret NOTIFY_GHA_TOKEN 未配置或对本仓库不可见。阻断邮件通道不可用。"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "notify channel config ok (NOTIFY_WORKER_URL length=${#NOTIFY_WORKER_URL})"
+
+      - name: Send notify email
+        id: notify
+        # Pin full commit（tag v1 / v1.1.0 → 259fd263…；核验：git ls-remote ONGOING-Z/action-notify-email）
+        uses: ONGOING-Z/action-notify-email@259fd263f33db718aaccf2b2f161a351d22a6dd4 # v1.1.0
+        with:
+          subject: ${{ steps.meta.outputs.subject }}
+          body: ${{ steps.meta.outputs.body }}
+          html: ${{ steps.meta.outputs.html }}
+          dedup-key: release-pr-blocked-${{ github.repository }}-${{ inputs.pr_number }}-${{ github.run_id }}
+          fail-on-error: "false"
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
+
+      # fail-on-error:false 吞掉瞬时失败；此处对 ok!=true 显式失败，避免无效配置/通道故障静默
+      # 契约已核实：ONGOING-Z/action-notify-email@259fd263 输出 ok / skipped / error
+      - name: Fail if notify send unsuccessful
+        if: steps.notify.outputs.ok != 'true' && steps.notify.outputs.skipped != 'true'
+        env:
+          NOTIFY_ERROR: ${{ steps.notify.outputs.error }}
+          NOTIFY_SKIPPED: ${{ steps.notify.outputs.skipped }}
+        run: |
+          set -euo pipefail
+          # 转义行首 :: 防 GHA workflow command 注入（与 ANNOTATIONS 处理一致）
+          SAFE_ERR="$(printf '%s' "${NOTIFY_ERROR:-unknown}" | tr '\r\n' '  ' | sed 's/^::/ ::/')"
+          echo "::error::notify-worker send failed (ok!=true skipped=${NOTIFY_SKIPPED:-} error=${SAFE_ERR})；请检查 NOTIFY_WORKER_URL / NOTIFY_GHA_TOKEN 与 notify-worker 可达性"
+          exit 1

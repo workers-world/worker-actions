@@ -1,0 +1,94 @@
+name: Worker outdated PR refresh
+
+# **What**: 每日刷新所有 open PR（base=master）的 Outdated PR Check status。
+# **Why**: 仅靠 PR synchronize 无法捕捉「主干前进、PR 无活动」导致的陈旧。
+# **Who**: 本仓 open PR；业务仓可复制本 workflow 或 wait for org-level reuse.
+#
+# 不 checkout / 不执行 PR 代码；仅 gh api。
+on:
+  workflow_call:
+    inputs:
+      base_branch:
+        description: 主干分支
+        type: string
+        default: "master"
+      grace_seconds:
+        description: 宽限秒数（默认 72h）
+        type: string
+        default: "259200"
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  refresh-outdated:
+    name: Refresh outdated checks
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Post outdated status for all open PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: ${{ inputs.base_branch || 'master' }}
+          GRACE_SECONDS: ${{ inputs.grace_seconds || '259200' }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PRS=$(gh pr list \
+            --repo "$REPO" \
+            --base "$BASE_BRANCH" \
+            --state open \
+            --limit 500 \
+            --json number,headRefOid)
+
+          echo "$PRS" | jq -c '.[]' | while read -r PR; do
+            PR_NUMBER=$(echo "$PR" | jq -r '.number')
+            PR_SHA=$(echo "$PR" | jq -r '.headRefOid')
+            echo "Checking PR #${PR_NUMBER} (${PR_SHA:0:7})"
+
+            COMPARE=$(gh api "/repos/${REPO}/compare/${BASE_BRANCH}...${PR_SHA}" 2>/dev/null) || {
+              echo "  Skipping PR #${PR_NUMBER}: compare API failed"
+              continue
+            }
+            BEHIND_BY=$(echo "$COMPARE" | jq -r '.behind_by')
+
+            if [ "$BEHIND_BY" = "0" ]; then
+              STATE="success"
+              DESCRIPTION="Branch is up to date with ${BASE_BRANCH}"
+            else
+              MERGE_BASE_DATE=$(echo "$COMPARE" | jq -r '.merge_base_commit.commit.committer.date')
+              if [ -z "$MERGE_BASE_DATE" ] || [ "$MERGE_BASE_DATE" = "null" ]; then
+                echo "  Skipping PR #${PR_NUMBER}: missing merge base date"
+                continue
+              fi
+              MERGE_BASE_TS=$(date -d "$MERGE_BASE_DATE" +%s)
+              NOW=$(date +%s)
+              AGE=$((NOW - MERGE_BASE_TS))
+              if [ "$AGE" -gt "$GRACE_SECONDS" ]; then
+                DAYS=$((AGE / 86400))
+                STATE="failure"
+                DESCRIPTION="Branch is ${DAYS}d behind ${BASE_BRANCH}. Rebase/update your dev_* branch."
+              else
+                HOURS=$((GRACE_SECONDS / 3600))
+                STATE="success"
+                DESCRIPTION="Behind ${BASE_BRANCH} but within ${HOURS}h grace"
+              fi
+            fi
+
+            gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${REPO}/statuses/${PR_SHA}" \
+              -f state="$STATE" \
+              -f context="Outdated PR Check" \
+              -f description="$DESCRIPTION" \
+              >/dev/null \
+              || echo "  Failed to post status for #${PR_NUMBER}"
+            echo "  -> ${STATE}: ${DESCRIPTION}"
+          done

@@ -1,0 +1,29 @@
+name: Ensure GitHub CLI
+description: 若 PATH 无 gh，则下载到 RUNNER_TEMP/gha-bin（self-hosted 兼容）
+
+inputs:
+  gh_version:
+    description: gh CLI 发行版（无 v 前缀）
+    required: false
+    default: "2.63.2"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_VERSION: ${{ inputs.gh_version }}
+      run: |
+        set -euo pipefail
+        if command -v gh >/dev/null 2>&1; then
+          gh --version
+          exit 0
+        fi
+        bindir="${RUNNER_TEMP}/gha-bin"
+        mkdir -p "$bindir"
+        curl -fsSL \
+          "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+          | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+        chmod +x "$bindir/gh"
+        echo "$bindir" >> "$GITHUB_PATH"
+        "$bindir/gh" --version

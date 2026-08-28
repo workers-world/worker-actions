@@ -1,0 +1,255 @@
+name: Worker Qodana scan
+
+# 各 Worker 经 worker-ci.yml 调用。Org Variable WORKERS_WORLD_QODANA_ENABLED 控制是否扫描。
+# 路径过滤 + PR 限频减少 Docker 扫描次数。
+# 调用方仓库根目录须有 qodana.yaml（见 templates/qodana.yaml；Org 未启用时可无）。
+# Org Secret: QODANA_TOKEN（必填）
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: Node.js 版本（解析 SARIF 用）
+        type: string
+        default: "22"
+      fail_on_blocking:
+        description: blocking 问题时 fail job
+        type: boolean
+        default: true
+      post_pr_comment:
+        description: PR 时更新 Qodana 摘要评论
+        type: boolean
+        default: true
+      pr_number:
+        description: 调用方传入 github.event.pull_request.number；非 PR 触发时留空
+        type: string
+        default: ""
+      throttle_minutes:
+        description: 同一 PR 两次全量扫描最小间隔（分钟）；0=禁用限频
+        type: number
+        default: 30
+      code_paths:
+        description: 覆盖默认业务代码路径 filter（每行一个 glob，空=内置默认）
+        type: string
+        default: ""
+      upload_to_cloud:
+        description: 是否上传结果到 Qodana Cloud
+        type: boolean
+        default: true
+      pr_action:
+        description: github.event.action（opened/synchronize/ready_for_review 等）
+        type: string
+        default: ""
+      base_ref:
+        description: PR base 分支
+        type: string
+        default: "master"
+      head_sha:
+        description: PR head commit SHA
+        type: string
+        default: ""
+    secrets:
+      QODANA_TOKEN:
+        description: JetBrains Qodana token
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  qodana:
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: write
+    steps:
+      - name: Set Qodana paths
+        run: |
+          echo "QODANA_RESULTS_DIR=${RUNNER_TEMP}/qodana/results" >> "$GITHUB_ENV"
+          echo "QODANA_SARIF=${RUNNER_TEMP}/qodana/results/qodana.sarif.json" >> "$GITHUB_ENV"
+          echo "QODANA_CACHE_DIR=${RUNNER_TEMP}/qodana-cache" >> "$GITHUB_ENV"
+          echo "QODANA_CACHE_STATE=${RUNNER_TEMP}/qodana-cache/state.json" >> "$GITHUB_ENV"
+
+      - name: Checkout caller repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Restore last scan state
+        if: contains(fromJSON('["true","1","yes","True","TRUE","Yes","YES"]'), vars.WORKERS_WORLD_QODANA_ENABLED)
+        uses: actions/cache/restore@v6
+        id: cache-qodana
+        with:
+          path: ${{ env.QODANA_CACHE_DIR }}
+          key: qodana-scan-${{ github.repository }}-${{ inputs.pr_number }}
+          restore-keys: |
+            qodana-scan-${{ github.repository }}-${{ inputs.pr_number }}
+
+      - name: Evaluate scan gate
+        id: gate
+        uses: $/.github/actions/qodana-scan-gate
+        with:
+          org_enabled: ${{ vars.WORKERS_WORLD_QODANA_ENABLED }}
+          base_ref: ${{ inputs.base_ref }}
+          head_sha: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
+          throttle_minutes: ${{ inputs.throttle_minutes }}
+          custom_paths: ${{ inputs.code_paths }}
+          pr_action: ${{ inputs.pr_action }}
+          cache_state_file: ${{ env.QODANA_CACHE_STATE }}
+
+      - name: Validate qodana.yaml
+        if: steps.gate.outputs.should_scan == 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -f qodana.yaml ]; then
+            echo "::error::仓库根目录缺少 qodana.yaml，Qodana CI 无法扫描。请从 workers-world/worker-actions 的 templates/qodana.yaml 复制到本仓根目录（须含 linter: jetbrains/qodana-js:2026.2）。详见 workers-world/worker-actions docs/qodana-ci.md。"
+            exit 1
+          fi
+          if ! grep -Eq '^(linter|image):' qodana.yaml; then
+            echo "::error::qodana.yaml 缺少 linter: 或 image: 字段。JetBrains Action 会 fallback 到 qodana init，常导致日志出现 Nothing to analyse 且未生成 qodana.sarif.json。请补 linter: jetbrains/qodana-js:2026.2。"
+            exit 1
+          fi
+
+      - name: Qodana Scan
+        id: qodana-scan
+        if: steps.gate.outputs.should_scan == 'true'
+        continue-on-error: true
+        uses: JetBrains/qodana-action@v2026.2
+        with:
+          upload-result: ${{ inputs.upload_to_cloud }}
+          artifact-name: qodana-report
+          results-dir: ${{ env.QODANA_RESULTS_DIR }}
+          args: --fail-threshold 2147483647
+        env:
+          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
+
+      - name: Resolve scan outcome
+        id: resolve
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.gate.outputs.should_scan }}" != "true" ]; then
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=${{ steps.gate.outputs.skip_reason }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -f "$QODANA_SARIF" ]; then
+            echo "mode=scan" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          scan_outcome="${{ steps.qodana-scan.outcome }}"
+          if [ -d "$QODANA_RESULTS_DIR" ] && grep -Rq "Nothing to analyse" "$QODANA_RESULTS_DIR" 2>/dev/null; then
+            echo "::notice::Qodana 增量分析无可分析文件（Nothing to analyse），视为通过。"
+            echo "mode=nothing" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=增量分析：相对 merge-base 无新增可分析文件" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::未生成 qodana.sarif.json（JetBrains/qodana-action outcome=${scan_outcome}）。"
+          if [ "$scan_outcome" = "failure" ]; then
+            echo "::error::Qodana 扫描步骤失败。请查 QODANA_TOKEN、linter 镜像或 checkout 配置。"
+          fi
+          exit 1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Parse SARIF or skip summary
+        id: parse
+        if: ${{ !cancelled() }}
+        uses: $/.github/actions/qodana-parse
+        with:
+          sarif_file: ${{ steps.resolve.outputs.mode == 'scan' && env.QODANA_SARIF || '' }}
+          skip_reason: ${{ steps.resolve.outputs.mode != 'scan' && steps.resolve.outputs.skip_reason || '' }}
+          head_sha: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
+
+      - name: Save last scan state
+        if: steps.resolve.outputs.mode == 'scan' || steps.resolve.outputs.mode == 'nothing'
+        run: |
+          set -euo pipefail
+          mkdir -p "$QODANA_CACHE_DIR"
+          HEAD="${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}"
+          node -e "
+            const fs = require('fs');
+            fs.writeFileSync(process.env.QODANA_CACHE_STATE, JSON.stringify({
+              last_scan_sha: '${HEAD}',
+              last_scan_at: new Date().toISOString(),
+              pass: true,
+            }));
+          "
+
+      - name: Persist last scan state
+        if: steps.resolve.outputs.mode == 'scan' || steps.resolve.outputs.mode == 'nothing'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.QODANA_CACHE_DIR }}
+          key: qodana-scan-${{ github.repository }}-${{ inputs.pr_number }}
+
+      - name: Upload parsed summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: qodana-summary
+          path: |
+            qodana-summary.json
+            qodana-comment.md
+          retention-days: 14
+
+      - name: Publish Qodana job summary
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f qodana-comment.md ]; then
+            cat qodana-comment.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Comment PR summary
+        if: ${{ inputs.post_pr_comment == true && inputs.pr_number != '' && !cancelled() }}
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('qodana-comment.md', 'utf8');
+            const marker = '<!-- qodana-report -->';
+            const { owner, repo } = context.repo;
+            const issue_number = Number('${{ inputs.pr_number }}');
+            if (!Number.isFinite(issue_number) || issue_number <= 0) {
+              throw new Error(`无效的 pr_number: ${{ inputs.pr_number }}`);
+            }
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find((c) =>
+              c.body?.includes(marker),
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
+
+      - name: Fail on blocking issues
+        if: ${{ inputs.fail_on_blocking == true && steps.resolve.outputs.mode == 'scan' && steps.parse.outputs.pass != 'true' }}
+        uses: $/.github/actions/qodana-parse
+        with:
+          sarif_file: ${{ env.QODANA_SARIF }}
+          head_sha: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
+          fail_only: "true"

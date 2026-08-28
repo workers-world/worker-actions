@@ -1,0 +1,51 @@
+name: Qodana SARIF parse
+description: 解析 Qodana SARIF，生成 summary/PR 评论，或与 orchestrator 一致的 blocking gate
+inputs:
+  sarif_file:
+    description: qodana.sarif.json 路径（skip_reason 非空时可省略）
+    required: false
+    default: ""
+  skip_reason:
+    description: 非空时生成「跳过扫描」pass 摘要（不读 SARIF）
+    required: false
+    default: ""
+  head_sha:
+    description: PR head SHA（写入 qodana-meta）
+    required: false
+    default: ""
+  fail_only:
+    description: 为 true 时仅执行 gate（blocking 则 exit 1）
+    required: false
+    default: "false"
+outputs:
+  pass:
+    description: 无 blocking 问题时为 true
+    value: ${{ steps.parse.outputs.pass }}
+runs:
+  using: composite
+  steps:
+    - id: parse
+      shell: bash
+      run: |
+        set -euo pipefail
+        PARSE="${{ github.action_path }}/parse-qodana-report.mjs"
+        test -f "$PARSE"
+        SKIP="${{ inputs.skip_reason }}"
+        HEAD="${{ inputs.head_sha }}"
+        if [ -n "${SKIP}" ]; then
+          node "$PARSE" --skip-summary --skip-reason "${SKIP}" --head-sha "${HEAD}" --json --no-fail > qodana-summary.json
+          node "$PARSE" --skip-summary --skip-reason "${SKIP}" --head-sha "${HEAD}" --github-summary > qodana-comment.md
+          echo "pass=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        SARIF="${{ inputs.sarif_file }}"
+        test -n "$SARIF"
+        test -f "$SARIF"
+        if [ "${{ inputs.fail_only }}" = "true" ]; then
+          node "$PARSE" --file "$SARIF" --head-sha "${HEAD}" --json
+          exit 0
+        fi
+        node "$PARSE" --file "$SARIF" --head-sha "${HEAD}" --json --no-fail > qodana-summary.json
+        node "$PARSE" --file "$SARIF" --head-sha "${HEAD}" --github-summary > qodana-comment.md
+        pass=$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('qodana-summary.json','utf8')).pass))")
+        echo "pass=$pass" >> "$GITHUB_OUTPUT"

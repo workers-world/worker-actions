@@ -1,0 +1,18 @@
+# Dependabot：每周 bump GitHub Actions。
+# 本仓无根/tools package.json，暂不扫 npm。合入后走既有 Release PR 链。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    commit-message:
+      prefix: "[Actions] "
+    groups:
+      non-major:
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"

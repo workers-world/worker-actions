@@ -1,0 +1,407 @@
+name: OCR PR Review (session cache)
+description: >-
+  alibaba/open-code-review 封装：PR 审查 + GHA session 缓存与 --resume（按文件 fingerprint 跳过未改文件的 LLM）。
+author: workers-world
+branding:
+  icon: eye
+  color: blue
+
+inputs:
+  llm_url:
+    description: LLM API endpoint URL
+    required: true
+  llm_auth_token:
+    description: LLM auth token
+    required: true
+  llm_model:
+    description: LLM model name
+    required: true
+  llm_use_anthropic:
+    description: "'true' for Anthropic, 'false' for OpenAI-compatible"
+    required: true
+  llm_auth_header:
+    description: 自定义鉴权头名（仅 Anthropic 模式生效；OpenAI 模式固定 Authorization）
+    required: false
+    default: ""
+  llm_extra_headers:
+    description: 额外请求头（如 cf-aig-gateway-id；JSON 或 key=value 逗号分隔）
+    required: false
+    default: ""
+  llm_extra_body:
+    description: 额外请求体字段（JSON；空则不注入。Anthropic 可传 thinking 禁用等）
+    required: false
+    default: ""
+  language:
+    description: 审查评论语言
+    required: false
+    default: Chinese
+  github_token:
+    description: 用于发布 PR 评论的 GitHub token（默认 github.token；需 pull-requests:write）
+    required: false
+    default: ${{ github.token }}
+  ocr_version:
+    description: alibaba/open-code-review npm 版本（须为具体 tag，与 post-review helper ref 一致）
+    required: false
+    default: "v1.8.10"
+  review_concurrency:
+    description: 文件并发审查数（空则用 OCR 默认；限流 429 时调低如 3）
+    required: false
+    default: ""
+  background:
+    description: 后台审查模式（true 时异步）
+    required: false
+    default: ""
+  rule:
+    description: 仓内 OCR 规则 JSON 路径
+    required: false
+    default: ""
+  upload_artifacts:
+    description: 是否上传 ocr-result.json（不上传 stderr，防凭据泄露）
+    required: false
+    default: "true"
+  sticky_summary:
+    description: 更新同一条 sticky summary 评论，避免刷屏
+    required: false
+    default: "true"
+  incremental:
+    description: 增量模式，仅追加未重叠的行内评论
+    required: false
+    default: "true"
+  incremental_overlap_threshold:
+    description: 增量模式行重叠阈值（0~1）
+    required: false
+    default: "0.6"
+  review_comment_batch_size:
+    description: 每次批量发布评论数上限
+    required: false
+    default: "50"
+  route_severity_below:
+    description: 低于此严重级别的意见不发评论（空=不过滤）
+    required: false
+    default: ""
+  route_categories:
+    description: 仅发布这些 category 的意见（逗号分隔；空=不过滤）
+    required: false
+    default: ""
+  base_ref:
+    description: PR base branch（用于稳定 --from ref，须与 resume 会话一致）
+    required: true
+  head_ref:
+    description: PR head branch（用于稳定 --to ref，autofix push 后仍可 resume）
+    required: true
+  pr_number:
+    description: PR number（session cache key）
+    required: true
+  enable_session_cache:
+    description: GHA cache + ocr --resume（同 PR 未改文件跳过 LLM）
+    required: false
+    default: "true"
+  node_version:
+    description: 未预装 Node 时 setup-node 的版本
+    required: false
+    default: "24"
+
+runs:
+  using: composite
+  steps:
+    - name: Check Node.js
+      id: check_deps
+      shell: bash
+      run: |
+        if command -v node >/dev/null 2>&1; then
+          echo "node_installed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "node_installed=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Setup Node.js
+      if: steps.check_deps.outputs.node_installed != 'true'
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    - name: Resolve PR refs
+      shell: bash
+      env:
+        INPUT_BASE_REF: ${{ inputs.base_ref }}
+        INPUT_HEAD_REF: ${{ inputs.head_ref }}
+        INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        BASE_REF="${INPUT_BASE_REF:-$EVENT_BASE_REF}"
+        HEAD_REF="${INPUT_HEAD_REF:-$EVENT_HEAD_REF}"
+        HEAD_SHA="${EVENT_HEAD_SHA}"
+        # 校验 PR_NUMBER 为纯数字，防注入
+        case "${INPUT_PR_NUMBER}" in
+          ''|*[!0-9]*) echo "::error::pr_number 须为纯数字，当前: ${INPUT_PR_NUMBER}"; exit 1 ;;
+        esac
+        # 校验 branch 格式，防 rev 解析/选项注入
+        if ! git check-ref-format --branch "${BASE_REF}" >/dev/null 2>&1; then
+          echo "::error::base_ref 格式非法"
+          exit 1
+        fi
+        if ! git check-ref-format --branch "${HEAD_REF}" >/dev/null 2>&1; then
+          echo "::error::head_ref 格式非法"
+          exit 1
+        fi
+        echo "BASE_REF=$BASE_REF" >> "$GITHUB_ENV"
+        echo "HEAD_REF=$HEAD_REF" >> "$GITHUB_ENV"
+        echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+        echo "PR_NUMBER=${INPUT_PR_NUMBER}" >> "$GITHUB_ENV"
+        # 稳定 ref：resume 要求多次 run 的 --from/--to 字符串一致（不可用每次变化的 HEAD SHA）
+        echo "OCR_FROM=origin/${BASE_REF}" >> "$GITHUB_ENV"
+        echo "OCR_TO=${HEAD_REF}" >> "$GITHUB_ENV"
+
+    - name: Checkout base
+      uses: actions/checkout@v7
+      with:
+        # 必须检出到子目录 base：父 workflow 已把 ocr-pr-review 检出到 workspace 根的 .gha-actions-bundle/。
+        # actions/checkout 在 path 为 workspace 根且目录非空无 .git 时，会先 "Deleting the contents" 再 clone，
+        # 这会把 .gha-actions-bundle 一起删掉；clean:false 只管 git clean -ffdx，管不了这个删除行为。
+        # 主步骤仍可用（action 已加载），但 Post job 重新加载 action.yml 时找不到目录导致 job 失败。
+        path: base
+        fetch-depth: 0
+
+    - name: Fetch PR head
+      shell: bash
+      working-directory: base
+      env:
+        PR_NUM: ${{ inputs.pr_number }}
+      run: |
+        set -euo pipefail
+        # fetch 失败须显式告警并校验 ref 存在，勿静默吞错导致 OCR 在陈旧/缺失 ref 上运行
+        if ! git fetch origin "${BASE_REF}" 2>&1 | tee /tmp/fetch-base.log; then
+          echo "::warning::git fetch base (${BASE_REF}) 失败: $(cat /tmp/fetch-base.log)"
+        fi
+        if [ -n "${PR_NUM}" ]; then
+          if ! git fetch origin "pull/${PR_NUM}/head:${HEAD_REF}" 2>&1 | tee /tmp/fetch-head.log; then
+            if ! git fetch origin "${HEAD_REF}" 2>&1 | tee /tmp/fetch-head.log; then
+              echo "::warning::git fetch head (pull/${PR_NUM}/head 与 ${HEAD_REF}) 均失败: $(cat /tmp/fetch-head.log)"
+            fi
+          fi
+        else
+          if ! git fetch origin "${HEAD_REF}" 2>&1 | tee /tmp/fetch-head.log; then
+            echo "::warning::git fetch head (${HEAD_REF}) 失败: $(cat /tmp/fetch-head.log)"
+          fi
+        fi
+        # 校验两个 ref 存在，缺失则明确失败
+        git rev-parse --verify "origin/${BASE_REF}" >/dev/null 2>&1 || { echo "::error::origin/${BASE_REF} 不存在，无法审查"; exit 1; }
+        git rev-parse --verify "${HEAD_REF}" >/dev/null 2>&1 || { echo "::error::${HEAD_REF} 不存在，无法审查"; exit 1; }
+        echo "OCR review range: ${OCR_FROM}..${OCR_TO} (merge-base..head via OCR range mode)"
+
+    - name: Restore OCR session cache
+      if: inputs.enable_session_cache == 'true'
+      uses: actions/cache@v5
+      id: ocr_session_cache
+      with:
+        path: |
+          ~/.opencodereview/sessions
+          ~/.opencodereview/cache-meta
+        key: ocr-${{ github.repository }}-pr${{ inputs.pr_number }}-${{ inputs.ocr_version }}-${{ inputs.base_ref }}
+        restore-keys: |
+          ocr-${{ github.repository }}-pr${{ inputs.pr_number }}-${{ inputs.ocr_version }}-
+
+    - name: Install OpenCodeReview
+      shell: bash
+      env:
+        OCR_VERSION: ${{ inputs.ocr_version }}
+      run: |
+        set -euo pipefail
+        npm install -g "@alibaba-group/open-code-review@${OCR_VERSION}"
+        ocr version || true
+
+    - name: Configure OCR
+      shell: bash
+      env:
+        OCR_EXTRA_BODY: ${{ inputs.llm_extra_body }}
+        OCR_LANGUAGE: ${{ inputs.language }}
+      run: |
+        set -euo pipefail
+        # 空则不注入（OpenAI 兼容网关可能拒未知字段如 thinking）
+        if [ -n "${OCR_EXTRA_BODY}" ]; then
+          ocr config set llm.extra_body "$OCR_EXTRA_BODY"
+        fi
+        ocr config set language "$OCR_LANGUAGE"
+
+    - name: Run OpenCodeReview (with optional resume)
+      shell: bash
+      working-directory: base
+      env:
+        OCR_LLM_URL: ${{ inputs.llm_url }}
+        OCR_LLM_TOKEN: ${{ inputs.llm_auth_token }}
+        OCR_LLM_MODEL: ${{ inputs.llm_model }}
+        OCR_USE_ANTHROPIC: ${{ inputs.llm_use_anthropic }}
+        OCR_LLM_AUTH_HEADER: ${{ inputs.llm_auth_header }}
+        OCR_LLM_EXTRA_HEADERS: ${{ inputs.llm_extra_headers }}
+        OCR_REVIEW_CONCURRENCY: ${{ inputs.review_concurrency }}
+        OCR_BACKGROUND: ${{ inputs.background }}
+        OCR_RULE: ${{ inputs.rule }}
+        ENABLE_SESSION_CACHE: ${{ inputs.enable_session_cache }}
+        OCR_VERSION: ${{ inputs.ocr_version }}
+      run: |
+        set -euo pipefail
+        ARGS=(--from "${OCR_FROM}" --to "${OCR_TO}" --format json)
+        [ -n "${OCR_REVIEW_CONCURRENCY}" ] && ARGS+=(--concurrency "$OCR_REVIEW_CONCURRENCY")
+        [ -n "${OCR_BACKGROUND}" ] && ARGS+=(--background "$OCR_BACKGROUND")
+        [ -n "${OCR_RULE}" ] && ARGS+=(--rule "$OCR_RULE")
+
+        RESUME_ARGS=()
+        META_FILE="${HOME}/.opencodereview/cache-meta/pr-${PR_NUMBER}.json"
+        if [ "${ENABLE_SESSION_CACHE}" = "true" ] && [ -f "${META_FILE}" ]; then
+          SESSION_ID="$(node -e "try{const j=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));process.stdout.write(j.session_id||'')}catch{}" "${META_FILE}")"
+          if [ -n "${SESSION_ID}" ]; then
+            RESUME_ARGS=(--resume "${SESSION_ID}")
+            echo "::notice::OCR session resume: ${SESSION_ID} (未改文件跳过 LLM)"
+          fi
+        fi
+
+        OCR_EXIT_CODE=0
+        if [ ${#RESUME_ARGS[@]} -gt 0 ]; then
+          set +e
+          ocr review "${ARGS[@]}" "${RESUME_ARGS[@]}" > /tmp/ocr-result.json 2>/tmp/ocr-stderr.log
+          OCR_EXIT_CODE=$?
+          set -e
+          if [ "${OCR_EXIT_CODE}" -ne 0 ]; then
+            echo "::warning::OCR --resume 失败 (exit ${OCR_EXIT_CODE})，回退全量审查"
+            set +e
+            ocr review "${ARGS[@]}" > /tmp/ocr-result.json 2>/tmp/ocr-stderr.log
+            OCR_EXIT_CODE=$?
+            set -e
+          fi
+        else
+          set +e
+          ocr review "${ARGS[@]}" > /tmp/ocr-result.json 2>/tmp/ocr-stderr.log
+          OCR_EXIT_CODE=$?
+          set -e
+        fi
+
+        echo "OCR_EXIT_CODE=${OCR_EXIT_CODE}" >> "$GITHUB_ENV"
+        # 屏蔽可能含凭据的 env，防 stderr 全量打印泄露到公共日志
+        for v in OCR_LLM_TOKEN OCR_LLM_AUTH_HEADER OCR_LLM_EXTRA_HEADERS; do
+          [ -n "${!v:-}" ] && echo "::add-mask::${!v}"
+        done
+        # 仅打印摘要，完整结果保留在 artifact（公共仓库日志可见）
+        echo "=== OCR result summary ==="
+        node -e '
+          const fs = require("fs");
+          try {
+            const raw = fs.readFileSync("/tmp/ocr-result.json", "utf8").trim();
+            if (!raw) { console.log("(empty result)"); process.exit(0); }
+            const j = JSON.parse(raw);
+            const comments = Array.isArray(j) ? j : (j.comments || []);
+            const summary = j.summary || {};
+            console.log("session_id=" + (j.session_id || "(none)"));
+            console.log("status=" + (j.status || "(unknown)"));
+            console.log("comments=" + comments.length);
+            console.log("files_reviewed=" + (summary.files_reviewed ?? "(n/a)"));
+            console.log("elapsed=" + (summary.elapsed || "(n/a)"));
+          } catch (e) {
+            console.log("(summary parse failed: " + e.message + ")");
+          }
+        ' || true
+        # stderr 仅在失败时打印截断内容（完整内容保留在失败 artifact 中），避免泄露请求 URL/凭据
+        if [ "${OCR_EXIT_CODE}" -ne 0 ]; then
+          echo "=== OCR stderr (truncated, see artifact for full) ==="
+          tail -c 4096 /tmp/ocr-stderr.log 2>/dev/null || true
+        else
+          echo "=== OCR stderr (suppressed on success) ==="
+        fi
+
+        if [ "${ENABLE_SESSION_CACHE}" = "true" ] && [ "${OCR_EXIT_CODE}" -eq 0 ]; then
+          node -e '
+            const fs = require("fs");
+            const raw = fs.readFileSync("/tmp/ocr-result.json", "utf8").trim();
+            if (!raw) process.exit(0);
+            const j = JSON.parse(raw);
+            const sid = j.session_id || "";
+            const metaDir = process.env.HOME + "/.opencodereview/cache-meta";
+            fs.mkdirSync(metaDir, { recursive: true });
+            fs.writeFileSync(
+              metaDir + "/pr-" + process.env.PR_NUMBER + ".json",
+              JSON.stringify({
+                session_id: sid,
+                from: process.env.OCR_FROM,
+                to: process.env.OCR_TO,
+                ocr_version: process.env.OCR_VERSION || "",
+                updated_at: new Date().toISOString(),
+              }, null, 2)
+            );
+            if (j.resume) {
+              console.log(
+                "::notice::OCR resume stats: reused_files=" +
+                  (j.resume.reused_files ?? "?") +
+                  " rerun_files=" +
+                  (j.resume.rerun_files ?? "?")
+              );
+            } else if (sid) {
+              console.log("::notice::OCR new session_id=" + sid);
+            }
+          '
+        fi
+
+    - name: Upload review result artifact
+      if: ${{ always() && inputs.upload_artifacts == 'true' }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: ocr-review-result-${{ github.run_id }}-${{ github.run_attempt }}
+        path: /tmp/ocr-result.json
+        if-no-files-found: warn
+
+    # 故意不上传 ocr-stderr.log：可能含请求 URL/凭据；::add-mask 对 artifact 无效。
+    # 失败时仅在日志中打印截断 stderr（见上方 Run 步骤），完整内容留在 runner 临时文件不外泄。
+
+    - name: Fail job on OCR error
+      if: env.OCR_EXIT_CODE != '0'
+      shell: bash
+      run: |
+        echo "ocr review exited with code ${OCR_EXIT_CODE}; see artifacts."
+        exit "${OCR_EXIT_CODE}"
+
+    - name: Checkout OCR post-review helper
+      if: env.OCR_EXIT_CODE == '0'
+      uses: actions/checkout@v7
+      with:
+        repository: alibaba/open-code-review
+        # ref 与 ocr_version 输入保持一致（默认 v1.8.10），避免 CLI 与 helper 版本错配
+        ref: ${{ inputs.ocr_version }}
+        path: .ocr-action-post
+        sparse-checkout: scripts/github-actions
+        sparse-checkout-cone-mode: false
+
+    - name: Post review comments
+      if: env.OCR_EXIT_CODE == '0'
+      id: post
+      uses: actions/github-script@v9
+      env:
+        OCR_INCREMENTAL_OVERLAP_THRESHOLD: ${{ inputs.incremental_overlap_threshold }}
+        OCR_REVIEW_COMMENT_BATCH_SIZE: ${{ inputs.review_comment_batch_size }}
+        OCR_ROUTE_SEVERITY_BELOW: ${{ inputs.route_severity_below }}
+        OCR_ROUTE_CATEGORIES: ${{ inputs.route_categories }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          const helper = path.resolve('.ocr-action-post/scripts/github-actions/post-review-comments.js');
+          if (!fs.existsSync(helper)) {
+            core.setFailed('Missing post-review-comments.js at ' + helper);
+            return;
+          }
+          const { runPostReviewComments } = require(helper);
+          await runPostReviewComments({
+            github,
+            context,
+            core,
+            fs,
+            resultPath: '/tmp/ocr-result.json',
+            stderrPath: '/tmp/ocr-stderr.log',
+            stickySummary: ${{ inputs.sticky_summary == 'true' }},
+            incremental: ${{ inputs.incremental == 'true' }},
+            incrementalOverlapThreshold: parseFloat(process.env.OCR_INCREMENTAL_OVERLAP_THRESHOLD),
+            reviewCommentBatchSize: parseInt(process.env.OCR_REVIEW_COMMENT_BATCH_SIZE, 10),
+            routeSeverityBelow: process.env.OCR_ROUTE_SEVERITY_BELOW,
+            routeCategories: process.env.OCR_ROUTE_CATEGORIES,
+          });

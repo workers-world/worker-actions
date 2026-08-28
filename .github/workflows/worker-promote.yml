@@ -1,0 +1,159 @@
+name: Worker promote to master
+
+# 将 release_branch（通常 dev_*）合入 master：**开/复用 Release PR → gh pr merge**。
+# 替代直推 `git push origin HEAD:master`（branch protection / ruleset 禁止 push 时会失败）。
+# 允许非 FF（merge commit）；日常业务仓优先走 worker-ci 的 ensure-release-pr + OCR 门禁后再 auto-merge。
+# 本 workflow 用于：无 Release PR 门禁的遗留仓、应急/手动 promote、worker-verify 内置 promote。
+#
+# Caller：
+#   permissions: {}   # 写操作走 PAT
+#   uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/vX.Y.Z
+#   secrets: inherit  # 须含 WORKERS_WORLD_GHA_TOKEN（repo）
+on:
+  workflow_call:
+    inputs:
+      release_branch:
+        description: 要合入 master 的分支名（通常为 dev_*）
+        required: true
+        type: string
+      master_branch:
+        description: 目标主干分支名
+        type: string
+        default: "master"
+      pr_title_prefix:
+        description: PR 标题前缀
+        type: string
+        default: "release:"
+      wait_seconds:
+        description: 若开启 auto-merge 后等待合入的最长时间（秒）
+        type: number
+        default: 900
+    secrets:
+      WORKERS_WORLD_GHA_TOKEN:
+        description: PAT（repo）；建 PR / merge 必填。Org 常禁止 GITHUB_TOKEN 建/合 PR。
+        required: true
+
+# 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
+permissions: {}
+
+jobs:
+  promote:
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions: {}
+    steps:
+      - name: Ensure GitHub CLI
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          GH_VERSION="2.63.2"
+          bindir="${RUNNER_TEMP}/gha-bin"
+          mkdir -p "$bindir"
+          curl -fsSL \
+            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          chmod +x "$bindir/gh"
+          echo "$bindir" >> "$GITHUB_PATH"
+          "$bindir/gh" --version
+
+      - name: Ensure Release PR and merge
+        env:
+          GH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+          MASTER_BRANCH: ${{ inputs.master_branch }}
+          PR_TITLE_PREFIX: ${{ inputs.pr_title_prefix }}
+          WAIT_SECONDS: ${{ inputs.wait_seconds }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::缺少 WORKERS_WORLD_GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
+            exit 1
+          fi
+          if ! [[ "$RELEASE_BRANCH" =~ ^dev_ ]]; then
+            echo "::error::release_branch 须匹配 dev_*（当前: ${RELEASE_BRANCH}）"
+            exit 1
+          fi
+
+          # 确认分支存在
+          if ! gh api "repos/${REPO}/branches/${RELEASE_BRANCH}" --jq .name >/dev/null 2>&1; then
+            echo "::error::分支 ${RELEASE_BRANCH} 不存在于 ${REPO}"
+            exit 1
+          fi
+
+          pr="$(gh pr list --repo "$REPO" --head "$RELEASE_BRANCH" --base "$MASTER_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr" ]; then
+            echo "Creating Release PR: ${RELEASE_BRANCH} → ${MASTER_BRANCH}"
+            gh pr create --repo "$REPO" \
+              --base "$MASTER_BRANCH" \
+              --head "$RELEASE_BRANCH" \
+              --title "${PR_TITLE_PREFIX} ${RELEASE_BRANCH} → ${MASTER_BRANCH}" \
+              --body "$(cat <<'EOF'
+          ## Promote PR（自动创建）
+
+          - 由 `worker-promote` 创建（禁止直推 master 时的替代路径）
+          - 本 job 会尝试立即 merge；若受 status check 阻挡则启用 auto-merge 并等待
+          - 日常业务仓请优先使用 `worker-ci`（ensure-release-pr + OCR 门禁后再 merge）
+          EOF
+          )"
+            pr="$(gh pr list --repo "$REPO" --head "$RELEASE_BRANCH" --base "$MASTER_BRANCH" --state open --json number --jq '.[0].number // empty')"
+            if [ -z "$pr" ]; then
+              echo "::error::已执行 gh pr create，但未找到 open PR ${RELEASE_BRANCH} → ${MASTER_BRANCH}"
+              exit 1
+            fi
+          fi
+          echo "Release PR #${pr}"
+
+          state="$(gh pr view "$pr" --repo "$REPO" --json state --jq .state)"
+          if [ "$state" = "MERGED" ]; then
+            echo "PR #${pr} already MERGED"
+            exit 0
+          fi
+          if [ "$state" != "OPEN" ]; then
+            echo "::error::PR #${pr} state=${state}，无法 merge"
+            exit 1
+          fi
+
+          base="$(gh pr view "$pr" --repo "$REPO" --json baseRefName --jq .baseRefName)"
+          if [ "$base" != "$MASTER_BRANCH" ]; then
+            echo "::error::PR base is ${base}, expected ${MASTER_BRANCH}"
+            exit 1
+          fi
+
+          # 先尝试直接 merge（无必过 check / 已满足时立即成功）
+          if gh pr merge "$pr" --repo "$REPO" --merge --delete-branch=false; then
+            echo "Merged PR #${pr} (${RELEASE_BRANCH} → ${MASTER_BRANCH})"
+            exit 0
+          fi
+
+          echo "直接 merge 未成功（可能被 required checks 阻挡），启用 auto-merge 并等待…"
+          gh pr merge "$pr" --repo "$REPO" --auto --merge --delete-branch=false || true
+
+          deadline=$((SECONDS + WAIT_SECONDS))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            state="$(gh pr view "$pr" --repo "$REPO" --json state --jq .state)"
+            if [ "$state" = "MERGED" ]; then
+              echo "Merged PR #${pr} via auto-merge (${RELEASE_BRANCH} → ${MASTER_BRANCH})"
+              exit 0
+            fi
+            if [ "$state" != "OPEN" ]; then
+              echo "::error::PR #${pr} 变为 ${state}，等待中止"
+              exit 1
+            fi
+            mergeable="$(gh pr view "$pr" --repo "$REPO" --json mergeable --jq .mergeable)"
+            echo "waiting… state=${state} mergeable=${mergeable}"
+            # 再尝试一次（checks 可能刚绿）
+            if [ "$mergeable" = "MERGEABLE" ]; then
+              if gh pr merge "$pr" --repo "$REPO" --merge --delete-branch=false; then
+                echo "Merged PR #${pr} (${RELEASE_BRANCH} → ${MASTER_BRANCH})"
+                exit 0
+              fi
+            fi
+            sleep 15
+          done
+
+          echo "::error::等待 ${WAIT_SECONDS}s 后 PR #${pr} 仍未合入。请检查 branch protection / required checks，或在 PR 上人工 merge。"
+          exit 1

@@ -1,0 +1,212 @@
+name: Worker workflow lint
+
+# 廉价前置门禁（不调 LLM，不产生 cost）：在 OCR 之前 fast-fail。
+# 检查项：
+#   1. actionlint：YAML/GHA 语法、表达式类型、shell 注入、reusable workflow（composite 经引用校验）
+#   2. shellcheck（actionlint 集成）：run: 块 shell 脚本
+#   3. JSON / YAML 解析：.opencodereview/rule.json、manifest/actions-bundle.yaml
+#   4. Pin 检查：uses: 禁止 @master / @main / @HEAD
+#   5. manifest 格式：current 须为 actions/vX.Y.Z（不校验 tag 是否已 push；发版 PR 中 manifest 常领先 tag）
+#   6. 卫生检查：CRLF / 尾随空白 / 合并冲突标记 <<<<<<<
+#   7. 凭据泄露扫描：ghp_ / sk- / cf- / -----BEGIN ... PRIVATE KEY-----
+#
+# templates/ 与 manifest current 的 pin 不对齐是常态（manifest 由 release-actions-bundle 异步回填），不在此校验。
+#
+# Caller：
+#   permissions: { contents: read }
+#   uses: $/.github/workflows/worker-workflow-lint.yml
+on:
+  workflow_call:
+    inputs:
+      actionlint_version:
+        description: actionlint 发行版（无 v 前缀）
+        type: string
+        default: "1.7.12"
+      shellcheck_version:
+        description: shellcheck 发行版（无 v 前缀）；空则跳过 shellcheck
+        type: string
+        default: "0.10.0"
+      forbid_tags:
+        description: "uses 禁止的 ref（逗号分隔，如 master,main,HEAD）"
+        type: string
+        default: "master,main,HEAD"
+      node_version:
+        description: Node.js 版本（JSON/manifest 解析；self-hosted 由 setup-node 安装）
+        type: string
+        default: "22"
+      runner:
+        description: 覆盖 runs-on。公开仓 dogfood 须传 ubuntu-latest，避免 Org Variable 把 fork PR 打到 self-hosted
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ${{ inputs.runner != '' && inputs.runner || (vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest') }}
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # manifest tag 一致性需要 git tag
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: ${{ inputs.actionlint_version }}
+        run: |
+          set -euo pipefail
+          bindir="${RUNNER_TEMP}/gha-bin"
+          mkdir -p "$bindir"
+          curl -fsSL \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar xz -C "$bindir" actionlint
+          chmod +x "$bindir/actionlint"
+          echo "$bindir" >> "$GITHUB_PATH"
+          "$bindir/actionlint" -version
+
+      - name: Install shellcheck
+        if: inputs.shellcheck_version != ''
+        env:
+          SHELLCHECK_VERSION: ${{ inputs.shellcheck_version }}
+        run: |
+          set -euo pipefail
+          bindir="${RUNNER_TEMP}/gha-bin"
+          mkdir -p "$bindir"
+          base="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL "$base" | tar -xJ -C "$bindir" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          chmod +x "$bindir/shellcheck"
+          echo "$bindir" >> "$GITHUB_PATH"
+          "$bindir/shellcheck" --version
+
+      - name: actionlint (workflows + composite actions)
+        env:
+          SHELLCHECK_PATH: ${{ runner.temp }}/gha-bin/shellcheck
+        run: |
+          set -euo pipefail
+          # actionlint 会调用 SHELLCHECK_PATH；勿写「井号 shellcheck」开头的注释（会被当成 directive）
+          # $/ 为 2026-07 GHA 同仓语法；actionlint 1.7.12 尚不识别，先 ignore（GitHub 运行时已支持）
+          IGNORE_DOLLAR=(
+            -ignore 'specifying action "\$/.*'
+            -ignore 'reusable workflow call "\$/.*'
+          )
+          # style/info 不阻断：SC2129 多行重定向、SC2016 单引号字面量
+          IGNORE_STYLE=(
+            -ignore 'shellcheck reported issue in this script: SC2129:'
+            -ignore 'shellcheck reported issue in this script: SC2016:'
+          )
+          actionlint -color "${IGNORE_DOLLAR[@]}" "${IGNORE_STYLE[@]}"
+          # 勿对 .github/actions/**/action.yml 直接跑 actionlint：会按 workflow 解析而误报缺 on/jobs。
+          # composite 的 inputs/用法由引用它的 workflow 在 actionlint 时一并校验。
+
+      - name: JSON / YAML 解析
+        run: |
+          set -euo pipefail
+          fail=0
+          # .opencodereview/rule.json
+          if [ -f .opencodereview/rule.json ]; then
+            if ! node -e "JSON.parse(require('fs').readFileSync('.opencodereview/rule.json','utf8'))" 2>/tmp/json.err; then
+              echo "::error::.opencodereview/rule.json 解析失败: $(cat /tmp/json.err)"
+              fail=1
+            else
+              echo "ok: .opencodereview/rule.json"
+            fi
+          fi
+          # manifest/actions-bundle.yaml
+          if [ -f manifest/actions-bundle.yaml ]; then
+            if ! node -e "require('fs').readFileSync('manifest/actions-bundle.yaml','utf8').split('\n').forEach(l=>{if(!/^#/.test(l)&&/current:/.test(l)){const m=l.match(/current:\s*(\S+)/);if(!m)throw new Error('current: 行解析失败: '+l)}})" 2>/tmp/yaml.err; then
+              echo "::error::manifest/actions-bundle.yaml 解析失败: $(cat /tmp/yaml.err)"
+              fail=1
+            else
+              echo "ok: manifest/actions-bundle.yaml"
+            fi
+          fi
+          exit $fail
+
+      - name: Pin 检查（禁止 @master/@main/@HEAD）
+        env:
+          FORBID_TAGS: ${{ inputs.forbid_tags }}
+        run: |
+          set -euo pipefail
+          fail=0
+          IFS=',' read -ra tags <<< "$FORBID_TAGS"
+          # 扫所有 yml/yaml 里非注释 uses: 行
+          while IFS= read -r f; do
+            while IFS= read -r line; do
+              # 跳过整行注释
+              case "$line" in
+                *'#'*)
+                  # 取 # 之前部分
+                  pre="${line%%#*}"
+                  ;;
+                *) pre="$line" ;;
+              esac
+              for t in "${tags[@]}"; do
+                # @<tag> 出现在 uses: 末尾（允许子路径后 @tag）
+                if printf '%s' "$pre" | grep -Eq "@${t}([[:space:]]|\$|\"|\')"; then
+                  echo "::error::$f: 禁止使用 @${t}：${line}"
+                  fail=1
+                fi
+              done
+            done < "$f"
+          done < <(find .github -type f \( -name '*.yml' -o -name '*.yaml' \) -print)
+          exit $fail
+
+      - name: manifest 格式检查
+        run: |
+          set -euo pipefail
+          [ -f manifest/actions-bundle.yaml ] || { echo "skip: 无 manifest"; exit 0; }
+          cur="$(grep -E '^current:' manifest/actions-bundle.yaml | head -1 | awk '{print $2}')"
+          if [ -z "$cur" ]; then
+            echo "::error::manifest 未找到 current:"
+            exit 1
+          fi
+          if ! [[ "$cur" =~ ^actions/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::manifest current 格式须为 actions/vX.Y.Z，当前: $cur"
+            exit 1
+          fi
+          echo "ok: manifest current=$cur（tag 是否已发布由 release-actions-bundle 负责，此处不校验）"
+
+      - name: 卫生检查（CRLF / 尾随空白 / 合并冲突标记）
+        run: |
+          set -euo pipefail
+          fail=0
+          # CRLF
+          if git ls-files -z '*.yml' '*.yaml' '*.json' '*.md' '*.sh' '*.mjs' '*.js' |
+            xargs -0 grep -l $'\r$' 2>/dev/null; then
+            echo "::error::存在 CRLF 行尾"
+            fail=1
+          fi
+          # 尾随空白
+          while IFS= read -r f; do
+            if grep -nP '[ \t]+$' "$f" >/dev/null 2>&1; then
+              echo "::warning::$f 存在尾随空白"
+            fi
+          done < <(git ls-files '*.yml' '*.yaml')
+          # 合并冲突标记
+          if git ls-files -z '*.yml' '*.yaml' '*.json' '*.md' |
+            xargs -0 grep -lE '^(<<<<<<<|=======|>>>>>>>)' 2>/dev/null; then
+            echo "::error::存在合并冲突标记"
+            fail=1
+          fi
+          exit $fail
+
+      - name: 凭据泄露扫描
+        run: |
+          set -euo pipefail
+          fail=0
+          # 仅扫 git 跟踪文件（排除 .gitignore 内的 lock 等）
+          # 命中常见 token 前缀 / 私钥头
+          if git ls-files -z '*.yml' '*.yaml' '*.json' '*.md' '*.sh' '*.mjs' '*.js' '*.ts' |
+            xargs -0 grep -nE 'ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{82}|sk-[0-9A-Za-z]{20,}|cf-[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' 2>/dev/null |
+            grep -vE '^[^:]+:[0-9]+:#|::add-mask::|::error::|::warning::|::notice::|description:|示例|example|placeholder|<your|<token|\\\$\{'; then
+            echo "::error::疑似凭据泄露（见上行）"
+            fail=1
+          fi
+          exit $fail

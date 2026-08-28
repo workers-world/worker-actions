@@ -1,0 +1,180 @@
+name: Worker verify
+
+# 本地 package.json 可继续 file:../framework_sdk_worker；
+# CI 从 GitHub Packages 物化同路径，避免 git clone + build SDK。
+#
+# Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
+#   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.5.0
+#   with:
+#     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
+#
+# PR verify checkout PR head SHA（非 pull/N/merge），与 qodana 一致，避免 stale merge ref 导致 npm ci 失败。
+# PR 上若 lock 未就绪会短轮询等待 sync-lock bot（与 push workflow 并行竞态）。
+# SDK 版本唯一来源：caller 仓 package.json 的 framework_sdk_worker（npm:@workers-world/...@X.Y.Z）。
+# promote 默认 false：合入 master 走 ensure-release-pr + OCR 门禁 + release-auto-merge。
+# 仅遗留/应急仓设 promote: true（经 worker-promote：开 PR → gh pr merge，禁止直推 master）。
+# 无 framework_sdk_worker 的仓（如 manim-playground）：materialize_sdk: false；无 npm test 时 run_tests: false。
+#
+# 鉴权（403 read_package 时按序检查）：
+# 1. Org/仓 Secret WORKERS_WORLD_GHA_TOKEN（PAT：read:packages，推荐）
+# 2. 或 Package「Manage Actions access」授权调用方仓库 + caller permissions.packages:read
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: Node.js 版本
+        type: string
+        default: "22"
+      promote:
+        description: push 到 dev_* 且 verify 绿时，经 Release PR merge 到 master（禁止直推；日常 Release PR 仓须 false）
+        type: boolean
+        default: false
+      master_branch:
+        description: 目标主干分支名
+        type: string
+        default: "master"
+      sync_packages_lock:
+        description: push 到 dev_* 时按 package.json 刷新 package-lock（SDK + 根依赖不一致时）并提交
+        type: boolean
+        default: false
+      materialize_sdk:
+        description: 是否从 GitHub Packages 物化 framework_sdk_worker（无 SDK 依赖的仓设 false）
+        type: boolean
+        default: true
+      run_tests:
+        description: 是否执行 npm test（无 test 脚本的仓设 false）
+        type: boolean
+        default: true
+    secrets:
+      WORKERS_WORLD_GHA_TOKEN:
+        description: 读 Packages / 写 master 的 PAT；未传则尝试 GITHUB_TOKEN
+        required: false
+
+# Caller 须授予至少 packages:read；promote 写 master 走 PAT（permissions 可保持 packages:read）
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  sync-lock:
+    if: >
+      inputs.sync_packages_lock &&
+      github.event_name == 'push' &&
+      startsWith(github.ref_name, 'dev_')
+    # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.5.0
+    secrets: inherit
+
+  verify:
+    needs: sync-lock
+    if: >
+      always() &&
+      (needs.sync-lock.result == 'success' || needs.sync-lock.result == 'skipped')
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
+
+      - name: Pull lock commit from sync-lock job
+        if: needs.sync-lock.result == 'success'
+        run: git pull --ff-only origin "${GITHUB_REF_NAME}"
+
+      - name: Wait for sync-lock bot on PR head (if lock stale)
+        if: github.event_name == 'pull_request' && inputs.sync_packages_lock
+        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.5.0
+        with:
+          branch: ${{ github.head_ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          registry-url: https://npm.pkg.github.com
+          scope: "@workers-world"
+
+      - name: Materialize SDK from GitHub Packages
+        if: inputs.materialize_sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_GHA_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          if [ "${HAS_GHA_TOKEN}" != "true" ]; then
+            echo "::warning::未配置 WORKERS_WORLD_GHA_TOKEN，改用 GITHUB_TOKEN。跨仓读 Packages 常 403；请设 Org Secret WORKERS_WORLD_GHA_TOKEN（read:packages），或在包设置里给本仓开 Actions read。"
+          fi
+          SDK_SPEC="$(node -e '
+            const dep = require("./package.json").dependencies?.framework_sdk_worker || "";
+            const fromPkg = dep.startsWith("npm:") ? dep.slice(4) : dep;
+            if (!/^@workers-world\/framework_sdk_worker@[0-9]+\.[0-9]+\.[0-9]+$/.test(fromPkg)) {
+              console.error("package.json framework_sdk_worker 须为 npm:@workers-world/framework_sdk_worker@X.Y.Z，当前:", dep);
+              process.exit(1);
+            }
+            process.stdout.write(fromPkg);
+          ')"
+          pack_dir="$(mktemp -d)"
+          sdk_dir="${GITHUB_WORKSPACE}/../framework_sdk_worker"
+          mkdir -p "$sdk_dir"
+          if ! (
+            cd "$pack_dir"
+            npm pack "${SDK_SPEC}"
+          ); then
+            echo "::error::npm pack ${SDK_SPEC} 失败（多为 403 read_package）。修复：1) Org Secrets 增加 WORKERS_WORLD_GHA_TOKEN（classic PAT: read:packages）；2) github.com/orgs/workers-world/packages → framework_sdk_worker → Package settings → Manage Actions access → 添加本仓库 Read。"
+            exit 1
+          fi
+          tar -xzf "$pack_dir"/*.tgz -C "$sdk_dir" --strip-components=1
+          test -f "$sdk_dir/package.json"
+          test -d "$sdk_dir/dist"
+          # 已发布包 files 仅含 dist，无 scripts/；若 package.json 仍有 prepare，
+          # 而 Worker lock 还是 link:../framework_sdk_worker，npm ci 会跑钩子并失败。
+          node -e '
+            const fs = require("fs");
+            const p = process.argv[1];
+            const j = JSON.parse(fs.readFileSync(p, "utf8"));
+            if (j.scripts) {
+              delete j.scripts.prepare;
+              delete j.scripts.prepublishOnly;
+              delete j.scripts.prepublish;
+            }
+            fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
+          ' "$sdk_dir/package.json"
+          echo "SDK materialized at $sdk_dir ($(node -p "require('$sdk_dir/package.json').version"))"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version }}
+          registry-url: https://npm.pkg.github.com
+          scope: "@workers-world"
+          cache: npm
+
+      # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
+      # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+      - run: npm run check
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: npm test
+        if: inputs.run_tests
+        run: npm test
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+
+  promote:
+    needs: verify
+    if: >
+      inputs.promote &&
+      github.event_name == 'push' &&
+      startsWith(github.ref_name, 'dev_')
+    # 写操作走 PAT；勿给 GITHUB_TOKEN contents:write 直推 master
+    permissions: {}
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      release_branch: ${{ github.ref_name }}
+      master_branch: ${{ inputs.master_branch }}

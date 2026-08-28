@@ -1,0 +1,41 @@
+name: Package lock in sync check
+description: 检查 package-lock.json 是否与 package.json（含 framework_sdk_worker SDK 版本）同步
+
+inputs:
+  working-directory:
+    description: 含 package.json 的目录
+    required: false
+    default: "."
+
+outputs:
+  in_sync:
+    description: lock 已与 package.json 同步
+    value: ${{ steps.check.outputs.in_sync }}
+  skip:
+    description: package.json 无 framework_sdk_worker
+    value: ${{ steps.check.outputs.skip }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        script="${{ github.action_path }}/lock-matches-package-json.mjs"
+        if node "$script"; then
+          echo "in_sync=true" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        else
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "in_sync=true" >> "$GITHUB_OUTPUT"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "package.json 无 framework_sdk_worker，跳过"
+            exit 0
+          fi
+          echo "in_sync=false" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi

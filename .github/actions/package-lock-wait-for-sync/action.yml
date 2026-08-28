@@ -1,0 +1,56 @@
+name: Wait for package-lock sync on PR head
+description: PR verify 前轮询 dev HEAD，等待 sync-lock bot 提交 lock（避免与 push workflow 并行竞态）
+
+inputs:
+  branch:
+    description: PR head 分支名（dev_*）
+    required: true
+  max_attempts:
+    description: 最大轮询次数
+    required: false
+    default: "24"
+  sleep_seconds:
+    description: 每次轮询间隔秒数
+    required: false
+    default: "5"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        # 分支名经 env 传入，避免 ${{ inputs.* }} 直接插进 shell 源码导致命令注入
+        BRANCH: ${{ inputs.branch }}
+        MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+        SLEEP_SECONDS: ${{ inputs.sleep_seconds }}
+        LOCK_CHECK_SCRIPT: ${{ github.action_path }}/../package-lock-in-sync/lock-matches-package-json.mjs
+      run: |
+        set -euo pipefail
+        branch="$BRANCH"
+        max="$MAX_ATTEMPTS"
+        sleep_s="$SLEEP_SECONDS"
+        script="$LOCK_CHECK_SCRIPT"
+
+        if [[ ! "$branch" =~ ^dev_[0-9]{2}_[0-9]{2}_[0-9]{2}([_a-zA-Z0-9]+)?$ ]]; then
+          echo "::error::非法分支名（须为 dev_XX_YY_ZZ 格式）"
+          exit 1
+        fi
+
+        for attempt in $(seq 1 "$max"); do
+          if node "$script"; then
+            echo "lock 与 package.json 一致（attempt ${attempt}/${max}）"
+            exit 0
+          fi
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "无 framework_sdk_worker，跳过等待"
+            exit 0
+          fi
+          echo "lock 未就绪，等待 sync-lock bot（${attempt}/${max}，${sleep_s}s）…"
+          sleep "$sleep_s"
+          git fetch origin "$branch"
+          git checkout "origin/$branch"
+        done
+
+        echo "::error::$((max * sleep_s))s 内 lock 仍未与 package.json 同步。请检查 push workflow 的 sync-lock job。"
+        exit 1

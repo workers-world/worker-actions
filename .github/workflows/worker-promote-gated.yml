@@ -1,0 +1,48 @@
+name: Worker promote (gated)
+
+# 外置 promote：在 verify 与（可选）qodana 之后，经 Release PR merge 到 master（禁止直推）。
+# 日常业务仓请用 worker-ci（ensure-release-pr + OCR + release-auto-merge），勿再用本 workflow。
+#
+# Caller promote job 须 if: always()（qodana 被 skip 时 needs 默认会跳过下游）。
+on:
+  workflow_call:
+    inputs:
+      release_branch:
+        description: 要合入 master 的分支名（dev_*）
+        required: true
+        type: string
+      master_branch:
+        description: 目标主干分支名
+        type: string
+        default: "master"
+      verify_result:
+        description: needs.verify.result
+        required: true
+        type: string
+      qodana_result:
+        description: needs.qodana.result（无 qodana 扫描时通常为 skipped）
+        required: true
+        type: string
+      require_qodana:
+        description: "true：qodana 须 success；false：qodana skipped 视为通过 gate"
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  promote:
+    if: >
+      github.event_name == 'push' &&
+      startsWith(inputs.release_branch, 'dev_') &&
+      inputs.verify_result == 'success' &&
+      (
+        inputs.qodana_result == 'success' ||
+        (!inputs.require_qodana && inputs.qodana_result == 'skipped')
+      )
+    permissions: {}
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      release_branch: ${{ inputs.release_branch }}
+      master_branch: ${{ inputs.master_branch }}

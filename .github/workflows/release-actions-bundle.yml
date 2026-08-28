@@ -1,0 +1,182 @@
+name: Release actions bundle
+
+# 合入 master（且变更触及可复用 workflow/action）后自动打不可变 tag actions/vX.Y.Z。
+# 也可 workflow_dispatch 指定版本。Worker 仓 pin 该 tag，勿再用 @master。
+# manifest 经 PR 回填（master 禁止直推）。见 docs/actions-releases.md
+on:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 可选。留空则 patch+1；填写如 0.5.0 → tag actions/v0.5.0
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-actions-bundle
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    # 避免 bot 回填 manifest 的 PR 合入后再打 tag（commit 含 skip 标记）
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'push' &&
+        !contains(github.event.head_commit.message, '[skip actions-release]')
+      )
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/ensure-gh-cli
+
+      - name: Resolve version, create tag, open manifest PR
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          REF="$(git rev-parse HEAD)"
+          # 当前 commit 已有 tag（例如上次 run 已打 tag、manifest 推送失败）→ 只回填 PR，勿再 patch+1
+          existing_on_head="$(git tag -l 'actions/v*' --points-at "$REF" | sort -t. -k1,1 -k2,2n -k3,3n | tail -1 || true)"
+          if [ -n "${existing_on_head}" ] && [ -z "${INPUT_VERSION}" ]; then
+            TAG="${existing_on_head}"
+            VERSION="${TAG#actions/v}"
+            TAG_CREATED=0
+            echo "HEAD already tagged ${TAG}; sync manifest PR only"
+          else
+          latest="$(git tag -l 'actions/v*' --sort=-v:refname | head -1 || true)"
+          if [ -n "${INPUT_VERSION}" ]; then
+            VERSION="${INPUT_VERSION}"
+          elif [ -n "${latest}" ]; then
+            ver="${latest#actions/v}"
+            IFS=. read -r maj min pat <<< "${ver}"
+            VERSION="${maj}.${min}.$((pat + 1))"
+            echo "Auto bump patch: ${latest} → actions/v${VERSION}"
+          else
+            if [ -f manifest/actions-bundle.yaml ]; then
+              cur="$(grep -E '^current:' manifest/actions-bundle.yaml | head -1 | awk '{print $2}' || true)"
+              if [[ "${cur}" =~ ^actions/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+                VERSION="${BASH_REMATCH[1]}"
+              else
+                VERSION="0.4.0"
+              fi
+            else
+              VERSION="0.4.0"
+            fi
+            echo "No existing actions/v* tag; using ${VERSION}"
+          fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version 须为 X.Y.Z，当前: ${VERSION}"
+            exit 1
+          fi
+
+          TAG="actions/v${VERSION}"
+          TAG_CREATED=0
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            REF="$(git rev-list -n 1 "$TAG")"
+            echo "Tag ${TAG} already exists at ${REF}"
+            if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${INPUT_VERSION}" ]; then
+              echo "::error::tag 已存在: ${TAG}（workflow_dispatch 指定版本时勿重复）"
+              exit 1
+            fi
+          else
+            git tag -a "$TAG" -m "Actions bundle ${TAG}"
+            git push origin "$TAG"
+            TAG_CREATED=1
+            echo "Created ${TAG} at ${REF}"
+          fi
+          fi
+
+          # master 禁止直推：开 PR 回填 manifest（tag 已是权威来源）
+          MANIFEST="manifest/actions-bundle.yaml"
+          TODAY="$(date -u +%Y-%m-%d)"
+          BRANCH="chore/actions-bundle-${VERSION}"
+          mkdir -p "$(dirname "$MANIFEST")"
+          {
+            echo "# Actions bundle 当前版本（Worker 仓 pin 此 tag）"
+            echo "# 完整变更见 docs/actions-releases.md；权威来源为 git tag"
+            echo "current: ${TAG}"
+            echo "sha: \"${REF}\""
+            echo "released_at: \"${TODAY}\""
+            echo "notes: |"
+            if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+              echo "  Released via workflow_dispatch."
+            else
+              echo "  Auto-released on push to master (actions paths changed)."
+            fi
+          } > "$MANIFEST"
+
+          git fetch origin master
+          git checkout -B "$BRANCH" origin/master
+          # 工作区可能已有 MANIFEST 改动；确保在 branch 上
+          {
+            echo "# Actions bundle 当前版本（Worker 仓 pin 此 tag）"
+            echo "# 完整变更见 docs/actions-releases.md；权威来源为 git tag"
+            echo "current: ${TAG}"
+            echo "sha: \"${REF}\""
+            echo "released_at: \"${TODAY}\""
+            echo "notes: |"
+            if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+              echo "  Released via workflow_dispatch."
+            else
+              echo "  Auto-released on push to master (actions paths changed)."
+            fi
+          } > "$MANIFEST"
+          git add "$MANIFEST"
+          if git diff --cached --quiet; then
+            echo "Manifest already up to date on master"
+          else
+            git commit -m "chore: bump actions bundle manifest to ${TAG} [skip actions-release]"
+            git push -u origin "$BRANCH" --force-with-lease
+            existing="$(gh pr list --repo "$REPO" --head "$BRANCH" --base master --state open --json number --jq '.[0].number // empty')"
+            if [ -n "$existing" ]; then
+              echo "Manifest PR already open: #${existing}"
+            else
+              gh pr create --repo "$REPO" \
+                --base master \
+                --head "$BRANCH" \
+                --title "chore: actions bundle manifest ${TAG}" \
+                --body "$(cat <<EOF
+          ## Actions bundle manifest
+
+          - Tag: \`${TAG}\`（已存在于远程）
+          - SHA: \`${REF}\`
+          - tag_created_this_run: ${TAG_CREATED}
+
+          master 禁止直推，故经 PR 回填。合入即可；commit 含 \`[skip actions-release]\`，不会再打 tag。
+          EOF
+          )"
+              echo "Opened manifest PR for ${TAG}"
+            fi
+          fi
+
+          {
+            echo "### Actions bundle released"
+            echo ""
+            echo "- **Tag**: \`${TAG}\` (created_this_run=${TAG_CREATED})"
+            echo "- **SHA**: \`${REF}\`"
+            echo "- Worker bump: \`@${TAG}\`"
+            echo "- Manifest: PR branch \`${BRANCH}\`（勿直推 master）"
+          } >> "$GITHUB_STEP_SUMMARY"

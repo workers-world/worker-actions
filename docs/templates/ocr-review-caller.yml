@@ -1,0 +1,2 @@
+# 已废弃：请改用 Release PR 全量 CI 模板
+# docs/templates/ci-release-pr.yml（内含 ocr job，pull_request → master）

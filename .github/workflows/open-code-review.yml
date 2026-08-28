@@ -1,0 +1,268 @@
+name: Open Code Review
+
+# Org 级可复用 PR 审查：封装 alibaba/open-code-review，默认 LLM 直连 DeepSeek。
+#
+# Caller 典型用法：
+#   permissions: { contents: read, pull-requests: write, actions: write }
+#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.5.0
+#   secrets: inherit
+#
+# Org 配置（配一次）：
+#   Secret  OCR_LLM_TOKEN（必填，DeepSeek API Key；切 AI Gateway 时改 CF Token）
+#   URL/Model（推荐 Org Variables，误配 Secret 也兼容；不配则用 DeepSeek 默认）：
+#     Variable OCR_LLM_URL=https://api.deepseek.com/v1/chat/completions
+#     Variable OCR_LLM_MODEL=deepseek-chat
+#     Variable OCR_LLM_EXTRA_HEADERS=（DeepSeek 留空；AI Gateway 可选 cf-aig-gateway-id=<id>）
+#     Variable OCR_REVIEW_CONCURRENCY=3（可选，降并发）
+#   切 AI Gateway（opt-in）：改 OCR_LLM_URL / OCR_LLM_MODEL / OCR_LLM_TOKEN 三个 Org 配置即可。
+#
+# 详见 docs/open-code-review.md
+#
+# 跳过审查：with.skip: true（不调 LLM；job 直接 success，便于临时关 OCR）
+on:
+  workflow_call:
+    inputs:
+      skip:
+        description: true 时跳过 OCR（不调 LLM，workflow 仍 success）
+        type: boolean
+        default: false
+      ocr_version:
+        description: alibaba/open-code-review 引用（tag 或 commit SHA）
+        type: string
+        default: v1.8.10
+      language:
+        description: 审查输出语言（OCR language 配置）
+        type: string
+        default: Chinese
+      incremental:
+        description: 增量模式，仅追加未重叠的行内评论
+        type: boolean
+        default: true
+      sticky_summary:
+        description: 更新同一条 summary 评论，避免刷屏
+        type: boolean
+        default: true
+      rule:
+        description: 仓内规则 JSON 路径（传给 ocr review --rule）；空则使用 OCR 默认规则链
+        type: string
+        default: ""
+      upload_artifacts:
+        description: 上传 ocr-result.json 与 stderr 为 workflow artifact
+        type: boolean
+        default: true
+      block_merge_on_comments:
+        description: OCR 有 high 严重级别审查意见时 fail job，阻断 release-auto-merge（medium/low 仅评论不阻断）
+        type: boolean
+        default: true
+      enable_session_cache:
+        description: GHA cache + OCR --resume（同 PR 未改文件跳过 LLM；默认 true）
+        type: boolean
+        default: true
+      review_mode:
+        description: "log=仅写 artifact/日志不发 PR 评论；comment=正常评论（默认）。借鉴 Flue DOCS_FLUE_REVIEW_MODE。"
+        type: string
+        default: "comment"
+      actions_bundle_ref:
+        description: ocr-pr-review composite action 的 git ref（仅允许 actions/vX.Y.Z 或 40 位 commit SHA；dogfood 可传 head SHA）
+        type: string
+        default: actions/v0.5.0
+    secrets:
+      OCR_LLM_TOKEN:
+        description: LLM API Key（当前 provider；OCR_LLM_TOKEN）；skip=true 时可不传
+        required: false
+      DEEPSEEK_API_KEY:
+        description: 旧名兼容（OCR_LLM_TOKEN 为空时回退）；新配置请用 OCR_LLM_TOKEN
+        required: false
+      OCR_LLM_URL:
+        description: LLM endpoint URL（推荐用 Org Variable；此处声明以兼容 Secret 配置）
+        required: false
+      OCR_LLM_MODEL:
+        description: LLM model 名（推荐用 Org Variable；此处声明以兼容 Secret 配置）
+        required: false
+      OCR_LLM_EXTRA_HEADERS:
+        description: 额外请求头（推荐用 Org Variable；此处声明以兼容 Secret 配置）
+        required: false
+      WORKERS_WORLD_GHA_TOKEN:
+        description: 跨仓拉取 workers-world/worker-actions 用 PAT（私有仓须传；公开仓可省略，回退 github.token）
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  # actions/cache@v5：restore 需 read，save（post）需 write；仅 read 时缓存静默失效且可能使 job 失败
+  actions: write
+
+# 同 PR 连续 push 取消过期 OCR，避免重复调 LLM / session cache 竞争
+concurrency:
+  group: ocr-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skip-ack:
+    if: ${{ inputs.skip }}
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: OCR skipped
+        run: echo "OCR skipped by caller (skip=true)；不阻断 release-auto-merge。"
+
+  review:
+    # 非 PR 事件（push / workflow_dispatch）下 pr_number 为空，composite 会失败
+    if: ${{ inputs.skip != true && github.event.pull_request.number != '' }}
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 25
+    steps:
+      - name: Validate review_mode
+        env:
+          REVIEW_MODE: ${{ inputs.review_mode }}
+        run: |
+          set -euo pipefail
+          case "${REVIEW_MODE}" in
+            log|comment) echo "review_mode=${REVIEW_MODE}" ;;
+            *)
+              echo "::error::review_mode 须为 log 或 comment，当前: ${REVIEW_MODE}"
+              exit 1
+              ;;
+          esac
+
+      - name: Preflight LLM config
+        env:
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OCR_LLM_URL: ${{ vars.OCR_LLM_URL != '' && vars.OCR_LLM_URL || secrets.OCR_LLM_URL }}
+          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL != '' && vars.OCR_LLM_MODEL || secrets.OCR_LLM_MODEL }}
+        run: |
+          set -euo pipefail
+          # 兼容旧 Org Secret 名 DEEPSEEK_API_KEY
+          if [ -z "${OCR_LLM_TOKEN:-}" ] && [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+            OCR_LLM_TOKEN="${DEEPSEEK_API_KEY}"
+            echo "::notice::使用兼容 Secret DEEPSEEK_API_KEY（请迁移为 OCR_LLM_TOKEN）"
+          fi
+          missing=0
+          if [ -z "${OCR_LLM_TOKEN}" ]; then
+            echo "::error::缺少 Org Secret OCR_LLM_TOKEN（或兼容 DEEPSEEK_API_KEY）。请在 workers-world Org → Secrets 配置当前 provider 的 API Key，caller 使用 secrets: inherit。"
+            missing=1
+          fi
+          if [ -z "${OCR_LLM_URL}" ]; then
+            echo "::warning::未配置 OCR_LLM_URL（Variable 或 Secret），将使用默认 https://api.deepseek.com/v1/chat/completions"
+          fi
+          if [ -z "${OCR_LLM_MODEL}" ]; then
+            echo "::warning::未配置 OCR_LLM_MODEL（Variable 或 Secret），将使用默认 deepseek-chat"
+          fi
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+          # URL 格式校验：剥离查询串与尾斜杠后再匹配；日志不回显完整 URL（防暴露 account/gateway）
+          RESOLVED_URL="${OCR_LLM_URL:-https://api.deepseek.com/v1/chat/completions}"
+          URL_NO_QUERY="${RESOLVED_URL%%\?*}"
+          URL_NORM="${URL_NO_QUERY%/}"
+          case "${URL_NORM}" in
+            */chat/completions) ;;
+            *)
+              HOST="$(printf '%s' "${RESOLVED_URL}" | sed -E 's|^https?://([^/]+).*|\1|')"
+              echo "::error::OCR_LLM_URL 须为 chat completions 端点（含 /chat/completions 路径）。host=${HOST}"
+              echo "::error::直连 DeepSeek 用 https://api.deepseek.com/v1/chat/completions；经 AI Gateway 用 .../deepseek/chat/completions"
+              exit 1
+              ;;
+          esac
+          # model 须非空且不含空格
+          RESOLVED_MODEL="${OCR_LLM_MODEL:-deepseek-chat}"
+          if echo "${RESOLVED_MODEL}" | grep -q ' '; then
+            echo "::error::OCR_LLM_MODEL 含空格，无效"
+            exit 1
+          fi
+
+      - name: Validate actions_bundle_ref
+        env:
+          ACTIONS_BUNDLE_REF: ${{ inputs.actions_bundle_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 仅允许 actions/vX.Y.Z tag 或 40 位 commit SHA（拒绝任意分支名）
+          if echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^actions/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            :
+          elif echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^[0-9a-f]{40}$'; then
+            :
+          else
+            echo "::error::actions_bundle_ref 须为 actions/vX.Y.Z 或 40 位 commit SHA，当前格式非法"
+            exit 1
+          fi
+
+      # GHA 禁止在 action @ref 使用 inputs；先 checkout bundle 再本地 uses（勿 sparse，易漏 action.yml）
+      # token：跨仓调用（业务仓）须传 WORKERS_WORLD_GHA_TOKEN；同仓 dogfood 回退 github.token
+      - name: Checkout ocr-pr-review action
+        uses: actions/checkout@v7
+        with:
+          repository: workers-world/worker-actions
+          ref: ${{ inputs.actions_bundle_ref }}
+          path: .gha-actions-bundle
+          fetch-depth: 1
+          token: ${{ secrets.WORKERS_WORLD_GHA_TOKEN != '' && secrets.WORKERS_WORLD_GHA_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Verify ocr-pr-review action
+        env:
+          ACTIONS_BUNDLE_REF: ${{ inputs.actions_bundle_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTION_YML=".gha-actions-bundle/.github/actions/ocr-pr-review/action.yml"
+          if [ ! -f "${ACTION_YML}" ]; then
+            echo "::error::缺少 ${ACTION_YML}（ref 校验已通过）；请确认该 ref 已含 ocr-pr-review"
+            ls -laR .gha-actions-bundle/.github/actions 2>/dev/null || ls -laR .gha-actions-bundle 2>/dev/null || true
+            exit 1
+          fi
+
+      - uses: ./.gha-actions-bundle/.github/actions/ocr-pr-review
+        with:
+          llm_url: ${{ vars.OCR_LLM_URL != '' && vars.OCR_LLM_URL || secrets.OCR_LLM_URL != '' && secrets.OCR_LLM_URL || 'https://api.deepseek.com/v1/chat/completions' }}
+          llm_auth_token: ${{ secrets.OCR_LLM_TOKEN != '' && secrets.OCR_LLM_TOKEN || secrets.DEEPSEEK_API_KEY }}
+          llm_model: ${{ vars.OCR_LLM_MODEL != '' && vars.OCR_LLM_MODEL || secrets.OCR_LLM_MODEL != '' && secrets.OCR_LLM_MODEL || 'deepseek-chat' }}
+          llm_extra_headers: ${{ vars.OCR_LLM_EXTRA_HEADERS != '' && vars.OCR_LLM_EXTRA_HEADERS || secrets.OCR_LLM_EXTRA_HEADERS != '' && secrets.OCR_LLM_EXTRA_HEADERS || '' }}
+          review_concurrency: ${{ vars.OCR_REVIEW_CONCURRENCY != '' && vars.OCR_REVIEW_CONCURRENCY || '' }}
+          llm_use_anthropic: "false"
+          language: ${{ inputs.language }}
+          incremental: ${{ inputs.incremental == true && 'true' || 'false' }}
+          sticky_summary: ${{ inputs.sticky_summary == true && 'true' || 'false' }}
+          incremental_overlap_threshold: "0.6"
+          upload_artifacts: ${{ inputs.upload_artifacts == true && 'true' || 'false' }}
+          rule: ${{ inputs.rule }}
+          ocr_version: ${{ inputs.ocr_version }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+          head_ref: ${{ github.head_ref }}
+          base_ref: ${{ github.base_ref }}
+          enable_session_cache: ${{ inputs.enable_session_cache == true && 'true' || 'false' }}
+
+      # composite action 与 caller 同 runner，/tmp/ocr-result.json 可在此读取
+      - name: Review mode log — skip PR publish gate note
+        if: success() && inputs.review_mode == 'log'
+        run: |
+          set -euo pipefail
+          echo "::notice::review_mode=log：OCR 已跑完；不因 high comments 阻断（结果见 artifact /tmp/ocr-result.json）。"
+          echo "切换 review_mode=comment 以恢复 PR 评论与 high 阻断。"
+
+      - name: Block auto-merge when OCR has HIGH severity comments
+        if: success() && inputs.block_merge_on_comments && inputs.review_mode != 'log'
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/ocr-result.json ]; then
+            echo "::error::ocr-result.json 缺失或为空，无法判定 OCR 门禁"
+            exit 1
+          fi
+          count="$(node -e '
+            const fs = require("fs");
+            const raw = fs.readFileSync("/tmp/ocr-result.json", "utf8").trim();
+            if (!raw) process.exit(2);
+            const j = JSON.parse(raw);
+            const comments = Array.isArray(j) ? j : (j.comments || []);
+            const blocking = comments.filter(c => (c.severity || "").toLowerCase() === "high");
+            process.stdout.write(String(blocking.length));
+          ')"
+          if [ "${count}" -gt 0 ]; then
+            echo "::error::OCR 发现 ${count} 条 high 严重级别审查意见。请在 dev 分支修复并 push 后重跑 PR；有 high comment 时不 auto-merge。"
+            echo "medium/low 意见仅作评论，不阻断 merge。PR 评论仍可查看/Apply suggestion。"
+            exit 1
+          fi
+          echo "OCR 无 high 审查意见，可继续 release-auto-merge（medium/low 不阻断）。"

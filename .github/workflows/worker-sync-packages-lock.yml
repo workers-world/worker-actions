@@ -1,0 +1,139 @@
+name: update package-lock.json file
+
+# 按 package.json 刷新 package-lock（GitHub Packages 解析 SDK + 其它依赖）。
+# 不修改 package.json——SDK 与其它依赖版本均以开发者提交的 package.json 为准。
+#
+# 跳过条件（须同时满足）：
+# 1) lock 已是目标 SDK 的 GitHub Packages 解析（非 file:）
+# 2) package.json 根 dependencies/devDependencies 与 lock packages[""] 一致
+# 仅 SDK 版本匹配时跳过会漏掉普通依赖增删（如 chanfana），导致 npm ci EUSAGE。
+#
+# 由 worker-verify 在 verify 前调用；也可单独 workflow_call。
+# composite action 须全路径 @actions/vX.Y.Z（跨仓 workflow_call 时 ./ 解析到 caller 仓）。
+on:
+  workflow_call:
+    secrets:
+      WORKERS_WORLD_GHA_TOKEN:
+        description: read:packages PAT；未传则尝试 GITHUB_TOKEN
+        required: false
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  sync-lock:
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          registry-url: https://npm.pkg.github.com
+          scope: "@workers-world"
+
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.5.0
+        id: lock_check
+
+      - name: Lock already in sync
+        if: steps.lock_check.outputs.in_sync == 'true' && steps.lock_check.outputs.skip != 'true'
+        run: echo "lock 已与 package.json 同步，跳过刷新"
+
+      - name: Regenerate package-lock.json from GitHub Packages
+        if: steps.lock_check.outputs.in_sync != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          PUSH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! grep -q 'framework_sdk_worker' package.json; then
+            echo "package.json 无 framework_sdk_worker，跳过"
+            exit 0
+          fi
+
+          git fetch origin "${GITHUB_REF_NAME}"
+          git pull --ff-only origin "${GITHUB_REF_NAME}"
+
+          WANT_VER="$(node -e '
+            const s = require("./package.json").dependencies?.framework_sdk_worker || "";
+            const m = String(s).match(/@([0-9]+\.[0-9]+\.[0-9]+)/);
+            if (!m) {
+              console.error("package.json 中 framework_sdk_worker 须为 npm:@workers-world/framework_sdk_worker@X.Y.Z");
+              process.exit(1);
+            }
+            process.stdout.write(m[1]);
+          ')"
+
+          lock_matches_version() {
+            [[ -f package-lock.json ]] \
+              && grep -q 'npm.pkg.github.com' package-lock.json \
+              && ! grep -q '"\.\./framework_sdk_worker"' package-lock.json \
+              && grep -q "framework_sdk_worker/${WANT_VER}/" package-lock.json
+          }
+
+          root_deps_in_sync() {
+            [[ -f package-lock.json ]] || return 1
+            node -e '
+              const fs = require("fs");
+              const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+              const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+              const root = lock.packages?.[""] || {};
+              function same(a, b) {
+                const aa = a || {};
+                const bb = b || {};
+                const keys = new Set([...Object.keys(aa), ...Object.keys(bb)]);
+                for (const k of keys) {
+                  if (String(aa[k] ?? "") !== String(bb[k] ?? "")) process.exit(1);
+                }
+              }
+              same(pkg.dependencies, root.dependencies);
+              same(pkg.devDependencies, root.devDependencies);
+            '
+          }
+
+          if [[ ! -f .npmrc ]] || ! grep -q 'npm.pkg.github.com' .npmrc; then
+            {
+              echo '@workers-world:registry=https://npm.pkg.github.com'
+              echo '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}'
+            } >> .npmrc
+          fi
+          rm -rf node_modules/framework_sdk_worker
+          if [[ -f package-lock.json ]] && grep -q '"\.\./framework_sdk_worker"' package-lock.json; then
+            echo "移除 file: link 残留 lock，重新生成"
+            rm -f package-lock.json
+          fi
+          echo "按 package.json 刷新 lock → framework_sdk_worker@${WANT_VER}"
+          npm install --no-fund --no-audit
+          if ! lock_matches_version; then
+            echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。请确认 Packages 已发布且 WORKERS_WORLD_GHA_TOKEN/read 权限正常。"
+            exit 1
+          fi
+          if ! root_deps_in_sync; then
+            echo "::error::刷新后 package-lock 根依赖仍与 package.json 不一致。"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json .npmrc
+          if git diff --cached --quiet; then
+            echo "package-lock 与 remote 一致，无需提交"
+            exit 0
+          fi
+          git commit -m "CI action 自动刷新 package-lock（GitHub Packages SDK ${WANT_VER}）" -m "供 Cloudflare Builds npm ci 安装；含 package.json 根依赖同步。"
+
+          push_with_rebase() {
+            git fetch origin "${GITHUB_REF_NAME}"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF_NAME}"
+          }
+
+          if push_with_rebase; then
+            exit 0
+          fi
+          echo "push 被拒，rebase 后重试一次…"
+          push_with_rebase

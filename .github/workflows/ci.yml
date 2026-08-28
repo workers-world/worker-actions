@@ -1,0 +1,28 @@
+name: CI
+
+# 公开仓 dogfood：fork PR 只跑无 secret 的 lint；禁止 uses:./ + secrets:inherit。
+# 打 tag 由 release-actions-bundle.yml 在 push master 时单独触发。
+on:
+  pull_request:
+    branches: ["master"]
+  push:
+    branches: ["master"]
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+      - "tools/**"
+      - "templates/**"
+      - "docs/templates/**"
+      - "manifest/**"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflow-lint:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/worker-workflow-lint.yml
+    with:
+      runner: ubuntu-latest

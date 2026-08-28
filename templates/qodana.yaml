@@ -1,0 +1,16 @@
+#-------------------------------------------------------------------------------#
+#               Qodana analysis is configured by qodana.yaml file               #
+#             https://www.jetbrains.com/help/qodana/qodana-yaml.html            #
+#-------------------------------------------------------------------------------#
+
+version: "1.0"
+
+profile:
+  name: qodana.starter
+
+# 单仓 CI 模板：复制到各 Worker 根目录，按本仓路径追加 exclude。
+# 全 monorepo 横切扫描见 scripts/qodana.yaml（cloudflare_work 本地）。
+# CI 阻断 gate 由 worker-qodana-scan.yml 的 SARIF 解析负责，勿在此写 failureConditions
+#（否则 Qodana Action 会在 parse/PR 评论之前因 failThreshold 退出）。
+
+linter: jetbrains/qodana-js:2026.2

@@ -1,0 +1,138 @@
+# Release PR + auto-merge + OCR（全仓默认模板）
+# workers-world actions bundle: actions/v0.4.34（禁止 @master）
+# 前置：Org Secret WORKERS_WORLD_GHA_TOKEN（PAT repo）；
+#       Org Variable NOTIFY_WORKER_URL + Org Secret NOTIFY_GHA_TOKEN（阻断邮件）
+# Caller secrets: inherit（勿显式传 NOTIFY_WORKER_URL）
+#
+# 差异仓：
+# - 无 SDK：materialize_sdk: false；无 test：run_tests: false（如 manim / r2）
+# - 勿在 uses job 上写 timeout-minutes / runs-on（见 .opencodereview 规则）
+
+name: CI
+
+on:
+  push:
+    branches: ["dev_*"]
+  pull_request:
+    branches: ["master"]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# 同一 PR / 分支只保留最新 run，避免旧 run 的 release-auto-merge 抢先 merge
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    permissions:
+      contents: write
+      packages: read
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      sync_packages_lock: true
+      promote: false
+
+  ensure-release-pr:
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
+    permissions: {}
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      release_branch: ${{ github.ref_name }}
+
+  qodana:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: write
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+
+  ocr:
+    if: |
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      rule: .opencodereview/rule.json
+
+  release-auto-merge:
+    needs: [verify, qodana, ocr]
+    if: |
+      always() &&
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false &&
+      needs.verify.result == 'success' &&
+      needs.qodana.result == 'success' &&
+      needs.ocr.result == 'success'
+    permissions: {}
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+      head_ref: ${{ github.head_ref }}
+
+  # 未能 auto-merge 时邮件通知（action-notify-email → notify-worker）
+  # OCR 有 comment 时 ocr job fail（block_merge_on_comments），走 ocr==failure 发信。
+  notify-blocked:
+    needs: [verify, qodana, ocr, release-auto-merge]
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+    if: |
+      always() &&
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false &&
+      needs.release-auto-merge.result != 'success' &&
+      needs.release-auto-merge.result != 'cancelled' &&
+      needs.verify.result != 'cancelled' &&
+      needs.qodana.result != 'cancelled' &&
+      needs.ocr.result != 'cancelled' &&
+      (
+        needs.verify.result == 'failure' ||
+        needs.qodana.result == 'failure' ||
+        needs.ocr.result == 'failure' ||
+        needs.release-auto-merge.result == 'failure' ||
+        (
+          needs.release-auto-merge.result == 'skipped' &&
+          needs.verify.result == 'success' &&
+          needs.qodana.result == 'success' &&
+          needs.ocr.result == 'success'
+        )
+      )
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.5.0
+    secrets: inherit
+    with:
+      pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+      head_ref: ${{ github.head_ref }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      verify_result: ${{ needs.verify.result }}
+      qodana_result: ${{ needs.qodana.result }}
+      ocr_result: ${{ needs.ocr.result }}
+      merge_result: ${{ needs.release-auto-merge.result }}

@@ -1,0 +1,92 @@
+name: Worker outdated PR check
+
+# **What**: 对 PR head 打 Outdated PR Check commit status；落后 master 超过 grace 则 failure。
+# **Why**: 减少陈旧 Release PR 合并冲突；事件驱动 + 每日 refresh 双轨（见 worker-outdated-pr-refresh.yml）。
+# **Who**: 同仓 / fork PR（仅调 gh api，不 checkout PR 代码）。
+#
+# SECURITY: pull_request_target 用于给 fork 写 status。本 workflow **禁止** checkout PR head
+# 或执行 PR 代码——只调 GitHub API。见 cloudflare-docs outdated-pr-check 威胁模型。
+#
+# Caller（业务仓自己挂 trigger）：
+#   on: pull_request_target (branches: [master])  # 仅私有仓建议；公开仓勿用
+#   uses: workers-world/worker-actions/.github/workflows/worker-outdated-pr-check.yml@actions/vX.Y.Z
+on:
+  workflow_call:
+    inputs:
+      base_branch:
+        description: 与 PR 比较的主干分支
+        type: string
+        default: "master"
+      grace_seconds:
+        description: 落后主干的宽限秒数（默认 72h = 259200）
+        type: string
+        default: "259200"
+
+concurrency:
+  group: outdated-pr-check-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  check-outdated:
+    name: Outdated PR Check
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Check if PR is within grace of base
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_BRANCH: ${{ inputs.base_branch || 'master' }}
+          GRACE_SECONDS: ${{ inputs.grace_seconds || '259200' }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          COMPARE=$(gh api "/repos/${REPO}/compare/${BASE_BRANCH}...${PR_SHA}") || {
+            echo "Compare API failed — skipping status post"
+            exit 0
+          }
+          BEHIND_BY=$(echo "$COMPARE" | jq -r '.behind_by')
+
+          if [ -z "$BEHIND_BY" ] || [ "$BEHIND_BY" = "null" ]; then
+            echo "Unexpected API response — skipping status post"
+            exit 0
+          fi
+
+          if [ "$BEHIND_BY" = "0" ]; then
+            STATE="success"
+            DESCRIPTION="Branch is up to date with ${BASE_BRANCH}"
+          else
+            MERGE_BASE_DATE=$(echo "$COMPARE" | jq -r '.merge_base_commit.commit.committer.date')
+            if [ -z "$MERGE_BASE_DATE" ] || [ "$MERGE_BASE_DATE" = "null" ]; then
+              echo "Could not determine merge base date — skipping status post"
+              exit 0
+            fi
+            MERGE_BASE_TS=$(date -d "$MERGE_BASE_DATE" +%s)
+            NOW=$(date +%s)
+            AGE=$((NOW - MERGE_BASE_TS))
+            if [ "$AGE" -gt "$GRACE_SECONDS" ]; then
+              DAYS=$((AGE / 86400))
+              STATE="failure"
+              DESCRIPTION="Branch is ${DAYS}d behind ${BASE_BRANCH}. Rebase/update your dev_* branch."
+            else
+              HOURS=$((GRACE_SECONDS / 3600))
+              STATE="success"
+              DESCRIPTION="Behind ${BASE_BRANCH} but within ${HOURS}h grace"
+            fi
+          fi
+
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/statuses/${PR_SHA}" \
+            -f state="$STATE" \
+            -f context="Outdated PR Check" \
+            -f description="$DESCRIPTION" \
+            || echo "Failed to post status — skipping"

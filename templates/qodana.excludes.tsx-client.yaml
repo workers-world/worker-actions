@@ -1,0 +1,5 @@
+# 追加到 qodana.yaml 的 exclude 片段（React TSX 客户端）
+exclude:
+  - name: JSUnusedLocalSymbols
+    paths:
+      - src/client

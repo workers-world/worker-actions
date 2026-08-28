@@ -1,0 +1,8 @@
+# Actions bundle 当前版本（Worker 仓 pin 此 tag）
+# 完整变更见 docs/actions-releases.md；权威来源为 git tag
+current: actions/v0.5.0
+sha: ""
+released_at: "2026-08-28"
+notes: |
+  First public worker-actions bundle (split from workers-world/.github).
+  Tag is created on first push to master via release-actions-bundle.

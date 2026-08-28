@@ -1,0 +1,81 @@
+name: Worker CI failure PR comment
+
+# **What**: verify / qodana / workflow-lint 失败时在 Release PR 上贴结构化摘要。
+# **Why**: 邮件 notify-blocked 仅在 merge 失败路径；本 job 在门禁失败时立即给 PR 可见反馈。
+# **Who**: 同仓 Release PR（dev_* → master）。
+#
+# Caller（嵌在 worker-ci）：
+#   needs: [workflow-lint, verify, qodana]
+#   if: failure on any of those
+#   uses: .../worker-ci-failure-comment.yml@actions/vX.Y.Z
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: PR number
+        type: string
+        required: true
+      head_ref:
+        description: PR head branch
+        type: string
+        required: true
+      workflow_lint_result:
+        type: string
+        required: true
+      verify_result:
+        type: string
+        required: true
+      qodana_result:
+        type: string
+        required: true
+      ocr_result:
+        description: OCR result（可 skipped）
+        type: string
+        required: false
+        default: "skipped"
+
+permissions:
+  pull-requests: write
+
+jobs:
+  comment:
+    name: Comment CI failure
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 3
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post failure summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ inputs.pr_number }}
+          HEAD_REF: ${{ inputs.head_ref }}
+          LINT: ${{ inputs.workflow_lint_result }}
+          VERIFY: ${{ inputs.verify_result }}
+          QODANA: ${{ inputs.qodana_result }}
+          OCR: ${{ inputs.ocr_result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          FAILED=""
+          [ "$LINT" = "failure" ] && FAILED="${FAILED}- workflow-lint: **failure**\n"
+          [ "$VERIFY" = "failure" ] && FAILED="${FAILED}- verify: **failure**\n"
+          [ "$QODANA" = "failure" ] && FAILED="${FAILED}- qodana: **failure**\n"
+          [ "$OCR" = "failure" ] && FAILED="${FAILED}- ocr: **failure**\n"
+          if [ -z "$FAILED" ]; then
+            echo "No failure results — skip comment"
+            exit 0
+          fi
+          BODY=$(printf '%b' "<!-- workers-world-ci-failure -->\n## CI 失败摘要\n\n分支 \`${HEAD_REF}\` 的 Release PR 门禁未通过：\n\n${FAILED}\n[查看本次 run](${RUN_URL})\n\n_修复后 push 同一 \`dev_*\` 分支即可重跑。_\n")
+          # 若已有同 marker 评论则 update，否则 create
+          EXISTING=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
+            --jq '.[] | select(.body | contains("<!-- workers-world-ci-failure -->")) | .id' \
+            | head -1 || true)
+          if [ -n "$EXISTING" ]; then
+            gh api --method PATCH "repos/${REPO}/issues/comments/${EXISTING}" -f body="$BODY" >/dev/null
+            echo "Updated comment ${EXISTING}"
+          else
+            gh pr comment "$PR" --repo "$REPO" --body "$BODY"
+            echo "Created comment"
+          fi

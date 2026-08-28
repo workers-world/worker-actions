@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Workers World 共享 pre-commit：暂存区含 TS/JS 时跑 Biome（与 CI npm run lint 一致）。
+# 安装：scripts/install-git-hooks.sh（见 docs/local-git-hooks.md）
+set -euo pipefail
+
+if [[ "${WORKERS_SKIP_PRE_COMMIT:-}" == "1" || "${SKIP:-}" == "1" ]]; then
+    exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT"
+
+[[ -f package.json ]] || exit 0
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACM)"
+if [[ -z "$STAGED" ]]; then
+    exit 0
+fi
+
+if ! echo "$STAGED" | grep -qE '\.(ts|tsx|js|jsx|mjs|cjs|jsonc?)$'; then
+    exit 0
+fi
+
+has_biome_lint() {
+    node -e "
+        const lint = require('./package.json').scripts?.lint ?? '';
+        process.exit(/biome/i.test(lint) ? 0 : 1);
+    " 2>/dev/null
+}
+
+if has_biome_lint; then
+    echo "[pre-commit] npm run lint"
+    npm run lint
+    exit 0
+fi
+
+if [[ -f biome.json || -f biome.jsonc ]]; then
+  BIOME_VERSION="${WORKERS_BIOME_VERSION:-2.5.1}"
+  echo "[pre-commit] npx @biomejs/biome@${BIOME_VERSION} check --staged"
+  npx --yes "@biomejs/biome@${BIOME_VERSION}" check --staged --no-errors-on-unmatched
+fi

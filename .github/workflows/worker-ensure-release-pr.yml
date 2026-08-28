@@ -1,0 +1,110 @@
+name: Worker ensure release PR
+
+# push 到 dev_* 时确保存在一条 dev → master 的 Release PR。
+# PR 创建/更新后会触发 pull_request workflow（verify + qodana + OCR + auto-merge）。
+#
+# Caller（push job）：
+#   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
+#   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.5.0
+#   with:
+#     release_branch: ${{ github.ref_name }}
+on:
+  workflow_call:
+    inputs:
+      release_branch:
+        description: 当前 dev_* 分支名
+        required: true
+        type: string
+      master_branch:
+        description: 发布目标分支
+        type: string
+        default: master
+      pr_title_prefix:
+        description: PR 标题前缀
+        type: string
+        default: "release:"
+    outputs:
+      pr_number:
+        description: 当前 dev_* → master 的 open Release PR 号（已有或新建）
+        value: ${{ jobs.ensure.outputs.pr_number }}
+    secrets:
+      WORKERS_WORLD_GHA_TOKEN:
+        description: PAT（repo 权限）；创建 PR 必填。Org 常禁止 GITHUB_TOKEN 建 PR。
+        required: true
+
+# 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
+permissions: {}
+
+jobs:
+  ensure:
+    runs-on: ${{ vars.WORKERS_WORLD_GHA_RUNNER != '' && vars.WORKERS_WORLD_GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    permissions: {}
+    outputs:
+      pr_number: ${{ steps.open-pr.outputs.pr_number }}
+    steps:
+      # permissions: {} 时 GITHUB_TOKEN 无法拉取私有仓 composite action（codeload 404）；内联安装 gh
+      - name: Ensure GitHub CLI
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          GH_VERSION="2.63.2"
+          bindir="${RUNNER_TEMP}/gha-bin"
+          mkdir -p "$bindir"
+          curl -fsSL \
+            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          chmod +x "$bindir/gh"
+          echo "$bindir" >> "$GITHUB_PATH"
+          "$bindir/gh" --version
+
+      - name: Open release PR if missing
+        id: open-pr
+        env:
+          GH_TOKEN: ${{ secrets.WORKERS_WORLD_GHA_TOKEN }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+          MASTER_BRANCH: ${{ inputs.master_branch }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::缺少 WORKERS_WORLD_GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
+            echo "::error::或在本仓 Settings → Actions → General 开启「Allow GitHub Actions to create and approve pull requests」（仍建议用 PAT）。"
+            exit 1
+          fi
+          if ! [[ "$RELEASE_BRANCH" =~ ^dev_ ]]; then
+            echo "Skip: release_branch must match dev_*"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          existing="$(gh pr list --repo "$REPO" --head "$RELEASE_BRANCH" --base "$MASTER_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "Release PR already open: #${existing}"
+            echo "pr_number=${existing}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh pr create --repo "$REPO" \
+            --base "$MASTER_BRANCH" \
+            --head "$RELEASE_BRANCH" \
+            --title "${{ inputs.pr_title_prefix }} ${RELEASE_BRANCH} → ${MASTER_BRANCH}" \
+            --body "$(cat <<'EOF'
+          ## Release PR（自动创建）
+
+          - push 到 `dev_*` 会更新本 PR
+          - **verify + Qodana + OCR** 全绿后 CI 自动 merge 到 `master`，正常情况无需人工点击
+          - 任一门禁失败时请修复后 push，或人工处理 PR
+
+          > 由 `worker-ensure-release-pr` 创建。
+          EOF
+          )"
+          new="$(gh pr list --repo "$REPO" --head "$RELEASE_BRANCH" --base "$MASTER_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$new" ]; then
+            echo "::error::PR 创建后未能解析 number（head=${RELEASE_BRANCH} base=${MASTER_BRANCH}）"
+            exit 1
+          fi
+          echo "Created release PR #${new}"
+          echo "pr_number=${new}" >> "$GITHUB_OUTPUT"
