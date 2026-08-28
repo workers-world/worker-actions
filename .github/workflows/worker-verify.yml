@@ -11,6 +11,7 @@ name: Worker verify
 #
 # PR verify checkout PR head SHA（非 pull/N/merge），与 qodana 一致，避免 stale merge ref 导致 npm ci 失败。
 # PR 上若 lock 未就绪会短轮询等待 sync-lock bot（与 push workflow 并行竞态）。
+# 无 SDK（materialize_sdk: false）不跑 wait：没有 sync-lock bot 可等。
 # SDK 版本唯一来源：caller 仓 package.json 的 framework_sdk_worker（npm:@workers-world/...@X.Y.Z）。
 # promote 默认 false：合入 master 走 ensure-release-pr + OCR 门禁 + release-auto-merge。
 # 仅遗留/应急仓设 promote: true（经 worker-promote：开 PR → gh pr merge，禁止直推 master）。
@@ -86,8 +87,11 @@ jobs:
         run: git pull --ff-only origin "${GITHUB_REF_NAME}"
 
       - name: Wait for sync-lock bot on PR head (if lock stale)
-        if: github.event_name == 'pull_request' && inputs.sync_packages_lock
-        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.1.0
+        if: >
+          github.event_name == 'pull_request' &&
+          inputs.sync_packages_lock &&
+          inputs.materialize_sdk
+        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.1.1
         with:
           branch: ${{ github.head_ref }}
 

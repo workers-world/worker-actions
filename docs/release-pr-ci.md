@@ -117,7 +117,7 @@ Org 级仍可能覆盖禁止；**推荐始终使用 `GHA_TOKEN`**。
 5. 另复制 [templates/sync-default-branch.yml](../templates/sync-default-branch.yml) 为独立 workflow（**勿**并入编排 / `ci.yml`）
 6. 特殊仓：`skip_branch_deleted_check` / `require_non_draft_pr`（如 deploy-tracker）。**OCR 默认 `skip_ocr: true`（临时）**；版本收尾要审查时传 `skip_ocr: false`
 
-**package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` 刷新 lock；PR verify checkout **head SHA**（非 `pull/N/merge`），并在 lock 未就绪时短轮询等待 bot（避免与 push workflow 并行竞态）。bump SDK 只改 `package.json` 即可，无需手改 lock。
+**package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` 刷新 lock；PR verify checkout **head SHA**（非 `pull/N/merge`），并在 lock 未就绪时短轮询等待 bot（避免与 push workflow 并行竞态）。`materialize_sdk: false`（无 SDK）的仓不跑 wait。bump SDK 只改 `package.json` 即可，无需手改 lock。
 
 ## 阻断通知
 
