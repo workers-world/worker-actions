@@ -37,11 +37,15 @@ runs:
         fi
 
         for attempt in $(seq 1 "$max"); do
-          if node "$script"; then
+          # if node; then 之后 $? 是 if 的 0，不是 node 的 exit code
+          set +e
+          node "$script"
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
             echo "lock 与 package.json 一致（attempt ${attempt}/${max}）"
             exit 0
           fi
-          code=$?
           if [ "$code" -eq 2 ]; then
             echo "无 framework_sdk_worker，跳过等待"
             exit 0

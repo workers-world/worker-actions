@@ -1,0 +1,21 @@
+# 复制到 bundle 仓 .github/workflows/gh-release-on-tag.yml
+# worker-actions / java-actions：push actions/v* → GitHub Release 页面
+# worker-actions 同仓可改为 uses: ./.github/workflows/create-gh-release.yml
+# java-actions 跨仓 pin worker-actions create-gh-release（见本仓 gh-release-on-tag.yml）
+# 说明见 docs/gh-release.md
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - "actions/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: workers-world/worker-actions/.github/workflows/create-gh-release.yml@actions/v0.1.0
+    secrets: inherit
+    with:
+      tag_name: ${{ github.ref_name }}
