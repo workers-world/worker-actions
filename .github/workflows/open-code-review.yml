@@ -4,7 +4,7 @@ name: Open Code Review
 #
 # Caller 典型用法：
 #   permissions: { contents: read, pull-requests: write, actions: write }
-#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.0
+#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.2
 #   secrets: inherit
 #
 # Org 配置（配一次）：
