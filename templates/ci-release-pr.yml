@@ -27,7 +27,7 @@ jobs:
       # nested worker-ci → qodana/ocr 需 actions: write（cache）；notify-blocked 需 actions/checks: read
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.0
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.2
     secrets: inherit
     with:
       # SDK 版本以 package.json 为准；无 SDK 则 materialize_sdk: false
