@@ -27,7 +27,7 @@ jobs:
     permissions:
       contents: write
       packages: read
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.0
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.2
     secrets: inherit
     with:
       sync_packages_lock: true
@@ -36,7 +36,7 @@ jobs:
   ensure-release-pr:
     if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.0
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.2
     secrets: inherit
     with:
       release_branch: ${{ github.ref_name }}
@@ -53,7 +53,7 @@ jobs:
       pull-requests: write
       issues: write
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.1.0
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.1.2
     secrets: inherit
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
@@ -68,7 +68,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.0
+    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.2
     secrets: inherit
     with:
       rule: .opencodereview/rule.json
@@ -87,7 +87,7 @@ jobs:
       needs.qodana.result == 'success' &&
       needs.ocr.result == 'success'
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.1.0
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.1.2
     secrets: inherit
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
@@ -126,7 +126,7 @@ jobs:
           needs.ocr.result == 'success'
         )
       )
-    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.1.0
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.1.2
     secrets: inherit
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
