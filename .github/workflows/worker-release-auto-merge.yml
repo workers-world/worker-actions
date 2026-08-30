@@ -16,6 +16,10 @@ on:
         description: PR head 分支名（须 dev_*）
         required: true
         type: string
+      head_sha:
+        description: 本次 run 门禁校验过的 PR head SHA（github.event.pull_request.head.sha）；merge 前断言未变
+        required: true
+        type: string
       master_branch:
         description: 目标分支
         type: string
@@ -23,7 +27,7 @@ on:
     secrets:
       GHA_TOKEN:
         description: PAT（repo 权限）；merge PR 必填
-        required: true
+        required: false
 
 # 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
 permissions: {}
@@ -44,9 +48,14 @@ jobs:
           GH_VERSION="2.63.2"
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
-          curl -fsSL \
-            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
-            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          gh_base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
+          # 官方 checksums.txt 校验（防下载产物被篡改/镜像投毒）
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_checksums.txt" -o "${RUNNER_TEMP}/gh.sha256"
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o "${RUNNER_TEMP}/gh.tgz"
+          grep " gh_${GH_VERSION}_linux_amd64.tar.gz\$" "${RUNNER_TEMP}/gh.sha256" \
+            | sed "s|gh_${GH_VERSION}_linux_amd64.tar.gz|${RUNNER_TEMP}/gh.tgz|" \
+            | sha256sum -c -
+          tar xz -C "$bindir" --strip-components=2 -f "${RUNNER_TEMP}/gh.tgz" "gh_${GH_VERSION}_linux_amd64/bin/gh"
           chmod +x "$bindir/gh"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/gh" --version
@@ -56,6 +65,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GHA_TOKEN }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_REF: ${{ inputs.head_ref }}
+          EXPECTED_HEAD_SHA: ${{ inputs.head_sha }}
           MASTER_BRANCH: ${{ inputs.master_branch }}
           REPO: ${{ github.repository }}
         run: |
@@ -77,6 +87,13 @@ jobs:
           fi
           if [ "$base" != "$MASTER_BRANCH" ]; then
             echo "::error::PR base is ${base}, expected ${MASTER_BRANCH}"
+            exit 1
+          fi
+          # TOCTOU 守卫：门禁只验证过 EXPECTED_HEAD_SHA；synchronize 会取消本 run 但取消是异步的，
+          # 若 PR head 已前移（新 push 未验证），旧 run 不得合入，由新 push 触发的 run 接管。
+          head_oid="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)"
+          if [ "$head_oid" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "::error::PR #${PR_NUMBER} head 已变为 ${head_oid}（本 run 验证的是 ${EXPECTED_HEAD_SHA}），拒绝 merge；等待新 push 触发的 run 重跑门禁。"
             exit 1
           fi
           if [ "$mergeable" != "MERGEABLE" ]; then

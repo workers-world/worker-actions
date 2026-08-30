@@ -6,7 +6,7 @@ name: Worker ensure release PR
 # Caller（push job）：
 #   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.2
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.3
 #   with:
 #     release_branch: ${{ github.ref_name }}
 on:
@@ -30,8 +30,8 @@ on:
         value: ${{ jobs.ensure.outputs.pr_number }}
     secrets:
       GHA_TOKEN:
-        description: PAT（repo 权限）；创建 PR 必填。Org 常禁止 GITHUB_TOKEN 建 PR。
-        required: true
+        description: PAT（repo 权限）；创建 PR 必填。Org 常禁止 GITHUB_TOKEN 建 PR。未传时步骤内守卫报错
+        required: false
 
 # 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
 permissions: {}
@@ -45,6 +45,7 @@ jobs:
       pr_number: ${{ steps.open-pr.outputs.pr_number }}
     steps:
       # permissions: {} 时 GITHUB_TOKEN 无法拉取私有仓 composite action（codeload 404）；内联安装 gh
+      # （若 bundle 仓转私有，此内联是唯一可靠路径；公开仓也可改用 ensure-gh-cli composite）
       - name: Ensure GitHub CLI
         run: |
           set -euo pipefail
@@ -55,9 +56,14 @@ jobs:
           GH_VERSION="2.63.2"
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
-          curl -fsSL \
-            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
-            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          gh_base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
+          # 官方 checksums.txt 校验（防下载产物被篡改/镜像投毒）
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_checksums.txt" -o "${RUNNER_TEMP}/gh.sha256"
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o "${RUNNER_TEMP}/gh.tgz"
+          grep " gh_${GH_VERSION}_linux_amd64.tar.gz\$" "${RUNNER_TEMP}/gh.sha256" \
+            | sed "s|gh_${GH_VERSION}_linux_amd64.tar.gz|${RUNNER_TEMP}/gh.tgz|" \
+            | sha256sum -c -
+          tar xz -C "$bindir" --strip-components=2 -f "${RUNNER_TEMP}/gh.tgz" "gh_${GH_VERSION}_linux_amd64/bin/gh"
           chmod +x "$bindir/gh"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/gh" --version
@@ -68,6 +74,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GHA_TOKEN }}
           RELEASE_BRANCH: ${{ inputs.release_branch }}
           MASTER_BRANCH: ${{ inputs.master_branch }}
+          PR_TITLE_PREFIX: ${{ inputs.pr_title_prefix }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -90,7 +97,7 @@ jobs:
           gh pr create --repo "$REPO" \
             --base "$MASTER_BRANCH" \
             --head "$RELEASE_BRANCH" \
-            --title "${{ inputs.pr_title_prefix }} ${RELEASE_BRANCH} → ${MASTER_BRANCH}" \
+            --title "${PR_TITLE_PREFIX} ${RELEASE_BRANCH} → ${MASTER_BRANCH}" \
             --body "$(cat <<'EOF'
           ## Release PR（自动创建）
 
