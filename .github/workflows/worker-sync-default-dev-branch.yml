@@ -19,8 +19,8 @@ on:
         default: true
     secrets:
       GHA_TOKEN:
-        description: PAT（repo 权限，改默认分支需 Admin）
-        required: true
+        description: PAT（repo 权限，改默认分支需 Admin）。未传时步骤内守卫报错
+        required: false
 
 jobs:
   sync:
@@ -38,9 +38,14 @@ jobs:
           GH_VERSION="2.63.2"
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
-          curl -fsSL \
-            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
-            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          gh_base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
+          # 官方 checksums.txt 校验（防下载产物被篡改/镜像投毒）
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_checksums.txt" -o "${RUNNER_TEMP}/gh.sha256"
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o "${RUNNER_TEMP}/gh.tgz"
+          grep " gh_${GH_VERSION}_linux_amd64.tar.gz\$" "${RUNNER_TEMP}/gh.sha256" \
+            | sed "s|gh_${GH_VERSION}_linux_amd64.tar.gz|${RUNNER_TEMP}/gh.tgz|" \
+            | sha256sum -c -
+          tar xz -C "$bindir" --strip-components=2 -f "${RUNNER_TEMP}/gh.tgz" "gh_${GH_VERSION}_linux_amd64/bin/gh"
           chmod +x "$bindir/gh"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/gh" --version

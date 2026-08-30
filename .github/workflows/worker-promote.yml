@@ -30,11 +30,16 @@ on:
         default: 900
     secrets:
       GHA_TOKEN:
-        description: PAT（repo）；建 PR / merge 必填。Org 常禁止 GITHUB_TOKEN 建/合 PR。
-        required: true
+        description: PAT（repo）；建 PR / merge 必填。Org 常禁止 GITHUB_TOKEN 建/合 PR。未传时步骤内守卫报错
+        required: false
 
 # 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
 permissions: {}
+
+# 部署类 job：同 dev_ 分支串行（排队不取消），防两次 push 的 promote 并行抢 merge
+concurrency:
+  group: promote-${{ github.repository }}-${{ inputs.release_branch }}
+  cancel-in-progress: false
 
 jobs:
   promote:
@@ -52,9 +57,14 @@ jobs:
           GH_VERSION="2.63.2"
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
-          curl -fsSL \
-            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
-            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          gh_base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
+          # 官方 checksums.txt 校验（防下载产物被篡改/镜像投毒）
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_checksums.txt" -o "${RUNNER_TEMP}/gh.sha256"
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o "${RUNNER_TEMP}/gh.tgz"
+          grep " gh_${GH_VERSION}_linux_amd64.tar.gz\$" "${RUNNER_TEMP}/gh.sha256" \
+            | sed "s|gh_${GH_VERSION}_linux_amd64.tar.gz|${RUNNER_TEMP}/gh.tgz|" \
+            | sha256sum -c -
+          tar xz -C "$bindir" --strip-components=2 -f "${RUNNER_TEMP}/gh.tgz" "gh_${GH_VERSION}_linux_amd64/bin/gh"
           chmod +x "$bindir/gh"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/gh" --version
