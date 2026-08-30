@@ -13,7 +13,7 @@ name: Worker CI
 #     issues: write
 #     actions: write   # nested qodana（PR 限频 cache）/ ocr（cache）
 #     checks: read     # nested notify-blocked
-#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.2
+#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.3
 #   secrets: inherit
 #   with:
 #     sync_packages_lock: true
@@ -85,13 +85,15 @@ jobs:
   workflow-lint:
     permissions:
       contents: read
-    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.1.2
+    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.1.3
   verify:
     permissions:
       contents: write
       packages: read
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.3
+    # 最小 secret 集：verify 只需 GHA_TOKEN（读 Packages）；勿 inherit 全量
+    secrets:
+      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
       materialize_sdk: ${{ inputs.materialize_sdk }}
       run_tests: ${{ inputs.run_tests }}
@@ -109,8 +111,9 @@ jobs:
       github.event.deleted != true
     # PAT 建 PR（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.3
+    secrets:
+      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
       release_branch: ${{ github.ref_name }}
 
@@ -128,8 +131,10 @@ jobs:
       issues: write
       # nested worker-qodana-scan 需 actions: write（qodana-scan-gate PR 限频 cache）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.1.3
+    # 最小 secret 集：qodana 只需 QODANA_TOKEN（Org 未配置时为空，由 gate skip，不报错）
+    secrets:
+      QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       throttle_minutes: ${{ inputs.qodana_throttle_minutes }}
@@ -154,12 +159,19 @@ jobs:
       pull-requests: write
       # nested open-code-review 需 actions: write（actions/cache session save）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.3
+    # 最小 secret 集（open-code-review 声明的全集）；旧名 DEEPSEEK_API_KEY 兼容保留
+    secrets:
+      OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+      OCR_LLM_MODEL: ${{ secrets.OCR_LLM_MODEL }}
+      OCR_LLM_EXTRA_HEADERS: ${{ secrets.OCR_LLM_EXTRA_HEADERS }}
+      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
       rule: ${{ inputs.ocr_rule }}
       skip: ${{ inputs.skip_ocr }}
-      actions_bundle_ref: actions/v0.1.0
+      actions_bundle_ref: actions/v0.1.3
 
   release-auto-merge:
     needs: [workflow-lint, verify, qodana, ocr]
@@ -177,11 +189,13 @@ jobs:
       needs.ocr.result == 'success'
     # PAT merge（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.1.3
+    secrets:
+      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_ref: ${{ github.head_ref }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
 
   ci-failure-comment:
     needs: [workflow-lint, verify, qodana, ocr]
@@ -200,7 +214,7 @@ jobs:
       )
     permissions:
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.1.2
+    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.1.3
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_ref: ${{ github.head_ref }}
@@ -243,8 +257,11 @@ jobs:
           needs.ocr.result == 'success'
         )
       )
-    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.1.3
+    # 最小 secret 集：发信走 NOTIFY_*；GHA_TOKEN 跨仓拉取 annotation helper（公开仓可空）
+    secrets:
+      NOTIFY_GHA_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
+      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_ref: ${{ github.head_ref }}
@@ -253,4 +270,4 @@ jobs:
       qodana_result: ${{ needs.qodana.result }}
       ocr_result: ${{ needs.ocr.result }}
       merge_result: ${{ needs.release-auto-merge.result }}
-      actions_bundle_ref: actions/v0.1.0
+      actions_bundle_ref: actions/v0.1.3

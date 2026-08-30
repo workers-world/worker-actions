@@ -5,7 +5,7 @@ name: Worker verify
 #
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.2
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.3
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #
@@ -64,8 +64,9 @@ jobs:
       github.event_name == 'push' &&
       startsWith(github.ref_name, 'dev_')
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
-    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.1.3
+    secrets:
+      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
 
   verify:
     needs: sync-lock
@@ -91,7 +92,7 @@ jobs:
           github.event_name == 'pull_request' &&
           inputs.sync_packages_lock &&
           inputs.materialize_sdk
-        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.1.2
+        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.1.3
         with:
           branch: ${{ github.head_ref }}
 
@@ -177,8 +178,9 @@ jobs:
       startsWith(github.ref_name, 'dev_')
     # 写操作走 PAT；勿给 GITHUB_TOKEN contents:write 直推 master
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.1.3
+    secrets:
+      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
       release_branch: ${{ github.ref_name }}
       master_branch: ${{ inputs.master_branch }}

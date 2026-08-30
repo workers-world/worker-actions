@@ -41,8 +41,9 @@ jobs:
         (!inputs.require_qodana && inputs.qodana_result == 'skipped')
       )
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.1.2
-    secrets: inherit
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.1.3
+    secrets:
+      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
       release_branch: ${{ inputs.release_branch }}
       master_branch: ${{ inputs.master_branch }}
