@@ -2,9 +2,7 @@
 
 Cloudflare Worker 仓可复用的 GitHub Actions bundle（verify、Release PR、Qodana、OCR、auto-merge）。
 
-许可证由 GitHub 建仓时生成（MIT）。**不要** `@master`，pin `actions/vX.Y.Z`。
-
-Java / Maven CI 在独立仓：[workers-world/java-actions](https://github.com/workers-world/java-actions)。
+**不要** `@master`，pin `actions/vX.Y.Z`。
 
 ## Caller
 
