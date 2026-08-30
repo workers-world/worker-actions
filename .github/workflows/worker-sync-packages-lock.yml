@@ -12,9 +12,20 @@ name: update package-lock.json file
 # composite action 须全路径 @actions/vX.Y.Z（跨仓 workflow_call 时 ./ 解析到 caller 仓）。
 on:
   workflow_call:
+    inputs:
+      bot:
+        description: "git push 凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*）。npm 认证不受影响，始终走 GHA_TOKEN/GITHUB_TOKEN（App 无 packages:read）"
+        type: string
+        default: "pat"
     secrets:
       GHA_TOKEN:
         description: read:packages PAT；未传则尝试 GITHUB_TOKEN
+        required: false
+      RELEASE_BOT_PRIVATE_KEY:
+        description: workers-world-release-bot App 私钥（bot=app 时必填；Org Secret）
+        required: false
+      RELEASE_BOT_APP_ID:
+        description: App ID（vars.RELEASE_BOT_APP_ID 未配时的 Secret 回退；bot=app 时必填其一）
         required: false
 
 permissions:
@@ -25,10 +36,22 @@ jobs:
   sync-lock:
     runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     steps:
+      # bot=app：就地 mint 1h App installation token（App push 可触发下游 workflow，与 PAT 等价）；
+      # npm 认证与此分离（见 Regenerate 步骤 NODE_AUTH_TOKEN）
+      - name: Mint GitHub App token
+        id: bot-token
+        if: inputs.bot == 'app'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
+          permission-contents: write
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v7
         with:

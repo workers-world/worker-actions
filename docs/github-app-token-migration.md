@@ -1,7 +1,10 @@
 # GHA_TOKEN（classic PAT）→ GitHub App token 迁移设计
 
-> 状态：**设计稿（未实施）**。出处：[ci-audit-2026-08.md](./ci-audit-2026-08.md) 业界对标第 1 条。
+> 状态：**代码侧已实施（2026-08-30，双通道灰度）**；Org 侧建 App / 配 Secret / 试点仓 opt-in 仍需人工（见 §6 准备清单）。
+> 出处：[ci-audit-2026-08.md](./ci-audit-2026-08.md) 业界对标第 1 条。
 > 目标：以 `actions/create-github-app-token` 短周期 installation token 替代 classic PAT `GHA_TOKEN`，消除「个人账号绑定、repo 全量 scope、长期有效」三重风险（zizmor `github-app` 审计项；CISA 指引点名的长期 pipeline 凭证反模式）。
+>
+> **已落地的代码形态**：leaf workflow 新增 `bot: pat|app` 输入（默认 `pat`，零行为变化）；`bot: app` 时用 `actions/create-github-app-token@bcd2ba49… # v3.2.0`（full SHA pin）就地 mint 1h token，mint 失败 fail-closed 不回落 PAT。App mint 仅在当前仓 scope（不传 `repositories`）。
 
 ## 1. 为什么现在可行
 
@@ -25,36 +28,47 @@ Webhook 全关（本链路不消费事件）。不给 repo events 以外任何�
 
 | 名称 | 位置 | 内容 |
 |------|------|------|
-| `RELEASE_BOT_APP_ID` | Org Variable 或 Secret | App ID（数字，非敏感） |
-| `RELEASE_BOT_PRIVATE_KEY` | Org Secret | App 私钥（PEM） |
-| `RELEASE_BOT_APP_SLUG` | Org Variable | 生成 PR/commit 归因用（可选） |
+| `RELEASE_BOT_APP_ID` | Org Variable（Secret 亦可） | release-bot App ID（数字，非敏感） |
+| `RELEASE_BOT_PRIVATE_KEY` | Org Secret | release-bot App 私钥（PEM） |
+| `DEFAULT_BRANCH_BOT_APP_ID` | Org Variable（Secret 亦可） | default-branch-bot App ID（独立 App，见 §5） |
+| `DEFAULT_BRANCH_BOT_PRIVATE_KEY` | Org Secret | default-branch-bot App 私钥 |
 
-每个 workflow 用 `actions/create-github-app-token@<pin SHA>` 就地换 token：
+每个 leaf 用 `actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0`（full SHA pin）就地 mint。
+
+**作用域与限权（zizmor `github-app` 审计要求，勿删）**：
+
+- `owner` 与 `repositories` **均不传** → token 仅限当前仓（v3 语义：传 `owner` 不传 `repositories` 反而放大到安装的全部仓）；
+- 显式 `permission-*`（默认继承 App 全部安装权限，必须收敛到本 workflow 实际所需）。
 
 ```yaml
-- name: Mint app token
-  id: app-token
-  uses: actions/create-github-app-token@<full-sha> # vX.Y.Z
+- name: Mint GitHub App token
+  id: bot-token
+  if: inputs.bot == 'app'
+  uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
   with:
-    app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+    app-id: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
     private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
-    owner: ${{ github.repository_owner }}
-    # 不传 repositories → 默认仅当前仓（最小面）
+    # owner/repositories 均不传 → token 仅限当前仓
+    permission-pull-requests: write   # 按 workflow 实际需要：contents / pull-requests / administration
 ```
 
-之后所有步骤把 `${{ secrets.GHA_TOKEN }}` 换成 `${{ steps.app-token.outputs.token }}`。**新增 secrets 不再叫 GHA_TOKEN**，避免旧 PAT 残留混用；leaf workflow 的 `secrets:` 声明同步更名（如 `RELEASE_BOT_TOKEN`），caller 由 `worker-ci` 显式映射。
+各 workflow 的 permission 矩阵：ensure-release-pr / release-auto-merge / promote → `pull-requests: write`；sync-lock → `contents: write`；sync-default（独立 App）→ `administration: write`；release-actions-bundle → `contents: write` + `pull-requests: write`。
 
-## 4. 六个 workflow 的改造点
+灰度期 token 解析统一为 `${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}`（bot=pat 时 bot-token 步骤 skip、输出为空 → 回落 PAT，行为与迁移前完全一致）。全量切 App 后再删 GHA_TOKEN 通道与 `pat` 取值。
 
-| Workflow | 现凭证用途 | 改造 |
-|----------|-----------|------|
-| `worker-verify` | npm.pkg.github.com 读 SDK（`NODE_AUTH_TOKEN`） | **无需 App token**：Packages 读取走 `GITHUB_TOKEN` + 包的 "Manage Actions access" 授权（现状已支持的回退路径）；App token 无 packages:read，恰好强制收紧 |
-| `worker-sync-packages-lock` | bot commit + push dev_ | App token（contents:write）；checkout token 参数与 git push 均换 |
-| `worker-ensure-release-pr` | 建 Release PR | App token（pull-requests:write） |
-| `worker-release-auto-merge` | merge Release PR | App token（pull-requests:write） |
-| `worker-promote` | 建 PR + merge | 同上 |
-| `worker-sync-default-dev-branch` | PATCH default_branch | App token（administration:write，仅试点仓安装该权限场景） |
-| `release-actions-bundle`（本仓） | push tag + manifest 分支 + PR | App token（contents:write + pull-requests:write） |
+## 4. 六个 workflow 的改造点（实施状态）
+
+| Workflow | 现凭证用途 | 实施状态 |
+|----------|-----------|----------|
+| `worker-verify` | npm.pkg.github.com 读 SDK（`NODE_AUTH_TOKEN`） | ✅ 无需 App token：Packages 读取走 `GITHUB_TOKEN` + 包的 "Manage Actions access" 授权（现状已支持的回退路径）；App token 无 packages:read，恰好强制收紧。npm 认证不接 App 通道 |
+| `worker-sync-packages-lock` | bot commit + push dev_ | ✅ 已支持 `bot: app`；**npm 认证与 git 认证分离**（NODE_AUTH_TOKEN 始终 GHA_TOKEN/GITHUB_TOKEN）；经 `worker-verify` 的 `bot` 输入透传 |
+| `worker-ensure-release-pr` | 建 Release PR | ✅ 已支持 `bot: app`（worker-ci 透传） |
+| `worker-release-auto-merge` | merge Release PR | ✅ 已支持 `bot: app`（worker-ci 透传） |
+| `worker-promote` | 建 PR + merge | ✅ 独立调用时已支持 `bot: app`；⚠️ 经 `worker-verify` 的 promote 嵌套链**暂走 PAT**（与 SDK 物化的 packages 读共用 GHA_TOKEN，全量切 App 前置条件见下） |
+| `worker-sync-default-dev-branch` | PATCH default_branch | ✅ 已支持 `bot: app`，用**独立 App**（`DEFAULT_BRANCH_BOT_*`，administration:write 权限过大不与 release-bot 混用，见 §5） |
+| `release-actions-bundle`（本仓） | push tag + manifest 分支 + PR | ✅ 变量开关式：配置 `RELEASE_BOT_APP_ID` 变量 + `RELEASE_BOT_PRIVATE_KEY` Secret 即自动启用，无需改 workflow |
+
+**promote 嵌套链切 App 的前置条件**：试点仓先在 `framework_sdk_worker` 包设置 "Manage Actions access" 授权（或确认 `GITHUB_TOKEN` 路径可用），随后 `worker-verify` 才能把 promote 也切到 App 通道——否则 verify 的 npm 认证会断。
 
 注意：
 - App 身份合 PR 会被分支保护按「App installation」对待；若要允许它越过 "Require approvals"，在分支保护里把 App 加入 bypass list（或要求其 PR 由人工 approve —— 更推荐后者，见 §6）。
@@ -67,10 +81,14 @@ Webhook 全关（本链路不消费事件）。不给 repo events 以外任何�
 
 ## 6. 分阶段灰度
 
-1. **准备**：Org 建 App（关 webhook）→ 配 3 个 Org 变量/Secret → 在 1 个试点业务仓（建议 counter-worker）安装。
-2. **试点**：leaf workflow 增加 `bot: app|pat` 输入（默认 `pat`），试点仓 caller 传 `bot: app`；两通道并存期间 GHA_TOKEN 不删。
-3. **验证项**：Release PR 创建/合并、sync-lock push、notify 邮件归因、（如启用）默认分支切换、分支保护对 App merge 的实际行为。
-4. **推广**：逐仓把 caller 切 `bot: app`；全部切完后下一版 bundle 把 `pat` 通道标记 deprecated。
+1. **准备（人工，Org Admin）**：
+   - [ ] Org 建 App `workers-world-release-bot`（关 Webhook；权限：Contents RW + Pull requests RW + Metadata R）
+   - [ ] Org 建 App `workers-world-default-branch-bot`（同上 + Administration RW；仅安装到需要 sync-default 的仓）
+   - [ ] Org Variables 配 `RELEASE_BOT_APP_ID` / `DEFAULT_BRANCH_BOT_APP_ID`；Org Secrets 配两个 `*_PRIVATE_KEY`
+   - [ ] 两枚 App 安装到试点仓（建议 counter-worker；default-branch-bot 仅装确认需要的仓）
+2. **试点（代码已就绪）**：试点仓 caller 传 `bot: app`（`ci.yml` 与 `sync-default-branch.yml` 各一处）；两通道并存期间 GHA_TOKEN 不删。
+3. **验证项**：Release PR 创建/合并、sync-lock push（确认 App push 触发下游 PR synchronize）、notify 邮件归因、默认分支切换、分支保护对 App merge 的实际行为。
+4. **推广**：逐仓把 caller 切 `bot: app`；完成 `framework_sdk_worker` 包的 Actions 授权后，`worker-verify` 的 promote 嵌套链再切 App（见 §4 前置条件）；全部切完后下一版 bundle 把 `pat` 通道标记 deprecated。
 5. **清理**：吊销旧 classic PAT；`docs/secrets-inventory.md` 更新（根 meta 仓）。
 
 ## 7. 回滚

@@ -119,6 +119,8 @@ Org 级仍可能覆盖禁止；**推荐始终使用 `GHA_TOKEN`**。
 
 **Secret 传递**：入口层（业务仓 → `worker-ci`）`secrets: inherit`；`worker-ci` 内部对每个 leaf **显式映射最小集**（zizmor `secrets-inherit` 要求，勿在 leaf 层恢复 inherit）：verify / ensure-release-pr / auto-merge / promote → `GHA_TOKEN`；qodana → `QODANA_TOKEN`（Org 未配置为空，gate 自动 skip）；ocr → `OCR_LLM_TOKEN` / `DEEPSEEK_API_KEY`（旧名兼容）/ `OCR_LLM_*` / `GHA_TOKEN`；notify-blocked → `NOTIFY_GHA_TOKEN` / `GHA_TOKEN`；workflow-lint / ci-failure-comment 不需要任何 secret。
 
+**App 通道（可选）**：caller 传 `bot: app` 时，ensure-release-pr / auto-merge / sync-lock 的写操作改走 GitHub App 短周期 token（须配 `RELEASE_BOT_*`，promote 嵌套链暂不受影响）；未传时默认 `pat`，行为与历史一致。见 [github-app-token-migration.md](./github-app-token-migration.md)。
+
 **package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` 刷新 lock；PR verify checkout **head SHA**（非 `pull/N/merge`），并在 lock 未就绪时短轮询等待 bot（避免与 push workflow 并行竞态）。`materialize_sdk: false`（无 SDK）的仓不跑 wait。bump SDK 只改 `package.json` 即可，无需手改 lock。
 
 ## 阻断通知

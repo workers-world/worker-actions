@@ -24,9 +24,19 @@ on:
         description: 目标分支
         type: string
         default: master
+      bot:
+        description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*，见 docs/github-app-token-migration.md）"
+        type: string
+        default: "pat"
     secrets:
       GHA_TOKEN:
-        description: PAT（repo 权限）；merge PR 必填
+        description: PAT（repo 权限）；merge PR 必填。未传时步骤内守卫报错
+        required: false
+      RELEASE_BOT_PRIVATE_KEY:
+        description: workers-world-release-bot App 私钥（bot=app 时必填；Org Secret）
+        required: false
+      RELEASE_BOT_APP_ID:
+        description: App ID（vars.RELEASE_BOT_APP_ID 未配时的 Secret 回退；bot=app 时必填其一）
         required: false
 
 # 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
@@ -38,6 +48,17 @@ jobs:
     timeout-minutes: 60
     permissions: {}
     steps:
+      # bot=app：就地 mint 1h App installation token；mint 失败显式报错，不静默回落 PAT
+      - name: Mint GitHub App token
+        id: bot-token
+        if: inputs.bot == 'app'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
+          permission-pull-requests: write
+
       - name: Ensure GitHub CLI
         run: |
           set -euo pipefail
@@ -62,7 +83,8 @@ jobs:
 
       - name: Merge release PR
         env:
-          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+          BOT: ${{ inputs.bot }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_REF: ${{ inputs.head_ref }}
           EXPECTED_HEAD_SHA: ${{ inputs.head_sha }}
@@ -71,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::缺少 GHA_TOKEN，无法 auto-merge Release PR。"
+            echo "::error::缺少写凭证（bot=${BOT}）。bot=pat 请配 GHA_TOKEN；bot=app 请配 RELEASE_BOT_*（App ID + 私钥），见 docs/github-app-token-migration.md。"
             exit 1
           fi
           if ! [[ "$HEAD_REF" =~ ^dev_ ]]; then

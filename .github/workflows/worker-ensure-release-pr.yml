@@ -24,13 +24,23 @@ on:
         description: PR 标题前缀
         type: string
         default: "release:"
+      bot:
+        description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*，见 docs/github-app-token-migration.md）"
+        type: string
+        default: "pat"
     outputs:
       pr_number:
         description: 当前 dev_* → master 的 open Release PR 号（已有或新建）
         value: ${{ jobs.ensure.outputs.pr_number }}
     secrets:
       GHA_TOKEN:
-        description: PAT（repo 权限）；创建 PR 必填。Org 常禁止 GITHUB_TOKEN 建 PR。未传时步骤内守卫报错
+        description: PAT（repo 权限）；bot=pat 时必填。Org 常禁止 GITHUB_TOKEN 建 PR。未传时步骤内守卫报错
+        required: false
+      RELEASE_BOT_PRIVATE_KEY:
+        description: workers-world-release-bot App 私钥（bot=app 时必填；Org Secret）
+        required: false
+      RELEASE_BOT_APP_ID:
+        description: App ID（vars.RELEASE_BOT_APP_ID 未配时的 Secret 回退；bot=app 时必填其一）
         required: false
 
 # 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
@@ -44,6 +54,18 @@ jobs:
     outputs:
       pr_number: ${{ steps.open-pr.outputs.pr_number }}
     steps:
+      # bot=app：就地 mint 1h 短周期 App installation token（默认仅当前仓 scope）；
+      # mint 失败会显式报错（fail-closed），不会静默回落 PAT
+      - name: Mint GitHub App token
+        id: bot-token
+        if: inputs.bot == 'app'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
+          permission-pull-requests: write
+
       # permissions: {} 时 GITHUB_TOKEN 无法拉取私有仓 composite action（codeload 404）；内联安装 gh
       # （若 bundle 仓转私有，此内联是唯一可靠路径；公开仓也可改用 ensure-gh-cli composite）
       - name: Ensure GitHub CLI
@@ -71,7 +93,8 @@ jobs:
       - name: Open release PR if missing
         id: open-pr
         env:
-          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+          BOT: ${{ inputs.bot }}
           RELEASE_BRANCH: ${{ inputs.release_branch }}
           MASTER_BRANCH: ${{ inputs.master_branch }}
           PR_TITLE_PREFIX: ${{ inputs.pr_title_prefix }}
@@ -79,8 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::缺少 GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
-            echo "::error::或在本仓 Settings → Actions → General 开启「Allow GitHub Actions to create and approve pull requests」（仍建议用 PAT）。"
+            echo "::error::缺少写凭证（bot=${BOT}）。bot=pat 请在 Org Secrets 配置 GHA_TOKEN（classic PAT: repo）；bot=app 请配 Org Variable RELEASE_BOT_APP_ID + Org Secret RELEASE_BOT_PRIVATE_KEY，见 docs/github-app-token-migration.md。"
             exit 1
           fi
           if ! [[ "$RELEASE_BRANCH" =~ ^dev_ ]]; then

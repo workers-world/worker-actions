@@ -32,3 +32,5 @@ jobs:
     with:
       # SDK 版本以 package.json 为准；无 SDK 则 materialize_sdk: false
       sync_packages_lock: true
+      # bot: app   # 可选：建 PR/merge/sync-lock push 走 GitHub App（须配 RELEASE_BOT_APP_ID 变量 +
+      #              RELEASE_BOT_PRIVATE_KEY Secret；promote 嵌套链暂不受影响），见 docs/github-app-token-migration.md

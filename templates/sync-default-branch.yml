@@ -22,3 +22,5 @@ jobs:
     secrets: inherit
     with:
       push_branch: ${{ github.ref_name }}
+      # bot: app   # 可选：改默认分支走独立 App（须配 DEFAULT_BRANCH_BOT_APP_ID 变量 +
+      #              DEFAULT_BRANCH_BOT_PRIVATE_KEY Secret；App 仅安装到本仓），见 docs/github-app-token-migration.md §5

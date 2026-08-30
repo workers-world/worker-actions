@@ -36,17 +36,30 @@ jobs:
         !contains(github.event.head_commit.message, '[skip actions-release]')
       )
     steps:
+      # App 通道（可选）：配置 RELEASE_BOT_APP_ID 变量 + RELEASE_BOT_PRIVATE_KEY Secret 后自动启用；
+      # 未配置时保持 GHA_TOKEN/GITHUB_TOKEN。tag push 须由 App/PAT 发起（GITHUB_TOKEN 不触发下游 workflow）
+      - name: Mint GitHub App token
+        id: bot-token
+        if: vars.RELEASE_BOT_APP_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
+          permission-contents: write
+          permission-pull-requests: write
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - uses: ./.github/actions/ensure-gh-cli
 
       - name: Resolve version, create tag, open manifest PR
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          GH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
         run: |

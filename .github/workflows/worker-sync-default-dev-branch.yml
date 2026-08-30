@@ -17,9 +17,19 @@ on:
         description: 仅当 push_branch 等于远程最高 dev 时才执行（减少旧 dev push 的 API 调用）
         type: boolean
         default: true
+      bot:
+        description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 DEFAULT_BRANCH_BOT_*）。注意：本 workflow 用**独立 App**（administration:write 权限过大，不与 release-bot 混用），见 docs/github-app-token-migration.md §5"
+        type: string
+        default: "pat"
     secrets:
       GHA_TOKEN:
         description: PAT（repo 权限，改默认分支需 Admin）。未传时步骤内守卫报错
+        required: false
+      DEFAULT_BRANCH_BOT_PRIVATE_KEY:
+        description: workers-world-default-branch-bot App 私钥（bot=app 时必填；Org Secret）
+        required: false
+      DEFAULT_BRANCH_BOT_APP_ID:
+        description: App ID（vars.DEFAULT_BRANCH_BOT_APP_ID 未配时的 Secret 回退；bot=app 时必填其一）
         required: false
 
 jobs:
@@ -28,6 +38,17 @@ jobs:
     timeout-minutes: 10
     permissions: {}
     steps:
+      # bot=app：独立 App（仅装到需要 sync-default 的仓），mint 1h token
+      - name: Mint GitHub App token
+        id: bot-token
+        if: inputs.bot == 'app'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.DEFAULT_BRANCH_BOT_APP_ID || secrets.DEFAULT_BRANCH_BOT_APP_ID }}
+          private-key: ${{ secrets.DEFAULT_BRANCH_BOT_PRIVATE_KEY }}
+          # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
+          permission-administration: write
+
       - name: Ensure GitHub CLI
         run: |
           set -euo pipefail
@@ -52,14 +73,15 @@ jobs:
 
       - name: Set default branch to latest dev_*
         env:
-          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+          BOT: ${{ inputs.bot }}
           REPO: ${{ github.repository }}
           PUSH_BRANCH: ${{ inputs.push_branch }}
           ONLY_IF_LATEST: ${{ inputs.only_if_push_branch_is_latest }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::缺少 GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
+            echo "::error::缺少写凭证（bot=${BOT}）。bot=pat 请配 GHA_TOKEN（Admin）；bot=app 请配 DEFAULT_BRANCH_BOT_*，见 docs/github-app-token-migration.md。"
             exit 1
           fi
 
