@@ -74,8 +74,10 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 ### 本仓（workers-world/worker-actions）合入 master
 
 1. 在 `dev_*` 开发 → **`git push`**
-2. [`ci.yml`](../.github/workflows/ci.yml) 自动：`ensure-release-pr` → **workflow-lint** 全绿后 **`release-auto-merge`**（本仓无 verify/qodana；OCR 当前 skip，merge 在 **push run** 完成，不必等 PR synchronize run）
-3. **勿再网页手工 Merge**（除非 auto-merge 失败）
+2. [`ci.yml`](../.github/workflows/ci.yml) 只跑 `workflow-lint`（fork-safe，无 secrets）；**Release PR 需人工开**（`dev_*` → `master`），PR 上同样有 workflow-lint 把关
+3. **勿网页直推 master**（branch protection 禁止；manifest 回填 PR 合入即可）
+
+> 历史：`ci.yml` 曾内置 ensure-release-pr / OCR / auto-merge；公开仓化后为 fork 安全收敛为仅 lint。如需恢复自动开 PR，可在私有部署中参考 `templates/ci-release-pr.yml` 的形态（注意 caller 不能同时 `uses:./` + `secrets: inherit`）。
 
 ### Actions bundle tag → 各仓 bump pin
 
@@ -93,7 +95,7 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 
 **无需**本地 `git tag` / 手工合 destin→master / 在 tag 存在前改业务仓 pin。
 
-验证 `$/`：Actions → **Smoke dollar-self** → Run workflow（须 github.com runner ≥ 2.336.0）。
+（`$/` 同仓语法须 github.com 托管 runner 或 runner ≥ 2.336.0；actionlint 1.7.x 尚不识别 `$/`，`workflow-lint` 内已有对应 ignore。）
 
 ## master ↔ `dev_*`：何时合、何时别合
 
@@ -101,8 +103,8 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 
 | 事件 | 结果 |
 |------|------|
-| **push** 到 `dev_*` | `ensure-release-pr`（开/更新 Release PR） |
-| 已有 **`dev_* → master` Release PR** 收到新 commit（`synchronize`） | 再跑 OCR（及后续 auto-merge） |
+| **push** 到 `dev_*` | `workflow-lint`（无 secrets；Release PR 人工开） |
+| **PR → master**（含 fork） | `workflow-lint` |
 
 因此：**把 master 合进正在发版的 `dev_*`（无论本地 merge 再 push，还是另开 PR base=`dev_*`）都会再跑一轮流水线**，用 PR 合并不省 OCR。
 

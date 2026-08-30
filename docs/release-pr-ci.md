@@ -117,6 +117,8 @@ Org 级仍可能覆盖禁止；**推荐始终使用 `GHA_TOKEN`**。
 5. 另复制 [templates/sync-default-branch.yml](../templates/sync-default-branch.yml) 为独立 workflow（**勿**并入编排 / `ci.yml`）
 6. 特殊仓：`skip_branch_deleted_check` / `require_non_draft_pr`（如 deploy-tracker）。**OCR 默认 `skip_ocr: true`（临时）**；版本收尾要审查时传 `skip_ocr: false`
 
+**Secret 传递**：入口层（业务仓 → `worker-ci`）`secrets: inherit`；`worker-ci` 内部对每个 leaf **显式映射最小集**（zizmor `secrets-inherit` 要求，勿在 leaf 层恢复 inherit）：verify / ensure-release-pr / auto-merge / promote → `GHA_TOKEN`；qodana → `QODANA_TOKEN`（Org 未配置为空，gate 自动 skip）；ocr → `OCR_LLM_TOKEN` / `DEEPSEEK_API_KEY`（旧名兼容）/ `OCR_LLM_*` / `GHA_TOKEN`；notify-blocked → `NOTIFY_GHA_TOKEN` / `GHA_TOKEN`；workflow-lint / ci-failure-comment 不需要任何 secret。
+
 **package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` 刷新 lock；PR verify checkout **head SHA**（非 `pull/N/merge`），并在 lock 未就绪时短轮询等待 bot（避免与 push workflow 并行竞态）。`materialize_sdk: false`（无 SDK）的仓不跑 wait。bump SDK 只改 `package.json` 即可，无需手改 lock。
 
 ## 阻断通知

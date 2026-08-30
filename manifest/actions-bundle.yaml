@@ -1,8 +1,8 @@
 # Actions bundle 当前版本（Worker 仓 pin 此 tag）
 # 完整变更见 docs/actions-releases.md；权威来源为 git tag
-current: actions/v0.1.0
-sha: ""
+current: actions/v0.1.2
+sha: "4ad0ff989a863c199926306a6f48f4ba2bd43aca"
 released_at: "2026-08-28"
 notes: |
-  First public worker-actions bundle (split from workers-world/.github).
-  Tag is created on first push to master via release-actions-bundle.
+  首个公开 bundle（自 workers-world/.github 拆出）；v0.1.1/v0.1.2 为内层嵌套 pin 对齐的 patch。
+  本 manifest 由 release-actions-bundle 在每次发版后经 PR 回填（master 禁止直推），勿手工领先于 tag。
