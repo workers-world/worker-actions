@@ -194,7 +194,7 @@ runs:
 
     - name: Restore OCR session cache
       if: inputs.enable_session_cache == 'true'
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       id: ocr_session_cache
       with:
         path: |
