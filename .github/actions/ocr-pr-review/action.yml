@@ -344,7 +344,7 @@ runs:
 
     - name: Upload review result artifact
       if: ${{ always() && inputs.upload_artifacts == 'true' }}
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: ocr-review-result-${{ github.run_id }}-${{ github.run_attempt }}
         path: /tmp/ocr-result.json
