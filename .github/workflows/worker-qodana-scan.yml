@@ -77,7 +77,7 @@ jobs:
       - name: Checkout caller repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           # persist-credentials 保持 true：gate 步骤 git fetch origin 需要凭据（私有业务仓）
           # （zizmor artipacked Low 告警为已接受设计，见 docs/ci-audit-2026-08.md）
