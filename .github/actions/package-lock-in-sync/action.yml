@@ -21,9 +21,11 @@ runs:
     - id: check
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        script="${{ github.action_path }}/lock-matches-package-json.mjs"
+        script="$ACTION_PATH/lock-matches-package-json.mjs"
         if node "$script"; then
           echo "in_sync=true" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
