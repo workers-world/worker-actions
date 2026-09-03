@@ -390,6 +390,7 @@ runs:
         OCR_REVIEW_COMMENT_BATCH_SIZE: ${{ inputs.review_comment_batch_size }}
         OCR_ROUTE_SEVERITY_BELOW: ${{ inputs.route_severity_below }}
         OCR_ROUTE_CATEGORIES: ${{ inputs.route_categories }}
+        OCR_STICKY_SUMMARY: ${{ inputs.sticky_summary }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
@@ -408,7 +409,7 @@ runs:
             fs,
             resultPath: '/tmp/ocr-result.json',
             stderrPath: '/tmp/ocr-stderr.log',
-            stickySummary: ${{ inputs.sticky_summary == 'true' }},
+            stickySummary: process.env.OCR_STICKY_SUMMARY === 'true',
             incremental: process.env.OCR_INCREMENTAL === 'true',
             incrementalOverlapThreshold: parseFloat(process.env.OCR_INCREMENTAL_OVERLAP_THRESHOLD),
             reviewCommentBatchSize: parseInt(process.env.OCR_REVIEW_COMMENT_BATCH_SIZE, 10),
