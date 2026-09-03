@@ -15,12 +15,28 @@ function wantSdkVersion(pkg) {
   return m ? m[1] : null;
 }
 
-function lockMatchesSdkVersion(lockText, wantVer) {
-  return (
-    lockText.includes("npm.pkg.github.com") &&
-    !lockText.includes('"../framework_sdk_worker"') &&
-    lockText.includes(`framework_sdk_worker/${wantVer}/`)
-  );
+function lockMatchesSdkVersion(lock, wantVer) {
+  const packages = Object.entries(lock.packages ?? {});
+
+  for (const [, meta] of packages) {
+    const resolved = String(meta?.resolved ?? "");
+    if (resolved.includes("../framework_sdk_worker")) return false;
+  }
+
+  for (const [pkgPath, meta] of packages) {
+    if (!pkgPath.includes("framework_sdk_worker")) continue;
+    if (String(meta?.version ?? "") !== String(wantVer)) continue;
+
+    const resolved = String(meta?.resolved ?? "");
+    try {
+      const u = new URL(resolved);
+      if (u.hostname === "npm.pkg.github.com") return true;
+    } catch {
+      // ignore non-URL or malformed resolved values
+    }
+  }
+
+  return false;
 }
 
 function rootDepsInSync(pkg, lock) {
@@ -59,9 +75,8 @@ function main() {
   if (!fs.existsSync("package-lock.json")) {
     process.exit(1);
   }
-  const lockText = fs.readFileSync("package-lock.json", "utf8");
   const lock = readJson("package-lock.json");
-  if (lockMatchesSdkVersion(lockText, wantVer) && rootDepsInSync(pkg, lock)) {
+  if (lockMatchesSdkVersion(lock, wantVer) && rootDepsInSync(pkg, lock)) {
     process.exit(0);
   }
   process.exit(1);
