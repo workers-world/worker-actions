@@ -98,7 +98,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: workers-world/worker-actions
-          ref: ${{ inputs.actions_bundle_ref }}
+          # Security: pin to a trusted immutable commit instead of caller-controlled ref
+          ref: 0123456789abcdef0123456789abcdef01234567
           path: .ww-gha
           fetch-depth: 1
           token: ${{ (secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN) || github.token }}
