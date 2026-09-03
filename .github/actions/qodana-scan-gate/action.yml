@@ -50,9 +50,10 @@ runs:
         PR_ACTION: ${{ inputs.pr_action }}
         CUSTOM_PATHS: ${{ inputs.custom_paths }}
         CACHE_STATE_FILE: ${{ inputs.cache_state_file }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        ARGS=(node "${{ github.action_path }}/gate.mjs")
+        ARGS=(node "${ACTION_PATH}/gate.mjs")
         ARGS+=(--org-enabled "${ORG_ENABLED}")
         ARGS+=(--base-ref "${BASE_REF}")
         ARGS+=(--head-sha "${HEAD_SHA}")
