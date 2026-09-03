@@ -129,7 +129,7 @@ runs:
         EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
         EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      run: | # zizmor: ignore[github-env] — GITHUB_ENV 写入本地解析的 ref/pr number，非用户可控
+      run: |
         set -euo pipefail
         BASE_REF="${INPUT_BASE_REF:-$EVENT_BASE_REF}"
         HEAD_REF="${INPUT_HEAD_REF:-$EVENT_HEAD_REF}"
@@ -147,13 +147,21 @@ runs:
           echo "::error::head_ref 格式非法"
           exit 1
         fi
-        echo "BASE_REF=$BASE_REF" >> "$GITHUB_ENV"
-        echo "HEAD_REF=$HEAD_REF" >> "$GITHUB_ENV"
-        echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
-        echo "PR_NUMBER=${INPUT_PR_NUMBER}" >> "$GITHUB_ENV"
+
+        SAFE_BASE_REF="$(printf '%s' "$BASE_REF" | tr -d '\r\n')"
+        SAFE_HEAD_REF="$(printf '%s' "$HEAD_REF" | tr -d '\r\n')"
+        SAFE_HEAD_SHA="$(printf '%s' "$HEAD_SHA" | tr -d '\r\n')"
+        SAFE_PR_NUMBER="$(printf '%s' "$INPUT_PR_NUMBER" | tr -d '\r\n')"
+        SAFE_OCR_FROM="$(printf '%s' "origin/${BASE_REF}" | tr -d '\r\n')"
+        SAFE_OCR_TO="$(printf '%s' "${HEAD_REF}" | tr -d '\r\n')"
+
+        echo "BASE_REF=$SAFE_BASE_REF" >> "$GITHUB_ENV"
+        echo "HEAD_REF=$SAFE_HEAD_REF" >> "$GITHUB_ENV"
+        echo "HEAD_SHA=$SAFE_HEAD_SHA" >> "$GITHUB_ENV"
+        echo "PR_NUMBER=$SAFE_PR_NUMBER" >> "$GITHUB_ENV"
         # 稳定 ref：resume 要求多次 run 的 --from/--to 字符串一致（不可用每次变化的 HEAD SHA）
-        echo "OCR_FROM=origin/${BASE_REF}" >> "$GITHUB_ENV"
-        echo "OCR_TO=${HEAD_REF}" >> "$GITHUB_ENV"
+        echo "OCR_FROM=$SAFE_OCR_FROM" >> "$GITHUB_ENV"
+        echo "OCR_TO=$SAFE_OCR_TO" >> "$GITHUB_ENV"
 
     - name: Checkout base
       uses: actions/checkout@v7 # zizmor: ignore[artipacked] — 后续 git fetch 私有仓 PR head/base 需凭据
