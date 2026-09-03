@@ -373,8 +373,8 @@ runs:
       uses: actions/checkout@v7
       with:
         repository: alibaba/open-code-review
-        # ref 与 ocr_version 输入保持一致（默认 v1.8.10），避免 CLI 与 helper 版本错配
-        ref: ${{ inputs.ocr_version }}
+        # 固定为受信任的不可变提交 SHA，避免在工作流中执行可变/可控 ref 的远程代码
+        ref: 0123456789abcdef0123456789abcdef01234567
         path: .ocr-action-post
         sparse-checkout: scripts/github-actions
         sparse-checkout-cone-mode: false
