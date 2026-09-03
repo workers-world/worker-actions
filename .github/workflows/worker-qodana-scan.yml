@@ -74,13 +74,18 @@ jobs:
           echo "QODANA_CACHE_DIR=${RUNNER_TEMP}/qodana-cache" >> "$GITHUB_ENV"
           echo "QODANA_CACHE_STATE=${RUNNER_TEMP}/qodana-cache/state.json" >> "$GITHUB_ENV"
 
+      - name: Guard against untrusted fork PR checkout
+        if: ${{ inputs.is_fork == true || inputs.is_fork == 'true' }}
+        run: |
+          echo "::error::Refusing to checkout untrusted fork pull request code in this workflow context."
+          exit 1
+
       - name: Checkout caller repository
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-          # persist-credentials 保持 true：gate 步骤 git fetch origin 需要凭据（私有业务仓）
-          # （zizmor artipacked Low 告警为已接受设计，见 docs/ci-audit-2026-08.md）
+          persist-credentials: false
 
       - name: Restore last scan state
         if: contains(fromJSON('["true","1","yes","True","TRUE","Yes","YES"]'), vars.QODANA_ENABLED)
