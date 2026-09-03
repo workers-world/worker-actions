@@ -385,6 +385,7 @@ runs:
       id: post
       uses: actions/github-script@v9
       env:
+        OCR_INCREMENTAL: ${{ inputs.incremental }}
         OCR_INCREMENTAL_OVERLAP_THRESHOLD: ${{ inputs.incremental_overlap_threshold }}
         OCR_REVIEW_COMMENT_BATCH_SIZE: ${{ inputs.review_comment_batch_size }}
         OCR_ROUTE_SEVERITY_BELOW: ${{ inputs.route_severity_below }}
@@ -408,7 +409,7 @@ runs:
             resultPath: '/tmp/ocr-result.json',
             stderrPath: '/tmp/ocr-stderr.log',
             stickySummary: ${{ inputs.sticky_summary == 'true' }},
-            incremental: ${{ inputs.incremental == 'true' }},
+            incremental: process.env.OCR_INCREMENTAL === 'true',
             incrementalOverlapThreshold: parseFloat(process.env.OCR_INCREMENTAL_OVERLAP_THRESHOLD),
             reviewCommentBatchSize: parseInt(process.env.OCR_REVIEW_COMMENT_BATCH_SIZE, 10),
             routeSeverityBelow: process.env.OCR_ROUTE_SEVERITY_BELOW,
