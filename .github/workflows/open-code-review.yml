@@ -179,13 +179,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # 仅允许 actions/vX.Y.Z tag 或 40 位 commit SHA（拒绝任意分支名）
-          if echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^actions/v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            :
-          elif echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^[0-9a-f]{40}$'; then
+          # 仅允许 40 位 commit SHA（拒绝 tag/分支，避免可变 ref）
+          if echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^[0-9a-f]{40}$'; then
             :
           else
-            echo "::error::actions_bundle_ref 须为 actions/vX.Y.Z 或 40 位 commit SHA，当前格式非法"
+            echo "::error::actions_bundle_ref 须为 40 位 commit SHA（不允许 tag/分支），当前格式非法"
             exit 1
           fi
 
