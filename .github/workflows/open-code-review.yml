@@ -4,7 +4,7 @@ name: Open Code Review
 #
 # Caller 典型用法：
 #   permissions: { contents: read, pull-requests: write, actions: write }
-#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.2.0
+#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.2.1
 #   secrets: inherit
 #
 # Org 配置（配一次）：
@@ -66,7 +66,7 @@ on:
       actions_bundle_ref:
         description: ocr-pr-review composite action 的 git ref（仅允许 actions/vX.Y.Z 或 40 位 commit SHA；dogfood 可传 head SHA）
         type: string
-        default: actions/v0.2.0
+        default: actions/v0.2.1
     secrets:
       OCR_LLM_TOKEN:
         description: LLM API Key（当前 provider；OCR_LLM_TOKEN）；skip=true 时可不传

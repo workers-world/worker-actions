@@ -5,7 +5,7 @@ name: Worker notify Release PR blocked
 #
 # Caller（pull_request → master，needs 含 release-auto-merge）：
 #   if: always() && needs.release-auto-merge.result != 'success' && …
-#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.0
+#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.1
 #   secrets: inherit
 # caller 须授予 annotations 拉取权限（发信仍走 NOTIFY_*；GHA nested 权限不能超过 caller）：
 #   permissions: { actions: read, checks: read }

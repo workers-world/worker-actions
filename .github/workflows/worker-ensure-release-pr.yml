@@ -7,7 +7,7 @@ name: Worker ensure release PR
 # Caller（push job）：
 #   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.0
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.1
 #   with:
 #     release_branch: ${{ github.ref_name }}
 on:

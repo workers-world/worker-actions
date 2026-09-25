@@ -59,7 +59,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.0
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.1
         id: lock_check
 
       - name: Lock already in sync

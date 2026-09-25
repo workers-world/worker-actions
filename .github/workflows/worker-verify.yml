@@ -5,7 +5,7 @@ name: Worker verify
 #
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.0
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.1
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
@@ -79,7 +79,7 @@ jobs:
       github.event_name == 'push' &&
       startsWith(github.ref_name, 'dev_')
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
-    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.0
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.1
     with:
       bot: ${{ inputs.bot }}
     secrets:
@@ -112,7 +112,7 @@ jobs:
           github.event_name == 'pull_request' &&
           inputs.sync_packages_lock &&
           inputs.materialize_sdk
-        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.2.0
+        uses: workers-world/worker-actions/.github/actions/package-lock-wait-for-sync@actions/v0.2.1
         with:
           branch: ${{ github.head_ref }}
 
@@ -195,7 +195,7 @@ jobs:
     # （bot=app 试点期 promote 嵌套链暂走 PAT：与 SDK 物化的 packages 读共用 GHA_TOKEN，
     #   全量切 App 需先完成包「Manage Actions access」授权，见 docs/github-app-token-migration.md §4）
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.0
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.1
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
