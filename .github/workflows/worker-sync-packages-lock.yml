@@ -12,9 +12,20 @@ name: update package-lock.json file
 # composite action 须全路径 @actions/vX.Y.Z（跨仓 workflow_call 时 ./ 解析到 caller 仓）。
 on:
   workflow_call:
+    inputs:
+      bot:
+        description: "git push 凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*）。npm 认证不受影响，始终走 GHA_TOKEN/GITHUB_TOKEN（App 无 packages:read）"
+        type: string
+        default: "pat"
     secrets:
       GHA_TOKEN:
         description: read:packages PAT；未传则尝试 GITHUB_TOKEN
+        required: false
+      RELEASE_BOT_PRIVATE_KEY:
+        description: workers-world-release-bot App 私钥（bot=app 时必填；Org Secret）
+        required: false
+      RELEASE_BOT_APP_ID:
+        description: App ID（vars.RELEASE_BOT_APP_ID 未配时的 Secret 回退；bot=app 时必填其一）
         required: false
 
 permissions:
@@ -25,10 +36,22 @@ jobs:
   sync-lock:
     runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     steps:
+      # bot=app：就地 mint 1h App installation token（App push 可触发下游 workflow，与 PAT 等价）；
+      # npm 认证与此分离（见 Regenerate 步骤 NODE_AUTH_TOKEN）
+      - name: Mint GitHub App token
+        id: bot-token
+        if: inputs.bot == 'app'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
+          permission-contents: write
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v7
         with:
@@ -36,7 +59,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.1.2
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.1
         id: lock_check
 
       - name: Lock already in sync
@@ -47,7 +70,6 @@ jobs:
         if: steps.lock_check.outputs.in_sync != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
-          PUSH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if ! grep -q 'framework_sdk_worker' package.json; then
@@ -126,10 +148,11 @@ jobs:
           fi
           git commit -m "CI action 自动刷新 package-lock（GitHub Packages SDK ${WANT_VER}）" -m "供 Cloudflare Builds npm ci 安装；含 package.json 根依赖同步。"
 
+          # push 复用 checkout 注入的凭据（persist-credentials）；勿手拼 token-URL（报错时可能泄漏）
           push_with_rebase() {
             git fetch origin "${GITHUB_REF_NAME}"
             git pull --rebase origin "${GITHUB_REF_NAME}"
-            git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           }
 
           if push_with_rebase; then

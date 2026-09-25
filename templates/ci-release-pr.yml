@@ -1,17 +1,24 @@
 # Release PR CI 模板（复制到 Worker 根目录 .github/workflows/ci.yml）
 # 说明见 docs/release-pr-ci.md；编排：worker-ci.yml
-# workers-world actions bundle: actions/v0.1.0（禁止 @master，见 docs/actions-releases.md）
+# workers-world actions bundle: actions/v0.2.1（禁止 @master，见 docs/actions-releases.md）
 # 另复制 templates/sync-default-branch.yml 为独立 workflow（勿并入本文件）
 name: CI
 
-# Release PR 模型：push dev_* → verify + 自动开 PR；PR → master 上跑 qodana + OCR，全绿 auto-merge。
+# Release PR 模型：push dev_* → sync-lock + 自动开 draft PR；
+# PR → master 上跑 verify（+ 可选 qodana/OCR）；Ready for review 且全绿后 auto-merge。
 # 前置：Org Secret GHA_TOKEN（PAT repo），caller secrets: inherit
 on:
   push:
     branches: ["dev_*"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   pull_request:
     branches: ["master"]
     types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -27,9 +34,12 @@ jobs:
       # nested worker-ci → qodana/ocr 需 actions: write（cache）；notify-blocked 需 actions/checks: read
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.2
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.1
     secrets: inherit
     with:
       # SDK 版本以 package.json 为准；无 SDK 则 materialize_sdk: false
       sync_packages_lock: true
-      # enable_autofix: true   # 可选：OCR 失败时 Cursor CLI 自动修复（需 Org CURSOR_API_KEY）
+      # create_draft_release_pr: true   # 默认；Ready for review 后才合 master
+      # verify_on_push: false           # 默认；push 只 sync-lock + ensure draft PR
+      # bot: app   # 可选：建 PR/merge/sync-lock push 走 GitHub App（须配 RELEASE_BOT_APP_ID 变量 +
+      #              RELEASE_BOT_PRIVATE_KEY Secret；promote 嵌套链暂不受影响），见 docs/github-app-token-migration.md

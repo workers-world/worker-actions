@@ -1,0 +1,25 @@
+# zizmor 基线配置（https://docs.zizmor.sh/configuration/）
+# 由 worker-workflow-lint 的 zizmor 步骤读取（--min-severity medium 起判）。
+# 注意：
+# - composite action（.github/actions/**）内的发现不能用本文件抑制，须用行内注释
+#   `# zizmor: ignore[<rule>]`（已就地标注理由）。
+# - 本文件 ignore 按「基文件名」匹配 workflow；每条须注明理由，
+#   新增前先看 docs/ci-audit-2026-08.md 对应条目，勿把新告警静默吞掉。
+rules:
+  # GitHub 第一方 actions/* 受官方供应链保护，允许 tag pin（Dependabot 周更 + cooldown）；
+  # workers-world/* 是本 org 自有 bundle，其 actions/vX.Y.Z tag 即版本设计本身
+  # （git tag 为权威制品，release-actions-bundle 打出后不可变，见 docs/actions-releases.md）；
+  # 其余来源默认 hash-pin（第三方一律 full SHA，勿放宽）
+  unpinned-uses:
+    config:
+      policies:
+        "actions/*": ref-pin
+        "workers-world/*": ref-pin
+
+  # persist-credentials 按设计保持 true：私有业务仓的 git fetch/pull/push 依赖 checkout 注入的凭据
+  artipacked:
+    ignore:
+      - worker-verify.yml              # PR checkout 后 git pull/fetch lock 提交
+      - worker-sync-packages-lock.yml  # bot commit 需要 push 凭据
+      - worker-qodana-scan.yml         # gate 步骤 git fetch origin 计算变更文件
+      - release-actions-bundle.yml     # push tag + manifest 分支

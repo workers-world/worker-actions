@@ -1,5 +1,7 @@
 # Dependabot：每周 bump GitHub Actions。
 # 本仓无根/tools package.json，暂不扫 npm。合入后走既有 Release PR 链。
+# 注：composite action 目录内的 uses（action.yml）默认不被 "/" 扫描，
+# 须显式列出 directories（dependabot-core#6704）。
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -7,6 +9,31 @@ updates:
     schedule:
       interval: "weekly"
       day: "tuesday"
+    # 冷却 7 天：上游发版被撤回/投毒时有观察窗（zizmor dependabot-cooldown）
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "[Actions] "
+    groups:
+      non-major:
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/.github/actions/ensure-gh-cli"
+      - "/.github/actions/ocr-pr-review"
+      - "/.github/actions/package-lock-in-sync"
+      - "/.github/actions/package-lock-wait-for-sync"
+      - "/.github/actions/qodana-parse"
+      - "/.github/actions/qodana-scan-gate"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "[Actions] "
     groups:

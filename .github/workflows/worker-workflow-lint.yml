@@ -4,11 +4,14 @@ name: Worker workflow lint
 # 检查项：
 #   1. actionlint：YAML/GHA 语法、表达式类型、shell 注入、reusable workflow（composite 经引用校验）
 #   2. shellcheck（actionlint 集成）：run: 块 shell 脚本
-#   3. JSON / YAML 解析：.opencodereview/rule.json、manifest/actions-bundle.yaml
-#   4. Pin 检查：uses: 禁止 @master / @main / @HEAD
-#   5. manifest 格式：current 须为 actions/vX.Y.Z（不校验 tag 是否已 push；发版 PR 中 manifest 常领先 tag）
-#   6. 卫生检查：CRLF / 尾随空白 / 合并冲突标记 <<<<<<<
-#   7. 凭据泄露扫描：ghp_ / sk- / cf- / -----BEGIN ... PRIVATE KEY-----
+#   3. zizmor：Actions 安全审计（template-injection / permissions / unpinned-uses 等；
+#      基线配置 zizmor.yml，--min-severity medium 起判；composite 内用行内 ignore 标注理由）
+#   4. JSON / YAML 解析：.opencodereview/rule.json、manifest/actions-bundle.yaml
+#   5. Pin 检查：uses: 禁止 @master / @main / @HEAD
+#   6. 内层 pin 一致性：@actions/vX.Y.Z 全仓同版本（防「外层升内层没升」）
+#   7. manifest 格式：current 须为 actions/vX.Y.Z（不校验 tag 是否已 push；发版 PR 中 manifest 常领先 tag）
+#   8. 卫生检查：CRLF / 尾随空白 / 合并冲突标记 <<<<<<<
+#   9. 凭据泄露扫描：ghp_ / sk- / cf- / -----BEGIN ... PRIVATE KEY-----
 #
 # templates/ 与 manifest current 的 pin 不对齐是常态（manifest 由 release-actions-bundle 异步回填），不在此校验。
 #
@@ -26,6 +29,10 @@ on:
         description: shellcheck 发行版（无 v 前缀）；空则跳过 shellcheck
         type: string
         default: "0.10.0"
+      zizmor_version:
+        description: zizmor 版本（PyPI，无 v 前缀）；升级须连同 zizmor.yml 基线一起复核
+        type: string
+        default: "1.29.0"
       forbid_tags:
         description: "uses 禁止的 ref（逗号分隔，如 master,main,HEAD）"
         type: string
@@ -52,6 +59,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # manifest tag 一致性需要 git tag
+          persist-credentials: false  # 纯只读 lint，不留凭据
 
       - uses: actions/setup-node@v7
         with:
@@ -64,9 +72,14 @@ jobs:
           set -euo pipefail
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
-          curl -fsSL \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            | tar xz -C "$bindir" actionlint
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          # 官方 checksums.txt 校验（防下载产物被篡改/镜像投毒）
+          curl -fsSL "${base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt" -o "${RUNNER_TEMP}/actionlint.sha256"
+          curl -fsSL "${base}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" -o "${RUNNER_TEMP}/actionlint.tgz"
+          grep " actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz\$" "${RUNNER_TEMP}/actionlint.sha256" \
+            | sed "s|actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz|${RUNNER_TEMP}/actionlint.tgz|" \
+            | sha256sum -c -
+          tar xz -C "$bindir" -f "${RUNNER_TEMP}/actionlint.tgz" actionlint
           chmod +x "$bindir/actionlint"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/actionlint" -version
@@ -79,11 +92,32 @@ jobs:
           set -euo pipefail
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
-          base="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          curl -fsSL "$base" | tar -xJ -C "$bindir" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          base="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}"
+          curl -fsSL "$base/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o "${RUNNER_TEMP}/shellcheck.tar.xz"
+          # shellcheck 官方不发布 checksums（TODO: 固化 SHA256 或改源）；先确保下载完整可解压
+          tar -xJ -C "$bindir" --strip-components=1 -f "${RUNNER_TEMP}/shellcheck.tar.xz" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
           chmod +x "$bindir/shellcheck"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/shellcheck" --version
+
+      - name: Install zizmor
+        env:
+          ZIZMOR_VERSION: ${{ inputs.zizmor_version }}
+        run: |
+          set -euo pipefail
+          # venv 安装（ubuntu runner 的 python 受 PEP 668 保护）；固定版本，升级须复核 zizmor.yml 基线
+          python3 -m venv "${RUNNER_TEMP}/zizmor-venv"
+          "${RUNNER_TEMP}/zizmor-venv/bin/pip" install --quiet --disable-pip-version-check \
+            "zizmor==${ZIZMOR_VERSION}"
+          echo "${RUNNER_TEMP}/zizmor-venv/bin" >> "$GITHUB_PATH"
+          # GITHUB_PATH 仅对后续 step 生效；本步用绝对路径校验
+          "${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --version
+
+      - name: zizmor（Actions 安全审计，≥medium 阻断）
+        run: |
+          set -euo pipefail
+          # 基线配置 zizmor.yml（每条 ignore 带理由）；composite 内用行内 ignore 标注
+          zizmor --no-progress --min-severity medium .
 
       - name: actionlint (workflows + composite actions)
         env:
@@ -157,6 +191,22 @@ jobs:
             done < "$f"
           done < <(find .github -type f \( -name '*.yml' -o -name '*.yaml' \) -print)
           exit $fail
+
+      - name: 内层 pin 一致性（@actions/vX.Y.Z 全仓同版本）
+        run: |
+          set -euo pipefail
+          # 防「外层已升、内层仍旧」：bundle 内所有跨仓自引用（leaf workflow / composite / 模板示例）
+          # 必须指向同一 actions/vX.Y.Z；git tag 为权威制品，manifest 仅说明书（见 docs/actions-releases.md）
+          versions="$(grep -rhoE '@actions/v[0-9]+\.[0-9]+\.[0-9]+' \
+            .github/workflows .github/actions templates docs/templates \
+            --include='*.yml' --include='*.yaml' 2>/dev/null | sort -u || true)"
+          n="$(printf '%s' "${versions}" | grep -c . || true)"
+          if [ "$n" -gt 1 ]; then
+            echo "::error::内层 @actions/vX.Y.Z 版本不一致（外层升内层没升）："
+            printf '%s\n' "${versions}" | sed 's/^/  /'
+            exit 1
+          fi
+          echo "ok: 内层 pin 一致（${versions:-无跨仓自引用}）"
 
       - name: manifest 格式检查
         run: |

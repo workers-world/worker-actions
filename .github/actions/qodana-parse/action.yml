@@ -26,26 +26,29 @@ runs:
   steps:
     - id: parse
       shell: bash
+      # inputs 经 env 传入（勿 ${{ inputs.* }} 内插进脚本，防模板注入）
+      env:
+        PARSE: ${{ github.action_path }}/parse-qodana-report.mjs
+        SKIP_REASON: ${{ inputs.skip_reason }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        SARIF_FILE: ${{ inputs.sarif_file }}
+        FAIL_ONLY: ${{ inputs.fail_only }}
       run: |
         set -euo pipefail
-        PARSE="${{ github.action_path }}/parse-qodana-report.mjs"
         test -f "$PARSE"
-        SKIP="${{ inputs.skip_reason }}"
-        HEAD="${{ inputs.head_sha }}"
-        if [ -n "${SKIP}" ]; then
-          node "$PARSE" --skip-summary --skip-reason "${SKIP}" --head-sha "${HEAD}" --json --no-fail > qodana-summary.json
-          node "$PARSE" --skip-summary --skip-reason "${SKIP}" --head-sha "${HEAD}" --github-summary > qodana-comment.md
+        if [ -n "${SKIP_REASON}" ]; then
+          node "$PARSE" --skip-summary --skip-reason "${SKIP_REASON}" --head-sha "${HEAD_SHA}" --json --no-fail > qodana-summary.json
+          node "$PARSE" --skip-summary --skip-reason "${SKIP_REASON}" --head-sha "${HEAD_SHA}" --github-summary > qodana-comment.md
           echo "pass=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        SARIF="${{ inputs.sarif_file }}"
-        test -n "$SARIF"
-        test -f "$SARIF"
-        if [ "${{ inputs.fail_only }}" = "true" ]; then
-          node "$PARSE" --file "$SARIF" --head-sha "${HEAD}" --json
+        test -n "$SARIF_FILE"
+        test -f "$SARIF_FILE"
+        if [ "${FAIL_ONLY}" = "true" ]; then
+          node "$PARSE" --file "$SARIF_FILE" --head-sha "${HEAD_SHA}" --json
           exit 0
         fi
-        node "$PARSE" --file "$SARIF" --head-sha "${HEAD}" --json --no-fail > qodana-summary.json
-        node "$PARSE" --file "$SARIF" --head-sha "${HEAD}" --github-summary > qodana-comment.md
+        node "$PARSE" --file "$SARIF_FILE" --head-sha "${HEAD_SHA}" --json --no-fail > qodana-summary.json
+        node "$PARSE" --file "$SARIF_FILE" --head-sha "${HEAD_SHA}" --github-summary > qodana-comment.md
         pass=$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('qodana-summary.json','utf8')).pass))")
         echo "pass=$pass" >> "$GITHUB_OUTPUT"

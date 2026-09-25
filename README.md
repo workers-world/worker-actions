@@ -2,9 +2,7 @@
 
 Cloudflare Worker 仓可复用的 GitHub Actions bundle（verify、Release PR、Qodana、OCR、auto-merge）。
 
-许可证由 GitHub 建仓时生成（MIT）。**不要** `@master`，pin `actions/vX.Y.Z`。
-
-Java / Maven CI 在独立仓：[workers-world/java-actions](https://github.com/workers-world/java-actions)。
+**不要** `@master`，pin `actions/vX.Y.Z`。
 
 ## Caller
 
@@ -18,7 +16,7 @@ jobs:
       issues: write
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.0
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.1
     secrets: inherit
     with:
       sync_packages_lock: true
@@ -29,8 +27,8 @@ jobs:
 跨仓嵌套须写全路径并与 bundle **同 tag**（`$` / `./` 会解析到业务仓）：
 
 ```yaml
-uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.0
-uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.1.0
+uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.1
+uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.1
 ```
 
 当前推荐 tag 见 [manifest/actions-bundle.yaml](manifest/actions-bundle.yaml)（第一条 tag 在首次 push `master` 后由 `release-actions-bundle` 打出）。
@@ -43,6 +41,9 @@ uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/
 | `OCR_LLM_TOKEN` | Secret | OCR 用的 LLM API Key（可选；`skip_ocr: true` 时不需要） |
 | `QODANA_TOKEN` | Secret | JetBrains Qodana（可选；未开 Org Variable 则 skip） |
 | `NOTIFY_GHA_TOKEN` | Secret | 阻断邮件（可选） |
+| `RELEASE_BOT_PRIVATE_KEY` | Secret | release-bot App 私钥（caller 传 `bot: app` 时需要；可选，见 docs/github-app-token-migration.md） |
+| `RELEASE_BOT_APP_ID` | Variable | release-bot App ID（`bot: app` 时需要；可选） |
+| `DEFAULT_BRANCH_BOT_PRIVATE_KEY` / `DEFAULT_BRANCH_BOT_APP_ID` | Secret / Variable | 独立 default-branch-bot App（`bot: app` 时需要；可选） |
 | `OCR_LLM_URL` / `OCR_LLM_MODEL` | Variable | 默认 DeepSeek chat completions |
 | `QODANA_ENABLED` | Variable | `true`/`1`/`yes` 才跑 Qodana Docker |
 | `GHA_RUNNER` | Variable | 空则 `ubuntu-latest`；在 **caller** 上下文求值 |

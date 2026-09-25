@@ -13,6 +13,7 @@ permissions:
 jobs:
   release:
     uses: ./.github/workflows/create-gh-release.yml
-    secrets: inherit
+    # 不传 secrets：create-gh-release 内 GHA_TOKEN 为空时回退 github.token；
+    # 本仓 tag 由 release-actions-bundle（GITHUB_TOKEN）打出，无跨仓需求，避免 inherit 过度暴露
     with:
       tag_name: ${{ github.ref_name }}

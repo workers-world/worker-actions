@@ -5,7 +5,7 @@ name: Worker notify Release PR blocked
 #
 # Caller（pull_request → master，needs 含 release-auto-merge）：
 #   if: always() && needs.release-auto-merge.result != 'success' && …
-#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.1.2
+#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.1
 #   secrets: inherit
 # caller 须授予 annotations 拉取权限（发信仍走 NOTIFY_*；GHA nested 权限不能超过 caller）：
 #   permissions: { actions: read, checks: read }
@@ -48,15 +48,15 @@ on:
         description: 拉取 tools/gh-run-annotations.mjs 的 workers-world/worker-actions git ref（仅 actions/vX.Y.Z 或 40 位 SHA）
         required: false
         type: string
-        default: actions/v0.1.0
+        default: actions/v0.1.3
       node_version:
         description: Node.js 版本（gh-run-annotations.mjs；self-hosted 由 setup-node 安装）
         type: string
         default: "22"
     secrets:
       NOTIFY_GHA_TOKEN:
-        description: 与 notify-worker NOTIFY_GHA_TOKEN 同值（Org Secret）
-        required: true
+        description: 与 notify-worker NOTIFY_GHA_TOKEN 同值（Org Secret）。未配置时由 Guard 步骤显式报错
+        required: false
       GHA_TOKEN:
         description: 跨仓拉取 workers-world/worker-actions 用 PAT（私有仓须传；公开仓可省略，回退 github.token）
         required: false
@@ -101,7 +101,7 @@ jobs:
           ref: ${{ inputs.actions_bundle_ref }}
           path: .ww-gha
           fetch-depth: 1
-          token: ${{ (secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN) || github.token }}
+          token: ${{ (secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN) || github.token }}
           persist-credentials: false
 
       - uses: actions/setup-node@v7
@@ -117,10 +117,11 @@ jobs:
           set -euo pipefail
           HELPER=".ww-gha/tools/gh-run-annotations.mjs"
           if [ ! -f "${HELPER}" ]; then
+            # 静态文本，定界符无碰撞风险；动态内容一律用随机定界符（见 Build reason）
             {
-              echo "annotations<<EOF"
+              echo "annotations<<ANN_STATIC_DELIM"
               echo "(annotation helper 未在 ref=${ACTIONS_BUNDLE_REF} 中发布)"
-              echo "EOF"
+              echo "ANN_STATIC_DELIM"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -177,9 +178,11 @@ jobs:
             node "${MAIL_HELPER}"
           else
             echo "::warning::邮件 HTML 构建脚本未在 ref=${ACTIONS_BUNDLE_REF:-} 中发布；仅发纯文本（notify-worker 仍会 auto-linkify URL）"
+            # body 含 ANNOTATIONS 原文（可能带任意错误消息/代码片段），须用随机定界符防 heredoc 截断注入
+            BODY_DELIM="body_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
             {
               echo "subject=[Release PR] ${REPO} #${PR_NUMBER} 需人工处理"
-              echo "body<<EOF"
+              echo "body<<${BODY_DELIM}"
               echo "Release PR 未能自动合入 master，需要人工介入。"
               echo ""
               echo "Repo: ${REPO}"
@@ -204,7 +207,7 @@ jobs:
               echo "----------------------------------------"
               echo ""
               echo "修复后 push 到 ${HEAD_REF} 会更新本 PR 并重跑门禁。"
-              echo "EOF"
+              echo "${BODY_DELIM}"
             } >> "$GITHUB_OUTPUT"
           fi
 

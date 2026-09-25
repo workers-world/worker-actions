@@ -39,13 +39,10 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.tag_name }}
-
+      # 无需 checkout：softprops/action-gh-release 经 API 对 tag 建 Release（也消除 artipacked/凭据面）
+      # 第三方 action pin full SHA（官方建议：SHA 是唯一不可变引用）；升级由 Dependabot 同步注释
       - name: Create or update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           tag_name: ${{ inputs.tag_name }}

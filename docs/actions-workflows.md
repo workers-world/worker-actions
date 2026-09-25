@@ -58,21 +58,18 @@ flowchart TB
   WCI --> NTF[worker-notify-release-pr-blocked]
 
   CI --> WL
-  CI --> ERP
-  CI --> OCR
-  CI --> RAM
-  CI --> NTF
 
   WV --> SPL[worker-sync-packages-lock]
   WV --> PROM[worker-promote]
 
   PG[worker-promote-gated] --> PROM
-
 ```
 
 来源：[`.github/workflows/`](../.github/workflows/)（尤其 [`worker-ci.yml`](../.github/workflows/worker-ci.yml)、[`ci.yml`](../.github/workflows/ci.yml)）。
 
 `worker-sync-default-dev-branch` 由业务仓 **独立** workflow 调用（与 `ci.yml` 无 `needs`）；verify 失败时仍可同步默认分支。
+
+> 本仓 `ci.yml` 当前仅保留 fork-safe 的 `workflow-lint`（无 secrets）；Release PR / auto-merge / notify 链只在业务仓经 `worker-ci` 挂载。本仓发版（dev → master）由人工开 PR，见 [actions-releases.md](./actions-releases.md)。
 
 ---
 
@@ -160,33 +157,12 @@ flowchart TB
 
 ### 4.2 `ci.yml`（本仓 dogfood）
 
-本仓无应用代码：**无** verify / qodana；同仓嵌套用 `./`。
+本仓无应用代码，且 `ci.yml` 须对所有 PR（含 fork）安全：**仅**跑无 secrets 的 `workflow-lint`。Release PR / auto-merge / notify 链不在本仓挂载——本仓 `dev_*` → `master` 由人工开 PR（见 [actions-releases.md](./actions-releases.md)）。
 
 ```mermaid
-flowchart TB
+flowchart LR
   lint[workflow-lint]
-  ensure[ensure-release-pr]
-  ocr[ocr]
-  merge[release-auto-merge]
-  notify[notify-blocked]
-
-  lint -->|push_dev_and_success| ensure
-  lint -->|PR_and_success| ocr
-  lint --> merge
-  ocr --> merge
-  lint --> notify
-  ocr --> notify
-  merge --> notify
 ```
-
-与 `worker-ci` 的差异：
-
-| 项 | `worker-ci` | 本仓 `ci.yml` |
-|----|-------------|----------------|
-| verify / qodana | 有 | 无 |
-| auto-merge 条件 | lint + verify + qodana + ocr | lint + ocr |
-| OCR 默认 | `skip_ocr: true` | `skip: true` |
-| 嵌套引用 | 全路径 `@actions/vX.Y.Z` | `./` |
 
 来源：[`ci.yml`](../.github/workflows/ci.yml)。合入 `master` 且改了 workflows/actions 后由 [Bundle 发版链](#6-bundle-发版链) 打 tag。
 
@@ -427,7 +403,7 @@ flowchart TB
 
 | Workflow | 触发 | 类型 | 上游 | 下游 |
 |----------|------|------|------|------|
-| `ci.yml` | push `dev_*`；PR → `master` | 本仓入口 | — | lint, ensure-pr, OCR, auto-merge, notify |
+| `ci.yml` | push `dev_*`；PR → `master`（含 fork） | 本仓入口 | — | workflow-lint（无 secrets；fork-safe） |
 | `worker-ci.yml` | `workflow_call` | 业务仓门面 | 业务仓 `ci.yml` | lint, verify, ensure-pr, qodana, OCR, ci-failure-comment, auto-merge, notify |
 | `worker-workflow-lint.yml` | `workflow_call` | Leaf | worker-ci / ci | —（actionlint / manifest 格式 / 卫生 / 凭据扫描） |
 | `worker-verify.yml` | `workflow_call` | Leaf | worker-ci | sync-packages-lock, promote |
