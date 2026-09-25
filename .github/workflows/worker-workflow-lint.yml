@@ -110,7 +110,8 @@ jobs:
           "${RUNNER_TEMP}/zizmor-venv/bin/pip" install --quiet --disable-pip-version-check \
             "zizmor==${ZIZMOR_VERSION}"
           echo "${RUNNER_TEMP}/zizmor-venv/bin" >> "$GITHUB_PATH"
-          zizmor --version
+          # GITHUB_PATH 仅对后续 step 生效；本步用绝对路径校验
+          "${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --version
 
       - name: zizmor（Actions 安全审计，≥medium 阻断）
         run: |
