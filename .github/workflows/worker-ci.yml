@@ -5,6 +5,12 @@ name: Worker CI
 # =============================================================================
 # 内嵌：verify / ensure-release-pr / qodana / OCR / release-auto-merge / notify-blocked
 #
+# 成本策略（actions/v0.2.0+）：
+#   - Release PR 默认 draft；Ready for review 后才 auto-merge → Cloudflare Builds
+#   - push 默认不跑 verify / workflow-lint；verify 仅在 pull_request（门禁）
+#   - skip_ocr / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
+#   - github-actions[bot]（lock-bot）跳过 lint/verify/qodana/ocr/ensure
+#
 # Caller（业务仓 .github/workflows/ci.yml）典型用法：
 #   permissions:
 #     contents: write
@@ -13,7 +19,7 @@ name: Worker CI
 #     issues: write
 #     actions: write   # nested qodana（PR 限频 cache）/ ocr（cache）
 #     checks: read     # nested notify-blocked
-#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.3
+#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.0
 #   secrets: inherit
 #   with:
 #     sync_packages_lock: true
@@ -39,6 +45,10 @@ on:
         description: push dev_* 时是否按 package.json 刷新并提交 package-lock（含普通依赖增删）
         type: boolean
         default: true
+      verify_on_push:
+        description: "true：push 到 dev_* 也跑 verify（旧快反馈）；默认 false，verify 仅在 Release PR 上作门禁"
+        type: boolean
+        default: false
       promote:
         description: verify 内是否 FF master（Release PR 仓须 false）
         type: boolean
@@ -56,7 +66,11 @@ on:
         type: boolean
         default: false
       require_non_draft_pr:
-        description: "true：auto-merge 要求 PR 非 draft（deploy-tracker）"
+        description: "true：auto-merge 要求 PR 非 draft（默认 true；搭配 ensure 默认 draft）"
+        type: boolean
+        default: true
+      create_draft_release_pr:
+        description: "true（默认）：ensure-release-pr 新建 draft PR；false：创建即 ready"
         type: boolean
         default: true
       qodana_throttle_minutes:
@@ -80,21 +94,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Release PR 公共过滤（GHA 不支持 YAML anchor 跨 job if，以下四处须保持一致）：
+  # Release PR 公共过滤（GHA 不支持 YAML anchor 跨 job if，以下须保持一致）：
   #   event_name==pull_request && action in opened|synchronize|reopened|ready_for_review
   #   && base_ref==master && head_ref startsWith dev_ && same-repo
-  # 调整触发范围时请同步改：qodana / ocr / release-auto-merge / notify-blocked
+  # 调整触发范围时请同步改：qodana / ocr / release-auto-merge / notify-blocked / ci-summary
   #
-  # workflow-lint 须先于 OCR（及 push 建 Release PR），避免 YAML/GHA 语法错误浪费 LLM。
+  # workflow-lint：仅 PR（OCR 前置）；push 不跑。拿不到路径时 PR 上跑一次（避免 paths-filter 再花 1 分钟）。
   workflow-lint:
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      startsWith(github.head_ref, 'dev_') &&
+      github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
-    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.1.3
+    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.0
+
   verify:
+    # push：仅 sync-lock（非 bot）+ 可选 verify_on_push；PR：全量门禁
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      (
+        github.event_name == 'pull_request' ||
+        (
+          github.event_name == 'push' &&
+          startsWith(github.ref_name, 'dev_') &&
+          (inputs.verify_on_push || inputs.sync_packages_lock)
+        )
+      )
     permissions:
       contents: write
       packages: read
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.1.3
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.0
     # 最小 secret 集：GHA_TOKEN 读 Packages；RELEASE_BOT_* 仅 bot=app 时由 sync-lock 消费
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
@@ -104,32 +137,40 @@ jobs:
       materialize_sdk: ${{ inputs.materialize_sdk }}
       run_tests: ${{ inputs.run_tests }}
       sync_packages_lock: ${{ inputs.sync_packages_lock }}
+      run_verify: ${{ github.event_name == 'pull_request' || inputs.verify_on_push }}
       promote: ${{ inputs.promote }}
       bot: ${{ inputs.bot }}
 
   ensure-release-pr:
     needs: [workflow-lint]
-    # 始终跳过分支删除事件（deleted head 无法建 PR）；skip_branch_deleted_check 已废弃
+    # push 上 lint 常 skipped；bot（lock）不建/不刷 PR
     if: |
       always() &&
-      needs.workflow-lint.result == 'success' &&
+      (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
+      github.actor != 'github-actions[bot]' &&
       github.event_name == 'push' &&
       startsWith(github.ref_name, 'dev_') &&
       github.event.deleted != true
     # PAT 建 PR（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.3
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.0
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
       RELEASE_BOT_APP_ID: ${{ secrets.RELEASE_BOT_APP_ID }}
     with:
       release_branch: ${{ github.ref_name }}
+      create_draft_release_pr: ${{ inputs.create_draft_release_pr }}
       bot: ${{ inputs.bot }}
 
   qodana:
-    # 仅同仓 Release PR（dev_* → master）；与 OCR / auto-merge 门禁一致
+    # Org 未启用则 job 级不启动（勿 checkout 后 gate skip）；auto-merge 将 skipped 当通过
     if: |
+      github.actor != 'github-actions[bot]' &&
+      (
+        contains(fromJSON('["true","1","yes","True","TRUE","Yes","YES"]'), vars.QODANA_ENABLED) ||
+        contains(fromJSON('["true","1","yes","True","TRUE","Yes","YES"]'), vars.WORKERS_WORLD_QODANA_ENABLED)
+      ) &&
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
@@ -141,7 +182,7 @@ jobs:
       issues: write
       # nested worker-qodana-scan 需 actions: write（qodana-scan-gate PR 限频 cache）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.1.3
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.2.0
     # 最小 secret 集：qodana 只需 QODANA_TOKEN（Org 未配置时为空，由 gate skip，不报错）
     secrets:
       QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
@@ -155,10 +196,12 @@ jobs:
 
   ocr:
     needs: [workflow-lint]
-    # 仅同仓 Release PR（dev_* → master）；排除 fork（无 secrets）与非 dev_* head
+    # skip_ocr 时整段不调 open-code-review（无 skip-ack runner）
     if: |
       always() &&
-      needs.workflow-lint.result == 'success' &&
+      inputs.skip_ocr != true &&
+      (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
+      github.actor != 'github-actions[bot]' &&
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
@@ -169,7 +212,7 @@ jobs:
       pull-requests: write
       # nested open-code-review 需 actions: write（actions/cache session save）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.3
+    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.2.0
     # 最小 secret 集（open-code-review 声明的全集）；旧名 DEEPSEEK_API_KEY 兼容保留
     secrets:
       OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
@@ -180,14 +223,14 @@ jobs:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
       rule: ${{ inputs.ocr_rule }}
-      skip: ${{ inputs.skip_ocr }}
-      actions_bundle_ref: actions/v0.1.3
+      skip: false
+      actions_bundle_ref: actions/v0.2.0
 
   release-auto-merge:
     needs: [workflow-lint, verify, qodana, ocr]
     if: |
       always() &&
-      needs.workflow-lint.result == 'success' &&
+      (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
@@ -195,11 +238,11 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       (inputs.require_non_draft_pr != true || github.event.pull_request.draft == false) &&
       needs.verify.result == 'success' &&
-      needs.qodana.result == 'success' &&
-      needs.ocr.result == 'success'
+      (needs.qodana.result == 'success' || needs.qodana.result == 'skipped') &&
+      (needs.ocr.result == 'success' || needs.ocr.result == 'skipped')
     # merge 凭证走 PAT（GHA_TOKEN）或 App（bot=app）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.1.3
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.2.0
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
@@ -227,7 +270,7 @@ jobs:
       )
     permissions:
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.1.3
+    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.2.0
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_ref: ${{ github.head_ref }}
@@ -264,13 +307,13 @@ jobs:
         needs.release-auto-merge.result == 'failure' ||
         (
           needs.release-auto-merge.result == 'skipped' &&
-          needs.workflow-lint.result == 'success' &&
+          (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
           needs.verify.result == 'success' &&
-          needs.qodana.result == 'success' &&
-          needs.ocr.result == 'success'
+          (needs.qodana.result == 'success' || needs.qodana.result == 'skipped') &&
+          (needs.ocr.result == 'success' || needs.ocr.result == 'skipped')
         )
       )
-    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.1.3
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.0
     # 最小 secret 集：发信走 NOTIFY_*；GHA_TOKEN 跨仓拉取 annotation helper（公开仓可空）
     secrets:
       NOTIFY_GHA_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
@@ -283,4 +326,69 @@ jobs:
       qodana_result: ${{ needs.qodana.result }}
       ocr_result: ${{ needs.ocr.result }}
       merge_result: ${{ needs.release-auto-merge.result }}
-      actions_bundle_ref: actions/v0.1.3
+      actions_bundle_ref: actions/v0.2.0
+
+  # 仪器：进来多少 job、哪些 skipped、估算 hosted 分钟下界（文章「Claude 的眼睛」）
+  ci-summary:
+    needs: [workflow-lint, verify, ensure-release-pr, qodana, ocr, release-auto-merge]
+    if: always()
+    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Write CI cost summary
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          REF_NAME: ${{ github.ref_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          SKIP_OCR: ${{ inputs.skip_ocr }}
+          VERIFY_ON_PUSH: ${{ inputs.verify_on_push }}
+          CREATE_DRAFT: ${{ inputs.create_draft_release_pr }}
+          LINT_R: ${{ needs.workflow-lint.result }}
+          VERIFY_R: ${{ needs.verify.result }}
+          ENSURE_R: ${{ needs.ensure-release-pr.result }}
+          QODANA_R: ${{ needs.qodana.result }}
+          OCR_R: ${{ needs.ocr.result }}
+          MERGE_R: ${{ needs.release-auto-merge.result }}
+          QODANA_VAR: ${{ vars.QODANA_ENABLED }}
+          QODANA_VAR_WW: ${{ vars.WORKERS_WORLD_QODANA_ENABLED }}
+        run: |
+          set -euo pipefail
+          # skipped / cancelled 不占 hosted 分钟；其余约 ≥1 计费分钟/job
+          ran=0
+          for r in "$LINT_R" "$VERIFY_R" "$ENSURE_R" "$QODANA_R" "$OCR_R" "$MERGE_R"; do
+            case "$r" in
+              success|failure) ran=$((ran + 1)) ;;
+            esac
+          done
+          # 本 summary job 自身也会计 1 分钟
+          ran=$((ran + 1))
+          {
+            echo "## worker-ci cost summary"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| event | \`${EVENT_NAME}\` |"
+            echo "| actor | \`${ACTOR}\` |"
+            echo "| ref | \`${REF_NAME}\` / head \`${HEAD_REF}\` |"
+            echo "| draft | \`${IS_DRAFT}\` |"
+            echo "| skip_ocr | \`${SKIP_OCR}\` |"
+            echo "| verify_on_push | \`${VERIFY_ON_PUSH}\` |"
+            echo "| create_draft_release_pr | \`${CREATE_DRAFT}\` |"
+            echo "| QODANA_ENABLED | \`${QODANA_VAR:-}\` / WW \`${QODANA_VAR_WW:-}\` |"
+            echo ""
+            echo "| job | result |"
+            echo "|---|---|"
+            echo "| workflow-lint | \`${LINT_R}\` |"
+            echo "| verify | \`${VERIFY_R}\` |"
+            echo "| ensure-release-pr | \`${ENSURE_R}\` |"
+            echo "| qodana | \`${QODANA_R}\` |"
+            echo "| ocr | \`${OCR_R}\` |"
+            echo "| release-auto-merge | \`${MERGE_R}\` |"
+            echo ""
+            echo "**估算启动过的 hosted job 数（含本 summary）≈ ${ran}**（≈ GitHub Linux 计费分钟下界；短 job 按 1 分钟取整）。"
+            echo ""
+            echo "skip 含义：lint/push 默认不上；qodana 需 Org Variable；ocr 需 \`skip_ocr: false\`；bot push 整段跳过；draft 不 merge。"
+          } >> "$GITHUB_STEP_SUMMARY"

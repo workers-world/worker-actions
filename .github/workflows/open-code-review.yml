@@ -4,7 +4,7 @@ name: Open Code Review
 #
 # Caller 典型用法：
 #   permissions: { contents: read, pull-requests: write, actions: write }
-#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.1.3
+#   uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.2.0
 #   secrets: inherit
 #
 # Org 配置（配一次）：
@@ -18,7 +18,8 @@ name: Open Code Review
 #
 # 详见 docs/open-code-review.md
 #
-# 跳过审查：with.skip: true（不调 LLM；job 直接 success，便于临时关 OCR）
+# 跳过审查：with.skip: true（不调 LLM；全部 job skipped → workflow success）。
+# 业务仓经 worker-ci 时优先用 skip_ocr 在门面层不调用本 workflow（省 runner）。
 on:
   workflow_call:
     inputs:
@@ -65,7 +66,7 @@ on:
       actions_bundle_ref:
         description: ocr-pr-review composite action 的 git ref（仅允许 actions/vX.Y.Z 或 40 位 commit SHA；dogfood 可传 head SHA）
         type: string
-        default: actions/v0.1.3
+        default: actions/v0.2.0
     secrets:
       OCR_LLM_TOKEN:
         description: LLM API Key（当前 provider；OCR_LLM_TOKEN）；skip=true 时可不传
@@ -98,15 +99,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  skip-ack:
-    if: ${{ inputs.skip }}
-    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
-    timeout-minutes: 2
-    permissions: {}
-    steps:
-      - name: OCR skipped
-        run: echo "OCR skipped by caller (skip=true)；不阻断 release-auto-merge。"
-
+  # skip=true 时无 job 启动 → workflow success（勿再起 skip-ack 空 runner）
   review:
     # 非 PR 事件（push / workflow_dispatch）下 pr_number 为空，composite 会失败
     if: ${{ inputs.skip != true && github.event.pull_request.number != '' }}

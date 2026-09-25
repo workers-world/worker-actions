@@ -1,12 +1,13 @@
 name: Worker ensure release PR
 
 # push 到 dev_* 时确保存在一条 dev → master 的 Release PR。
-# PR 创建/更新后会触发 pull_request workflow（verify + qodana + OCR + auto-merge）。
+# 默认以 draft 创建（控 Cloudflare Builds / 生产部署频率）；Ready for review 后
+# worker-ci 的 require_non_draft_pr + auto-merge 才会合入 master。
 #
 # Caller（push job）：
 #   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.3
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.0
 #   with:
 #     release_branch: ${{ github.ref_name }}
 on:
@@ -24,6 +25,10 @@ on:
         description: PR 标题前缀
         type: string
         default: "release:"
+      create_draft_release_pr:
+        description: "true（默认）：新建 Release PR 为 draft；Ready for review 后才 auto-merge。false：创建即 ready（旧行为，易触发每次合入部署）"
+        type: boolean
+        default: true
       bot:
         description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*，见 docs/github-app-token-migration.md）"
         type: string
@@ -98,6 +103,7 @@ jobs:
           RELEASE_BRANCH: ${{ inputs.release_branch }}
           MASTER_BRANCH: ${{ inputs.master_branch }}
           PR_TITLE_PREFIX: ${{ inputs.pr_title_prefix }}
+          CREATE_DRAFT: ${{ inputs.create_draft_release_pr }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -116,15 +122,20 @@ jobs:
             echo "pr_number=${existing}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          DRAFT_ARGS=()
+          if [ "${CREATE_DRAFT}" = "true" ]; then
+            DRAFT_ARGS=(--draft)
+          fi
           gh pr create --repo "$REPO" \
             --base "$MASTER_BRANCH" \
             --head "$RELEASE_BRANCH" \
             --title "${PR_TITLE_PREFIX} ${RELEASE_BRANCH} → ${MASTER_BRANCH}" \
+            "${DRAFT_ARGS[@]}" \
             --body "$(cat <<'EOF'
           ## Release PR（自动创建）
 
-          - push 到 `dev_*` 会更新本 PR
-          - **verify + Qodana + OCR** 全绿后 CI 自动 merge 到 `master`，正常情况无需人工点击
+          - push 到 `dev_*` 会更新本 PR（默认 **draft**，不触发生产合入）
+          - 版本收尾：在 GitHub 上 **Ready for review** → verify（+ 可选 Qodana/OCR）全绿后 CI 自动 merge 到 `master`
           - 任一门禁失败时请修复后 push，或人工处理 PR
 
           > 由 `worker-ensure-release-pr` 创建。
@@ -135,5 +146,5 @@ jobs:
             echo "::error::PR 创建后未能解析 number（head=${RELEASE_BRANCH} base=${MASTER_BRANCH}）"
             exit 1
           fi
-          echo "Created release PR #${new}"
+          echo "Created release PR #${new} (draft=${CREATE_DRAFT})"
           echo "pr_number=${new}" >> "$GITHUB_OUTPUT"
