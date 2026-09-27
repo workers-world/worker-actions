@@ -94,7 +94,7 @@ jobs:
           mkdir -p "$bindir"
           base="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}"
           curl -fsSL "$base/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o "${RUNNER_TEMP}/shellcheck.tar.xz"
-          # shellcheck 官方不发布 checksums（TODO: 固化 SHA256 或改源）；先确保下载完整可解压
+          # koalaman 发行包无官方 checksums（TODO: 固化 SHA256 或改源）；先确保下载完整可解压
           tar -xJ -C "$bindir" --strip-components=1 -f "${RUNNER_TEMP}/shellcheck.tar.xz" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
           chmod +x "$bindir/shellcheck"
           echo "$bindir" >> "$GITHUB_PATH"
