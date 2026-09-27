@@ -41,32 +41,38 @@ runs:
   steps:
     - id: gate
       shell: bash
+      # inputs 一律经 env 传入（勿 ${{ inputs.* }} 内插进脚本，防模板注入）
+      env:
+        ORG_ENABLED: ${{ inputs.org_enabled }}
+        BASE_REF: ${{ inputs.base_ref }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        THROTTLE_MINUTES: ${{ inputs.throttle_minutes }}
+        PR_ACTION: ${{ inputs.pr_action }}
+        CUSTOM_PATHS: ${{ inputs.custom_paths }}
+        CACHE_STATE_FILE: ${{ inputs.cache_state_file }}
       run: |
         set -euo pipefail
-        ORG="${{ inputs.org_enabled }}"
         ARGS=(node "${{ github.action_path }}/gate.mjs")
-        ARGS+=(--org-enabled "${ORG}")
-        ARGS+=(--base-ref "${{ inputs.base_ref }}")
-        ARGS+=(--head-sha "${{ inputs.head_sha }}")
-        ARGS+=(--throttle-minutes "${{ inputs.throttle_minutes }}")
-        ARGS+=(--pr-action "${{ inputs.pr_action }}")
-        if [ -n "${{ inputs.custom_paths }}" ]; then
-          ARGS+=(--custom-paths "${{ inputs.custom_paths }}")
+        ARGS+=(--org-enabled "${ORG_ENABLED}")
+        ARGS+=(--base-ref "${BASE_REF}")
+        ARGS+=(--head-sha "${HEAD_SHA}")
+        ARGS+=(--throttle-minutes "${THROTTLE_MINUTES}")
+        ARGS+=(--pr-action "${PR_ACTION}")
+        if [ -n "${CUSTOM_PATHS}" ]; then
+          ARGS+=(--custom-paths "${CUSTOM_PATHS}")
         fi
-        CACHE="${{ inputs.cache_state_file }}"
-        if [ -n "${CACHE}" ] && [ -f "${CACHE}" ]; then
-          ARGS+=(--cache-path "${CACHE}")
+        if [ -n "${CACHE_STATE_FILE}" ] && [ -f "${CACHE_STATE_FILE}" ]; then
+          ARGS+=(--cache-path "${CACHE_STATE_FILE}")
         fi
         ORG_ON="$(node -e "
           const v = process.argv[1];
           if (v == null || String(v).trim() === '') process.stdout.write('0');
           else if (/^(true|1|yes)$/i.test(String(v).trim())) process.stdout.write('1');
           else process.stdout.write('0');
-        " "${ORG}")"
+        " "${ORG_ENABLED}")"
         if [ "${ORG_ON}" = "1" ]; then
-          BASE="${{ inputs.base_ref }}"
-          git fetch origin "${BASE}" --depth=1 2>/dev/null || git fetch origin "${BASE}"
-          mapfile -t CHANGED < <(git diff --name-only "origin/${BASE}...HEAD" || true)
+          git fetch origin "${BASE_REF}" --depth=1 2>/dev/null || git fetch origin "${BASE_REF}"
+          mapfile -t CHANGED < <(git diff --name-only "origin/${BASE_REF}...HEAD" || true)
           for f in "${CHANGED[@]}"; do
             [ -n "${f}" ] && ARGS+=(--changed-file "${f}")
           done

@@ -74,7 +74,7 @@ Caller `if` 须同时限定：`startsWith(github.head_ref, 'dev_')` 且 `github.
       skip: true
 ```
 
-`skip=true` 时跑轻量 `skip-ack` job（success），不要求 `OCR_LLM_TOKEN`。
+`skip=true` 时全部 job skipped（workflow **success**，不起 runner）。经 `worker-ci` 时优先用门面 `skip_ocr: true`（**不调用**本 workflow）。不要求 `OCR_LLM_TOKEN`。
 
 ## Session 缓存（降 LLM 成本）
 

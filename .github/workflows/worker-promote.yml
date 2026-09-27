@@ -28,13 +28,28 @@ on:
         description: 若开启 auto-merge 后等待合入的最长时间（秒）
         type: number
         default: 900
+      bot:
+        description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*，见 docs/github-app-token-migration.md）"
+        type: string
+        default: "pat"
     secrets:
       GHA_TOKEN:
-        description: PAT（repo）；建 PR / merge 必填。Org 常禁止 GITHUB_TOKEN 建/合 PR。
-        required: true
+        description: PAT（repo）；建 PR / merge 必填。Org 常禁止 GITHUB_TOKEN 建/合 PR。未传时步骤内守卫报错
+        required: false
+      RELEASE_BOT_PRIVATE_KEY:
+        description: workers-world-release-bot App 私钥（bot=app 时必填；Org Secret）
+        required: false
+      RELEASE_BOT_APP_ID:
+        description: App ID（vars.RELEASE_BOT_APP_ID 未配时的 Secret 回退；bot=app 时必填其一）
+        required: false
 
 # 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
 permissions: {}
+
+# 部署类 job：同 dev_ 分支串行（排队不取消），防两次 push 的 promote 并行抢 merge
+concurrency:
+  group: promote-${{ github.repository }}-${{ inputs.release_branch }}
+  cancel-in-progress: false
 
 jobs:
   promote:
@@ -42,6 +57,17 @@ jobs:
     timeout-minutes: 30
     permissions: {}
     steps:
+      # bot=app：就地 mint 1h App installation token；mint 失败显式报错，不静默回落 PAT
+      - name: Mint GitHub App token
+        id: bot-token
+        if: inputs.bot == 'app'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
+          permission-pull-requests: write
+
       - name: Ensure GitHub CLI
         run: |
           set -euo pipefail
@@ -52,16 +78,22 @@ jobs:
           GH_VERSION="2.63.2"
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
-          curl -fsSL \
-            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
-            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          gh_base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
+          # 官方 checksums.txt 校验（防下载产物被篡改/镜像投毒）
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_checksums.txt" -o "${RUNNER_TEMP}/gh.sha256"
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o "${RUNNER_TEMP}/gh.tgz"
+          grep " gh_${GH_VERSION}_linux_amd64.tar.gz\$" "${RUNNER_TEMP}/gh.sha256" \
+            | sed "s|gh_${GH_VERSION}_linux_amd64.tar.gz|${RUNNER_TEMP}/gh.tgz|" \
+            | sha256sum -c -
+          tar xz -C "$bindir" --strip-components=2 -f "${RUNNER_TEMP}/gh.tgz" "gh_${GH_VERSION}_linux_amd64/bin/gh"
           chmod +x "$bindir/gh"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/gh" --version
 
       - name: Ensure Release PR and merge
         env:
-          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+          BOT: ${{ inputs.bot }}
           RELEASE_BRANCH: ${{ inputs.release_branch }}
           MASTER_BRANCH: ${{ inputs.master_branch }}
           PR_TITLE_PREFIX: ${{ inputs.pr_title_prefix }}
@@ -70,7 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::缺少 GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
+            echo "::error::缺少写凭证（bot=${BOT}）。bot=pat 请配 GHA_TOKEN；bot=app 请配 RELEASE_BOT_*（App ID + 私钥），见 docs/github-app-token-migration.md。"
             exit 1
           fi
           if ! [[ "$RELEASE_BRANCH" =~ ^dev_ ]]; then

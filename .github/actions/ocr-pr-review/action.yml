@@ -129,7 +129,7 @@ runs:
         EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
         EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      run: |
+      run: | # zizmor: ignore[github-env] — GITHUB_ENV 写入本地解析的 ref/pr number，非用户可控
         set -euo pipefail
         BASE_REF="${INPUT_BASE_REF:-$EVENT_BASE_REF}"
         HEAD_REF="${INPUT_HEAD_REF:-$EVENT_HEAD_REF}"
@@ -156,7 +156,7 @@ runs:
         echo "OCR_TO=${HEAD_REF}" >> "$GITHUB_ENV"
 
     - name: Checkout base
-      uses: actions/checkout@v7
+      uses: actions/checkout@v7 # zizmor: ignore[artipacked] — 后续 git fetch 私有仓 PR head/base 需凭据
       with:
         # 必须检出到子目录 base：父 workflow 已把 ocr-pr-review 检出到 workspace 根的 .gha-actions-bundle/。
         # actions/checkout 在 path 为 workspace 根且目录非空无 .git 时，会先 "Deleting the contents" 再 clone，
@@ -208,7 +208,7 @@ runs:
       shell: bash
       env:
         OCR_VERSION: ${{ inputs.ocr_version }}
-      run: |
+      run: | # zizmor: ignore[adhoc-packages] — 固定版本官方 OCR CLI（npmjs 源；caller 侧 ocr_version 受控）
         set -euo pipefail
         npm install -g "@alibaba-group/open-code-review@${OCR_VERSION}"
         ocr version || true
@@ -241,7 +241,7 @@ runs:
         OCR_RULE: ${{ inputs.rule }}
         ENABLE_SESSION_CACHE: ${{ inputs.enable_session_cache }}
         OCR_VERSION: ${{ inputs.ocr_version }}
-      run: |
+      run: | # zizmor: ignore[github-env] — GITHUB_ENV 仅写 OCR 退出码（本地计算）
         set -euo pipefail
         ARGS=(--from "${OCR_FROM}" --to "${OCR_TO}" --format json)
         [ -n "${OCR_REVIEW_CONCURRENCY}" ] && ARGS+=(--concurrency "$OCR_REVIEW_CONCURRENCY")
@@ -370,6 +370,7 @@ runs:
         path: .ocr-action-post
         sparse-checkout: scripts/github-actions
         sparse-checkout-cone-mode: false
+        persist-credentials: false  # 公共仓只读 helper，不留凭据
 
     - name: Post review comments
       if: env.OCR_EXIT_CODE == '0'

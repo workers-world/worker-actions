@@ -49,8 +49,8 @@ on:
         default: ""
     secrets:
       QODANA_TOKEN:
-        description: JetBrains Qodana token
-        required: true
+        description: JetBrains Qodana token（Org 未配置时为空，gate 会 skip 扫描）
+        required: false
 
 permissions:
   contents: read
@@ -79,6 +79,8 @@ jobs:
         with:
           ref: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
           fetch-depth: 0
+          # persist-credentials 保持 true：gate 步骤 git fetch origin 需要凭据（私有业务仓）
+          # （zizmor artipacked Low 告警为已接受设计，见 docs/ci-audit-2026-08.md）
 
       - name: Restore last scan state
         if: contains(fromJSON('["true","1","yes","True","TRUE","Yes","YES"]'), vars.QODANA_ENABLED)
@@ -119,7 +121,8 @@ jobs:
         id: qodana-scan
         if: steps.gate.outputs.should_scan == 'true'
         continue-on-error: true
-        uses: JetBrains/qodana-action@v2026.2
+        # 原 @v2026.2 是该仓的移动分支（非 tag），可漂移；pin 到等价 commit（v2026.2.0）
+        uses: JetBrains/qodana-action@b588768b6e7e6da579e518bc584f79de0d243692 # v2026.2.0
         with:
           upload-result: ${{ inputs.upload_to_cloud }}
           artifact-name: qodana-report
@@ -131,26 +134,29 @@ jobs:
       - name: Resolve scan outcome
         id: resolve
         if: ${{ !cancelled() }}
+        env:
+          SHOULD_SCAN: ${{ steps.gate.outputs.should_scan }}
+          GATE_SKIP_REASON: ${{ steps.gate.outputs.skip_reason }}
+          SCAN_OUTCOME: ${{ steps.qodana-scan.outcome }}
         run: |
           set -euo pipefail
-          if [ "${{ steps.gate.outputs.should_scan }}" != "true" ]; then
+          if [ "${SHOULD_SCAN}" != "true" ]; then
             echo "mode=skip" >> "$GITHUB_OUTPUT"
-            echo "skip_reason=${{ steps.gate.outputs.skip_reason }}" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=${GATE_SKIP_REASON}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ -f "$QODANA_SARIF" ]; then
             echo "mode=scan" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          scan_outcome="${{ steps.qodana-scan.outcome }}"
           if [ -d "$QODANA_RESULTS_DIR" ] && grep -Rq "Nothing to analyse" "$QODANA_RESULTS_DIR" 2>/dev/null; then
             echo "::notice::Qodana 增量分析无可分析文件（Nothing to analyse），视为通过。"
             echo "mode=nothing" >> "$GITHUB_OUTPUT"
             echo "skip_reason=增量分析：相对 merge-base 无新增可分析文件" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "::error::未生成 qodana.sarif.json（JetBrains/qodana-action outcome=${scan_outcome}）。"
-          if [ "$scan_outcome" = "failure" ]; then
+          echo "::error::未生成 qodana.sarif.json（JetBrains/qodana-action outcome=${SCAN_OUTCOME}）。"
+          if [ "$SCAN_OUTCOME" = "failure" ]; then
             echo "::error::Qodana 扫描步骤失败。请查 QODANA_TOKEN、linter 镜像或 checkout 配置。"
           fi
           exit 1
@@ -170,18 +176,19 @@ jobs:
 
       - name: Save last scan state
         if: steps.resolve.outputs.mode == 'scan' || steps.resolve.outputs.mode == 'nothing'
+        env:
+          HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           mkdir -p "$QODANA_CACHE_DIR"
-          HEAD="${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}"
-          node -e "
-            const fs = require('fs');
+          node -e '
+            const fs = require("fs");
             fs.writeFileSync(process.env.QODANA_CACHE_STATE, JSON.stringify({
-              last_scan_sha: '${HEAD}',
+              last_scan_sha: process.env.HEAD_SHA,
               last_scan_at: new Date().toISOString(),
               pass: true,
             }));
-          "
+          '
 
       - name: Persist last scan state
         if: steps.resolve.outputs.mode == 'scan' || steps.resolve.outputs.mode == 'nothing'
@@ -210,6 +217,8 @@ jobs:
       - name: Comment PR summary
         if: ${{ inputs.post_pr_comment == true && inputs.pr_number != '' && !cancelled() }}
         uses: actions/github-script@v9
+        env:
+          PR_NUMBER_INPUT: ${{ inputs.pr_number }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -217,9 +226,9 @@ jobs:
             const body = fs.readFileSync('qodana-comment.md', 'utf8');
             const marker = '<!-- qodana-report -->';
             const { owner, repo } = context.repo;
-            const issue_number = Number('${{ inputs.pr_number }}');
+            const issue_number = Number(process.env.PR_NUMBER_INPUT);
             if (!Number.isFinite(issue_number) || issue_number <= 0) {
-              throw new Error(`无效的 pr_number: ${{ inputs.pr_number }}`);
+              throw new Error(`无效的 pr_number: ${process.env.PR_NUMBER_INPUT}`);
             }
             const { data: comments } = await github.rest.issues.listComments({
               owner,

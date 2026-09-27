@@ -15,17 +15,17 @@
 
 | Variable 值 | 行为 |
 |-------------|------|
-| **未设置** 或 **空** | 不跑 Docker 扫描；`qodana` job 仍 **success**（合成 pass 摘要 + PR 评论说明 skip） |
+| **未设置** 或 **空** | **`actions/v0.2.0+`**：`worker-ci` **不启动** qodana job（result=`skipped`，auto-merge 接受）；旧 pin 仍可能起 runner 后在 gate 内 skip |
 | `true` / `1` / `yes`（大小写不敏感） | 启用 Qodana；再应用路径过滤 / PR 限频（见 §频次优化） |
 | 其它非空值（如 `false`） | 视为未启用，不扫描 |
 
+亦兼容 Org Variable 名 **`WORKERS_WORLD_QODANA_ENABLED`**（与 `QODANA_ENABLED` 任一为 true 即启用）。
+
 配置位置与 [`GHA_RUNNER`](./self-hosted-runner.md) 相同；**无需**各业务仓改 `ci.yml` 即可全组织生效（但 bundle 须 pin 到含本逻辑的 `@actions/vX.Y.Z`）。
 
-### Breaking（`actions/v0.4.36+` 起）
+### Breaking（`actions/v0.2.0+`）
 
-合入本逻辑并打 tag 后，若 Org **未**设置 `QODANA_ENABLED=true`，**全仓 Qodana 会静默跳过**。请在 **合入前或 bump 业务仓 pin 后立即** 在 Org 创建该 Variable 并设为 `true`，否则 Release PR 上不再有真实静态分析。
-
-恢复扫描后 verify / OCR / auto-merge 行为不变；跳过时不强制仓内有 `qodana.yaml`。
+未设置启用 Variable 时 qodana job 为 **`skipped`**（不再 checkout + 评论）。`release-auto-merge` 已改为接受 `skipped`。若 branch protection 把 `qodana` 设为 required check，请改为 optional 或启用 Org Variable。
 
 ## 接入步骤（全仓默认模板）
 

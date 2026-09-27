@@ -1,12 +1,13 @@
 name: Worker ensure release PR
 
 # push 到 dev_* 时确保存在一条 dev → master 的 Release PR。
-# PR 创建/更新后会触发 pull_request workflow（verify + qodana + OCR + auto-merge）。
+# 默认以 draft 创建（控 Cloudflare Builds / 生产部署频率）；Ready for review 后
+# worker-ci 的 require_non_draft_pr + auto-merge 才会合入 master。
 #
 # Caller（push job）：
 #   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.1.2
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.1
 #   with:
 #     release_branch: ${{ github.ref_name }}
 on:
@@ -24,14 +25,28 @@ on:
         description: PR 标题前缀
         type: string
         default: "release:"
+      create_draft_release_pr:
+        description: "true（默认）：新建 Release PR 为 draft；Ready for review 后才 auto-merge。false：创建即 ready（旧行为，易触发每次合入部署）"
+        type: boolean
+        default: true
+      bot:
+        description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*，见 docs/github-app-token-migration.md）"
+        type: string
+        default: "pat"
     outputs:
       pr_number:
         description: 当前 dev_* → master 的 open Release PR 号（已有或新建）
         value: ${{ jobs.ensure.outputs.pr_number }}
     secrets:
       GHA_TOKEN:
-        description: PAT（repo 权限）；创建 PR 必填。Org 常禁止 GITHUB_TOKEN 建 PR。
-        required: true
+        description: PAT（repo 权限）；bot=pat 时必填。Org 常禁止 GITHUB_TOKEN 建 PR。未传时步骤内守卫报错
+        required: false
+      RELEASE_BOT_PRIVATE_KEY:
+        description: workers-world-release-bot App 私钥（bot=app 时必填；Org Secret）
+        required: false
+      RELEASE_BOT_APP_ID:
+        description: App ID（vars.RELEASE_BOT_APP_ID 未配时的 Secret 回退；bot=app 时必填其一）
+        required: false
 
 # 写操作仅走 PAT；GITHUB_TOKEN 保持无权限
 permissions: {}
@@ -44,7 +59,20 @@ jobs:
     outputs:
       pr_number: ${{ steps.open-pr.outputs.pr_number }}
     steps:
+      # bot=app：就地 mint 1h 短周期 App installation token（默认仅当前仓 scope）；
+      # mint 失败会显式报错（fail-closed），不会静默回落 PAT
+      - name: Mint GitHub App token
+        id: bot-token
+        if: inputs.bot == 'app'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
+          permission-pull-requests: write
+
       # permissions: {} 时 GITHUB_TOKEN 无法拉取私有仓 composite action（codeload 404）；内联安装 gh
+      # （若 bundle 仓转私有，此内联是唯一可靠路径；公开仓也可改用 ensure-gh-cli composite）
       - name: Ensure GitHub CLI
         run: |
           set -euo pipefail
@@ -55,9 +83,14 @@ jobs:
           GH_VERSION="2.63.2"
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
-          curl -fsSL \
-            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
-            | tar xz -C "$bindir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+          gh_base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
+          # 官方 checksums.txt 校验（防下载产物被篡改/镜像投毒）
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_checksums.txt" -o "${RUNNER_TEMP}/gh.sha256"
+          curl -fsSL "${gh_base}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o "${RUNNER_TEMP}/gh.tgz"
+          grep " gh_${GH_VERSION}_linux_amd64.tar.gz\$" "${RUNNER_TEMP}/gh.sha256" \
+            | sed "s|gh_${GH_VERSION}_linux_amd64.tar.gz|${RUNNER_TEMP}/gh.tgz|" \
+            | sha256sum -c -
+          tar xz -C "$bindir" --strip-components=2 -f "${RUNNER_TEMP}/gh.tgz" "gh_${GH_VERSION}_linux_amd64/bin/gh"
           chmod +x "$bindir/gh"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/gh" --version
@@ -65,15 +98,17 @@ jobs:
       - name: Open release PR if missing
         id: open-pr
         env:
-          GH_TOKEN: ${{ secrets.GHA_TOKEN }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+          BOT: ${{ inputs.bot }}
           RELEASE_BRANCH: ${{ inputs.release_branch }}
           MASTER_BRANCH: ${{ inputs.master_branch }}
+          PR_TITLE_PREFIX: ${{ inputs.pr_title_prefix }}
+          CREATE_DRAFT: ${{ inputs.create_draft_release_pr }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::缺少 GHA_TOKEN。请在 Org Secrets 配置 classic PAT（勾选 repo），caller 使用 secrets: inherit。"
-            echo "::error::或在本仓 Settings → Actions → General 开启「Allow GitHub Actions to create and approve pull requests」（仍建议用 PAT）。"
+            echo "::error::缺少写凭证（bot=${BOT}）。bot=pat 请在 Org Secrets 配置 GHA_TOKEN（classic PAT: repo）；bot=app 请配 Org Variable RELEASE_BOT_APP_ID + Org Secret RELEASE_BOT_PRIVATE_KEY，见 docs/github-app-token-migration.md。"
             exit 1
           fi
           if ! [[ "$RELEASE_BRANCH" =~ ^dev_ ]]; then
@@ -87,15 +122,20 @@ jobs:
             echo "pr_number=${existing}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          DRAFT_ARGS=()
+          if [ "${CREATE_DRAFT}" = "true" ]; then
+            DRAFT_ARGS=(--draft)
+          fi
           gh pr create --repo "$REPO" \
             --base "$MASTER_BRANCH" \
             --head "$RELEASE_BRANCH" \
-            --title "${{ inputs.pr_title_prefix }} ${RELEASE_BRANCH} → ${MASTER_BRANCH}" \
+            --title "${PR_TITLE_PREFIX} ${RELEASE_BRANCH} → ${MASTER_BRANCH}" \
+            "${DRAFT_ARGS[@]}" \
             --body "$(cat <<'EOF'
           ## Release PR（自动创建）
 
-          - push 到 `dev_*` 会更新本 PR
-          - **verify + Qodana + OCR** 全绿后 CI 自动 merge 到 `master`，正常情况无需人工点击
+          - push 到 `dev_*` 会更新本 PR（默认 **draft**，不触发生产合入）
+          - 版本收尾：在 GitHub 上 **Ready for review** → verify（+ 可选 Qodana/OCR）全绿后 CI 自动 merge 到 `master`
           - 任一门禁失败时请修复后 push，或人工处理 PR
 
           > 由 `worker-ensure-release-pr` 创建。
@@ -106,5 +146,5 @@ jobs:
             echo "::error::PR 创建后未能解析 number（head=${RELEASE_BRANCH} base=${MASTER_BRANCH}）"
             exit 1
           fi
-          echo "Created release PR #${new}"
+          echo "Created release PR #${new} (draft=${CREATE_DRAFT})"
           echo "pr_number=${new}" >> "$GITHUB_OUTPUT"

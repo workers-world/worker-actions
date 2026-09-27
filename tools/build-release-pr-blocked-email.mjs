@@ -5,6 +5,7 @@
  * REASONS：用 \n 分隔的原因列表（已由 workflow 算好）。
  */
 import { appendFileSync } from 'node:fs';
+import crypto from 'node:crypto';
 
 function env(name) {
   return (process.env[name] ?? '').trim();
@@ -92,8 +93,10 @@ function writeOutput(name, value) {
     process.stdout.write(`${name}=${value}\n`);
     return;
   }
-  // multiline delimiter
-  appendFileSync(out, `${name}<<EOF\n${value}\nEOF\n`);
+  // 随机定界符：value（含 annotations/错误消息）中出现单独一行 "EOF" 会截断固定 heredoc，
+  // 后续行会被解析成新的 output 键（输出注入）；与 tools/gh-run-annotations.mjs 做法一致。
+  const delim = `${name}_${crypto.randomUUID()}`;
+  appendFileSync(out, `${name}<<${delim}\n${value}\n${delim}\n`);
 }
 
 writeOutput('subject', subject);
