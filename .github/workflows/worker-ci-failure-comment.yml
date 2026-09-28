@@ -40,7 +40,7 @@ permissions:
 jobs:
   comment:
     name: Comment CI failure
-    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 3
     permissions:
       pull-requests: write

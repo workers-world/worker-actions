@@ -60,7 +60,7 @@ permissions:
 
 jobs:
   qodana:
-    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     permissions:
       contents: read
       pull-requests: write

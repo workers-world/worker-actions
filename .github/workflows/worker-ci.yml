@@ -332,7 +332,7 @@ jobs:
   ci-summary:
     needs: [workflow-lint, verify, ensure-release-pr, qodana, ocr, release-auto-merge]
     if: always()
-    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 2
     permissions: {}
     steps:
