@@ -53,7 +53,7 @@ concurrency:
 
 jobs:
   promote:
-    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     permissions: {}
     steps:

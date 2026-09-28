@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   sync-lock:
-    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     steps:
       # bot=app：就地 mint 1h App installation token（App push 可触发下游 workflow，与 PAT 等价）；
       # npm 认证与此分离（见 Regenerate 步骤 NODE_AUTH_TOKEN）

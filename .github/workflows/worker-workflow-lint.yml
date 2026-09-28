@@ -42,7 +42,7 @@ on:
         type: string
         default: "22"
       runner:
-        description: 覆盖 runs-on。公开仓 dogfood 须传 ubuntu-latest，避免 Org Variable 把 fork PR 打到 self-hosted
+        description: 可选覆盖 runs-on（默认已按 caller 公开/私有与 GHA_RUNNER 选择 runner）
         type: string
         default: ""
 
@@ -51,7 +51,7 @@ permissions:
 
 jobs:
   lint:
-    runs-on: ${{ inputs.runner != '' && inputs.runner || ((vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest')) }}
+    runs-on: ${{ inputs.runner != '' && inputs.runner || (github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     timeout-minutes: 8
     permissions:
       contents: read
