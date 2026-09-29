@@ -211,11 +211,17 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  checkout[checkout] --> install[actionlint_shellcheck] --> lint[actionlint]
+  checkout[checkout_caller] --> install[actionlint_shellcheck]
+  install --> zbase[checkout_zizmor_baseline]
+  zbase --> zmerge[merge_zizmor_yml]
+  zmerge --> zrun[zizmor_config]
+  zrun --> lint[actionlint]
   lint --> parse[JSON_YAML_parse]
   parse --> pin[forbid_master_pin]
   pin --> hygiene[hygiene_and_secrets_scan]
 ```
+
+zizmor：按 `github.workflow_ref` 解析 reusable workflow 的 `@ref`，从 `workers-world/worker-actions` 拉取 `zizmor.yml` 基线（`actions/*` 与 `workers-world/*` 为 **ref-pin**，其余 hash-pin），与 caller 仓库根目录或 `.github/` 下的 `zizmor.yml` **合并** 后以 `--config` 运行。多数 consumer 无本地配置时仍获得基线；若有（例如仅 `secrets-inherit` ignore），合并后保留 caller 规则且基线 unpinned-uses 策略仍生效。zizmor 在 `--config` 模式下不会二次加载本地文件，故必须显式合并。
 
 来源：[`worker-workflow-lint.yml`](../.github/workflows/worker-workflow-lint.yml)。
 

@@ -89,7 +89,7 @@
 
 ### F14. zizmor 接入 workflow-lint（工具链闭环）
 - 业界标准三件套：actionlint（正确性）+ zizmor（安全）+ Dependabot（更新）。GitHub 自家仓库也在用 zizmor。
-- 落地：`zizmor.yml` 基线配置（policies：`actions/*` 与 `workers-world/*` ref-pin，其余默认 hash-pin）+ composite 内行内 `# zizmor: ignore[...]`（每条带理由）+ workflow 级 artipacked 按文件 ignore；lint workflow 新增安装（PyPI 固定版本 + venv）与 `--min-severity medium` 阻断步骤。
+- 落地：`zizmor.yml` 基线配置（policies：`actions/*` 与 `workers-world/*` ref-pin，其余默认 hash-pin）+ composite 内行内 `# zizmor: ignore[...]`（每条带理由）+ workflow 级 artipacked 按文件 ignore；lint workflow 安装 zizmor（PyPI 固定版本 + venv），按 `github.workflow_ref` 拉取同 tag 基线并与 caller 本地 `zizmor.yml` 合并后 `--config` 注入（consumer 无本地文件时仍 ref-pin 放行 `@actions/vX.Y.Z`），`--min-severity medium` 阻断。
 - 本地验证：`zizmor --min-severity medium .` → **No findings to report**（14 ignored 均带理由，57 suppressed 为策略放行/低于阈值）。
 
 ---
