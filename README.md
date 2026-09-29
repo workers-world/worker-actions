@@ -16,7 +16,7 @@ jobs:
       issues: write
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.1
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.4
     secrets: inherit
     with:
       sync_packages_lock: true
@@ -27,8 +27,8 @@ jobs:
 跨仓嵌套须写全路径并与 bundle **同 tag**（`$` / `./` 会解析到业务仓）：
 
 ```yaml
-uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.1
-uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.1
+uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.4
+uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.4
 ```
 
 当前推荐 tag 见 [manifest/actions-bundle.yaml](manifest/actions-bundle.yaml)（第一条 tag 在首次 push `master` 后由 `release-actions-bundle` 打出）。
