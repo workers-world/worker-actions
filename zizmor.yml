@@ -1,5 +1,6 @@
 # zizmor 基线配置（https://docs.zizmor.sh/configuration/）
-# 由 worker-workflow-lint 的 zizmor 步骤读取（--min-severity medium 起判）。
+# 由 worker-workflow-lint 按 reusable workflow 的 @ref 拉取，并与 caller 根目录 zizmor.yml 合并
+# （--config 注入；--min-severity medium 起判）。无本地 zizmor.yml 的 consumer 仍获得本基线策略。
 # 注意：
 # - composite action（.github/actions/**）内的发现不能用本文件抑制，须用行内注释
 #   `# zizmor: ignore[<rule>]`（已就地标注理由）。
