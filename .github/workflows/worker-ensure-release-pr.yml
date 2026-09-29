@@ -122,11 +122,18 @@ jobs:
             echo "pr_number=${existing}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          ahead_by="$(gh api "repos/${REPO}/compare/${MASTER_BRANCH}...${RELEASE_BRANCH}" --jq '.ahead_by')"
+          if [ "${ahead_by}" = "0" ]; then
+            echo "Skip: no commits on ${RELEASE_BRANCH} ahead of ${MASTER_BRANCH} (nothing to release)"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           DRAFT_ARGS=()
           if [ "${CREATE_DRAFT}" = "true" ]; then
             DRAFT_ARGS=(--draft)
           fi
-          gh pr create --repo "$REPO" \
+          pr_create_err="$(mktemp)"
+          if ! gh pr create --repo "$REPO" \
             --base "$MASTER_BRANCH" \
             --head "$RELEASE_BRANCH" \
             --title "${PR_TITLE_PREFIX} ${RELEASE_BRANCH} → ${MASTER_BRANCH}" \
@@ -140,7 +147,15 @@ jobs:
 
           > 由 `worker-ensure-release-pr` 创建。
           EOF
-          )"
+          )" 2>"${pr_create_err}"; then
+            if grep -q 'No commits between' "${pr_create_err}"; then
+              echo "Skip: no commits between ${MASTER_BRANCH} and ${RELEASE_BRANCH} (gh pr create)"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            cat "${pr_create_err}" >&2
+            exit 1
+          fi
           new="$(gh pr list --repo "$REPO" --head "$RELEASE_BRANCH" --base "$MASTER_BRANCH" --state open --json number --jq '.[0].number // empty')"
           if [ -z "$new" ]; then
             echo "::error::PR 创建后未能解析 number（head=${RELEASE_BRANCH} base=${MASTER_BRANCH}）"
