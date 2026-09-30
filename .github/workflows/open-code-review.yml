@@ -103,7 +103,7 @@ jobs:
   review:
     # 非 PR 事件（push / workflow_dispatch）下 pr_number 为空，composite 会失败
     if: ${{ inputs.skip != true && github.event.pull_request.number != '' }}
-    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 25
     steps:
       - name: Validate review_mode

@@ -5,7 +5,9 @@ name: Worker workflow lint
 #   1. actionlint：YAML/GHA 语法、表达式类型、shell 注入、reusable workflow（composite 经引用校验）
 #   2. shellcheck（actionlint 集成）：run: 块 shell 脚本
 #   3. zizmor：Actions 安全审计（template-injection / permissions / unpinned-uses 等；
-#      基线配置 zizmor.yml，--min-severity medium 起判；composite 内用行内 ignore 标注理由）
+#      worker-actions 基线 zizmor.yml（zizmor_baseline_repository + zizmor_baseline_ref，或
+#      直接 uses 本 workflow 时从 github.workflow_ref 解析 @ref）与 caller 根目录 zizmor.yml
+#      合并后 --config 注入；--min-severity medium 起判；composite 内行内 ignore）
 #   4. JSON / YAML 解析：.opencodereview/rule.json、manifest/actions-bundle.yaml
 #   5. Pin 检查：uses: 禁止 @master / @main / @HEAD
 #   6. 内层 pin 一致性：@actions/vX.Y.Z 全仓同版本（防「外层升内层没升」）
@@ -33,6 +35,16 @@ on:
         description: zizmor 版本（PyPI，无 v 前缀）；升级须连同 zizmor.yml 基线一起复核
         type: string
         default: "1.29.0"
+      zizmor_baseline_repository:
+        description: 提供 zizmor 基线 zizmor.yml 的仓库（owner/name）
+        type: string
+        default: "workers-world/worker-actions"
+      zizmor_baseline_ref:
+        description: >-
+          基线 git ref（如 actions/vX.Y.Z）。嵌套 reusable 时 github.workflow_ref 指向 caller
+          workflow，须显式传入与 @actions tag 一致的 ref；直接 uses 本 workflow 且 @ref 可解析时可省略。
+        type: string
+        default: ""
       forbid_tags:
         description: "uses 禁止的 ref（逗号分隔，如 master,main,HEAD）"
         type: string
@@ -42,7 +54,7 @@ on:
         type: string
         default: "22"
       runner:
-        description: 覆盖 runs-on。公开仓 dogfood 须传 ubuntu-latest，避免 Org Variable 把 fork PR 打到 self-hosted
+        description: 可选覆盖 runs-on（默认已按 caller 公开/私有与 GHA_RUNNER 选择 runner）
         type: string
         default: ""
 
@@ -51,7 +63,7 @@ permissions:
 
 jobs:
   lint:
-    runs-on: ${{ inputs.runner != '' && inputs.runner || ((vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest')) }}
+    runs-on: ${{ inputs.runner != '' && inputs.runner || (github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
     timeout-minutes: 8
     permissions:
       contents: read
@@ -100,6 +112,75 @@ jobs:
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/shellcheck" --version
 
+      - name: Resolve zizmor baseline ref
+        id: zizmor_baseline_ref
+        env:
+          BASELINE_REPO_INPUT: ${{ inputs.zizmor_baseline_repository }}
+          BASELINE_REF_INPUT: ${{ inputs.zizmor_baseline_ref }}
+          WF_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          wf_ref="$WF_REF"
+          ref_suffix="${wf_ref##*@}"
+          if [ -z "$ref_suffix" ] || [ "$ref_suffix" = "$wf_ref" ]; then
+            ref_suffix=""
+          fi
+
+          baseline_repo=""
+          if [ -n "$BASELINE_REPO_INPUT" ]; then
+            baseline_repo="$BASELINE_REPO_INPUT"
+          else
+            repo_path="${wf_ref%@*}"
+            parsed_repo="${repo_path%%/.github/*}"
+            if [ -n "$parsed_repo" ] && [ "$parsed_repo" != "$repo_path" ] \
+              && [[ "$wf_ref" == *"/worker-workflow-lint.yml@"* ]]; then
+              baseline_repo="$parsed_repo"
+            fi
+          fi
+          if [ -z "$baseline_repo" ]; then
+            echo "::error::未配置 zizmor 基线仓库（请设置 zizmor_baseline_repository）"
+            exit 1
+          fi
+
+          ref=""
+          ref_source=""
+          if [ -n "$BASELINE_REF_INPUT" ]; then
+            ref="$BASELINE_REF_INPUT"
+            ref_source="inputs.zizmor_baseline_ref"
+          elif [[ "$wf_ref" == *"/worker-workflow-lint.yml@"* ]] \
+            && [ -n "$ref_suffix" ] \
+            && [[ "$ref_suffix" != refs/pull/* ]]; then
+            ref="$ref_suffix"
+            ref_source="github.workflow_ref (worker-workflow-lint.yml)"
+          elif [ -n "$ref_suffix" ] && [[ "$ref_suffix" =~ ^actions/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            ref="$ref_suffix"
+            ref_source="github.workflow_ref (@actions tag)"
+          elif [ -n "$ref_suffix" ] && [[ "$ref_suffix" =~ ^[0-9a-f]{40}$ ]]; then
+            ref="$ref_suffix"
+            ref_source="github.workflow_ref (sha pin)"
+          fi
+
+          if [ -z "$ref" ]; then
+            echo "::error::无法解析 zizmor 基线 ref（嵌套 reusable 须在 caller 传入 zizmor_baseline_ref，与 @actions/vX.Y.Z pin 一致）。github.workflow_ref=${wf_ref}"
+            exit 1
+          fi
+
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+          echo "repository=${baseline_repo}" >> "$GITHUB_OUTPUT"
+          echo "ok: zizmor baseline ${baseline_repo}@${ref} (${ref_source}; github.workflow_ref=${wf_ref})"
+
+      - name: Checkout zizmor baseline
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.zizmor_baseline_ref.outputs.repository }}
+          ref: ${{ steps.zizmor_baseline_ref.outputs.ref }}
+          path: .zizmor-baseline
+          sparse-checkout: |
+            zizmor.yml
+            tools/merge-zizmor-config.py
+          sparse-checkout-cone-mode: true
+          persist-credentials: false
+
       - name: Install zizmor
         env:
           ZIZMOR_VERSION: ${{ inputs.zizmor_version }}
@@ -108,7 +189,7 @@ jobs:
           # venv 安装（ubuntu runner 的 python 受 PEP 668 保护）；固定版本，升级须复核 zizmor.yml 基线
           python3 -m venv "${RUNNER_TEMP}/zizmor-venv"
           "${RUNNER_TEMP}/zizmor-venv/bin/pip" install --quiet --disable-pip-version-check \
-            "zizmor==${ZIZMOR_VERSION}"
+            "zizmor==${ZIZMOR_VERSION}" "pyyaml"
           echo "${RUNNER_TEMP}/zizmor-venv/bin" >> "$GITHUB_PATH"
           # GITHUB_PATH 仅对后续 step 生效；本步用绝对路径校验
           "${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --version
@@ -116,8 +197,33 @@ jobs:
       - name: zizmor（Actions 安全审计，≥medium 阻断）
         run: |
           set -euo pipefail
-          # 基线配置 zizmor.yml（每条 ignore 带理由）；composite 内用行内 ignore 标注
-          zizmor --no-progress --min-severity medium .
+          baseline=".zizmor-baseline/zizmor.yml"
+          merge_py=".zizmor-baseline/tools/merge-zizmor-config.py"
+          merged="${RUNNER_TEMP}/zizmor-merged.yml"
+          if [ ! -f "$baseline" ]; then
+            echo "::error::未找到 zizmor 基线：${baseline}"
+            exit 1
+          fi
+          local_cfg=""
+          for candidate in zizmor.yml zizmor.yaml .github/zizmor.yml .github/zizmor.yaml; do
+            if [ -f "$candidate" ]; then
+              local_cfg="$candidate"
+              break
+            fi
+          done
+          if [ -n "$local_cfg" ]; then
+            if [ ! -f "$merge_py" ]; then
+              echo "::error::caller 有 ${local_cfg} 但基线 tag 缺少 tools/merge-zizmor-config.py；请升级 worker-actions @actions tag"
+              exit 1
+            fi
+            echo "merging zizmor baseline + caller ${local_cfg}"
+            python3 "$merge_py" "$baseline" "$local_cfg" -o "$merged"
+          else
+            echo "using zizmor baseline only (caller 无 zizmor.yml)"
+            cp "$baseline" "$merged"
+          fi
+          # --config 全局生效；合并后仍保留 caller 的 ignore/规则扩展（如 secrets-inherit）
+          zizmor --no-progress --min-severity medium --config "$merged" .
 
       - name: actionlint (workflows + composite actions)
         env:

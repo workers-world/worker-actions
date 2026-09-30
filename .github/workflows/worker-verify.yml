@@ -94,7 +94,7 @@ jobs:
       always() &&
       inputs.run_verify &&
       (needs.sync-lock.result == 'success' || needs.sync-lock.result == 'skipped')
-    runs-on: ${{ (vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest') }}
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: read

@@ -4,4 +4,5 @@ current: actions/v0.2.7
 sha: "fd66f972f99ad570db1e0e4701af7a40c5db8733"
 released_at: "2026-09-30"
 notes: |
-  Auto-released on push to master (actions paths changed).
+  首个公开 bundle（自 workers-world/.github 拆出）；v0.1.1/v0.1.2 为内层嵌套 pin 对齐的 patch。
+  本 manifest 由 release-actions-bundle 在每次发版后经 PR 回填（master 禁止直推），勿手工领先于 tag。

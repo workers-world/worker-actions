@@ -46,7 +46,7 @@ uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/
 | `DEFAULT_BRANCH_BOT_PRIVATE_KEY` / `DEFAULT_BRANCH_BOT_APP_ID` | Secret / Variable | 独立 default-branch-bot App（`bot: app` 时需要；可选） |
 | `OCR_LLM_URL` / `OCR_LLM_MODEL` | Variable | 默认 DeepSeek chat completions |
 | `QODANA_ENABLED` | Variable | `true`/`1`/`yes` 才跑 Qodana Docker |
-| `GHA_RUNNER` | Variable | 空则 `ubuntu-latest`；在 **caller** 上下文求值 |
+| `GHA_RUNNER` | Variable | **私有** caller 且非空 → self-hosted label；否则 `ubuntu-latest`（公开仓始终 hosted） |
 | `NOTIFY_WORKER_URL` | Variable | 通知 HTTP 根 URL（可选） |
 
 

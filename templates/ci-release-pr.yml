@@ -6,7 +6,9 @@ name: CI
 
 # Release PR 模型：push dev_* → sync-lock + 自动开 Release PR（默认 ready）；
 # PR → master 上跑 verify（+ 可选 qodana/OCR）；全绿后 auto-merge（require_non_draft_pr 仍要求非 draft）。
-# 前置：Org Secret GHA_TOKEN（PAT repo），caller secrets: inherit
+# 前置：Org Secret GHA_TOKEN（PAT repo）。caller 可 secrets: inherit，或显式映射 worker-ci workflow_call secrets（满足 zizmor secrets-inherit / medium）：
+#   GHA_TOKEN, RELEASE_BOT_PRIVATE_KEY, RELEASE_BOT_APP_ID, QODANA_TOKEN,
+#   OCR_LLM_TOKEN, DEEPSEEK_API_KEY, OCR_LLM_URL, OCR_LLM_MODEL, OCR_LLM_EXTRA_HEADERS, NOTIFY_GHA_TOKEN
 on:
   push:
     branches: ["dev_*"]

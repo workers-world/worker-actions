@@ -30,7 +30,7 @@ flowchart LR
 
 ### Runner 调度（self-hosted）
 
-Leaf workflow 的 `runs-on` 由 Org Variable **`GHA_RUNNER`** 控制（空则 `ubuntu-latest`）。详见 [self-hosted-runner.md](./self-hosted-runner.md)。
+Leaf workflow 的 `runs-on`：公开 caller 固定 `ubuntu-latest`；私有 caller 且 Org Variable **`GHA_RUNNER`** 非空则用该 label，否则 `ubuntu-latest`。
 
 ## Org 可复用 workflow
 
