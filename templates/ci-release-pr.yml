@@ -1,11 +1,11 @@
 # Release PR CI 模板（复制到 Worker 根目录 .github/workflows/ci.yml）
 # 说明见 docs/release-pr-ci.md；编排：worker-ci.yml
-# workers-world actions bundle: actions/v0.2.1（禁止 @master，见 docs/actions-releases.md）
+# workers-world actions bundle: actions/v0.2.7（禁止 @master，见 docs/actions-releases.md）
 # 另复制 templates/sync-default-branch.yml 为独立 workflow（勿并入本文件）
 name: CI
 
-# Release PR 模型：push dev_* → sync-lock + 自动开 draft PR；
-# PR → master 上跑 verify（+ 可选 qodana/OCR）；Ready for review 且全绿后 auto-merge。
+# Release PR 模型：push dev_* → sync-lock + 自动开 Release PR（默认 ready）；
+# PR → master 上跑 verify（+ 可选 qodana/OCR）；全绿后 auto-merge（require_non_draft_pr 仍要求非 draft）。
 # 前置：Org Secret GHA_TOKEN（PAT repo），caller secrets: inherit
 on:
   push:
@@ -34,12 +34,12 @@ jobs:
       # nested worker-ci → qodana/ocr 需 actions: write（cache）；notify-blocked 需 actions/checks: read
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.1
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.7
     secrets: inherit
     with:
       # SDK 版本以 package.json 为准；无 SDK 则 materialize_sdk: false
       sync_packages_lock: true
-      # create_draft_release_pr: true   # 默认；Ready for review 后才合 master
-      # verify_on_push: false           # 默认；push 只 sync-lock + ensure draft PR
+      # create_draft_release_pr: true   # 可选；恢复 draft 闸门（默认 false，创建即 ready）
+      # verify_on_push: false           # 默认；push 只 sync-lock + ensure Release PR
       # bot: app   # 可选：建 PR/merge/sync-lock push 走 GitHub App（须配 RELEASE_BOT_APP_ID 变量 +
       #              RELEASE_BOT_PRIVATE_KEY Secret；promote 嵌套链暂不受影响），见 docs/github-app-token-migration.md

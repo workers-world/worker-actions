@@ -1,6 +1,6 @@
 # Release PR 发布模型（dev_* → master）
 
-日常 push 到 `dev_*`，由 bot 维护 **draft Release PR**；版本收尾 **Ready for review** 后门禁全绿才 **自动 merge** 到 `master`（触发 Cloudflare Builds）。
+日常 push 到 `dev_*`，由 bot 维护 **ready** Release PR；门禁全绿后 **自动 merge** 到 `master`（触发 Cloudflare Builds）。需要延后合入时可 **Convert to draft** 或 caller 传 `create_draft_release_pr: true`。
 
 完整流程图（含 `worker-ci` job 依赖、leaf 步骤、全局调用关系）见 [actions-workflows.md](./actions-workflows.md)（尤其 §3 / §4）。
 
@@ -9,21 +9,22 @@
 ```mermaid
 flowchart LR
   push[push dev_*] --> syncLock[sync-lock 非 bot]
-  push --> ensure[ensure-release-pr --draft]
+  push --> ensure[ensure-release-pr ready]
   push --> syncWf[Sync default branch 若需]
-  ensure --> draftPR[standing draft PR]
-  draftPR --> prCi[PR: verify 门禁]
-  draftPR -->|Ready for review| gate[verify + 可选 qodana/OCR]
+  ensure --> releasePR[standing Release PR]
+  releasePR --> prCi[PR: verify 门禁]
+  releasePR --> gate[verify + 可选 qodana/OCR]
   gate -->|全绿| merge[auto-merge]
   merge --> master[master → CF Builds]
 ```
 
 | 事件 | 运行的 job |
 |------|------------|
-| `push` → `dev_*`（非 bot） | `sync-lock`（若启用）；`ensure-release-pr`（默认 **draft**）；**Sync default branch**（仅当默认分支 ≠ 当前 ref） |
-| `push` → `dev_*`（`github-actions[bot]`） | **全部跳过**（lock 提交会 synchronize 已有 draft PR） |
-| `pull_request` → `master`（head=`dev_*`，仍 draft） | **verify**（唯一全量门禁）；`workflow-lint`；可选 qodana/OCR；**不** auto-merge |
-| `ready_for_review` / 非 draft PR | 同上 + **auto-merge**（门禁绿） |
+| `push` → `dev_*`（非 bot） | `sync-lock`（若启用）；`ensure-release-pr`（默认 **ready**）；**Sync default branch**（仅当默认分支 ≠ 当前 ref） |
+| `push` → `dev_*`（`github-actions[bot]`） | **全部跳过**（lock 提交会 synchronize 已有 Release PR） |
+| `pull_request` → `master`（head=`dev_*`，非 draft） | **verify**（唯一全量门禁）；`workflow-lint`；可选 qodana/OCR；**auto-merge**（门禁绿） |
+| `pull_request`（仍 draft） | verify / lint / 可选扫描；**不** auto-merge（`require_non_draft_pr` 默认 true） |
+| `ready_for_review` | 非 draft 后与上相同 + **auto-merge**（门禁绿） |
 
 **不再**在每次 push 上跑 verify / workflow-lint / qodana / OCR（`verify_on_push: true` 可恢复旧快反馈）。
 
@@ -36,7 +37,7 @@ Leaf workflow 的 `runs-on` 由 Org Variable **`GHA_RUNNER`** 控制（空则 `u
 | Workflow | 作用 |
 |----------|------|
 | [worker-ci.yml](../.github/workflows/worker-ci.yml) | **业务仓 CI 门面**（唯一入口；`ci.yml` 只调这一次；内嵌下列 leaf） |
-| [worker-ensure-release-pr.yml](../.github/workflows/worker-ensure-release-pr.yml) | push dev 时创建 **draft** Release PR（`create_draft_release_pr` 默认 true） |
+| [worker-ensure-release-pr.yml](../.github/workflows/worker-ensure-release-pr.yml) | push dev 时创建 Release PR（`create_draft_release_pr` 默认 **false**，创建即 ready） |
 | [worker-release-auto-merge.yml](../.github/workflows/worker-release-auto-merge.yml) | 非 draft + 门禁通过后 merge PR |
 | [open-code-review.yml](../.github/workflows/open-code-review.yml) | OCR（DeepSeek）；`skip_ocr: true` 时门面 **不调用**（无空 runner） |
 | [worker-notify-release-pr-blocked.yml](../.github/workflows/worker-notify-release-pr-blocked.yml) | 未能 auto-merge 时邮件通知（仅非 draft） |
@@ -107,9 +108,9 @@ Org 须已配置：
 
 1. `pull_request.branches: [master]`；建议 `paths-ignore: ["**/*.md", "docs/**"]`；`concurrency` 取消旧 run
 2. 单一 job `release-pr`：permissions 取并集，`secrets: inherit`
-3. `with` 只传仓间差异；默认 `promote: false`、`create_draft_release_pr: true`、`verify_on_push: false`、`skip_ocr: true`
+3. `with` 只传仓间差异；默认 `promote: false`、`create_draft_release_pr: false`、`verify_on_push: false`、`skip_ocr: true`
 4. 另复制 [templates/sync-default-branch.yml](../templates/sync-default-branch.yml) 为独立 workflow
-5. 版本收尾：在 GitHub 上将 Release PR **Ready for review** → CI 绿 → auto-merge → Builds
+5. 门禁全绿后 auto-merge → Builds；需 draft 闸门时传 `create_draft_release_pr: true` 或手动 Convert to draft
 
 **Secret 传递**：入口层 `secrets: inherit`；`worker-ci` 内部对每个 leaf **显式映射最小集**。
 
@@ -151,12 +152,12 @@ OCR 启用时：`block_merge_on_comments: true` 时 high 意见 fail ocr → 不
 
 兼容：同时认 Org Variable `QODANA_ENABLED` 与 `WORKERS_WORLD_QODANA_ENABLED`。
 
-## 迁移自 push-promote / 旧 ready 自动合
+## 迁移自 push-promote / 旧 draft 默认
 
-1. bump pin 到 `@actions/v0.2.0`（tag 须已存在）
+1. bump pin 到 `@actions/v0.2.7`（tag 须已存在）；仍 pin `@actions/v0.2.6` 时可显式 `create_draft_release_pr: false` 获得相同行为
 2. 复制最新 `templates/ci-release-pr.yml` / `sync-default-branch.yml`
-3. 既有 **ready** open Release PR：不会被强制改 draft；可手动 Convert to draft，或合完后由下次 ensure 建新 draft
-4. 日常开发保持 draft；发版点 Ready
+3. 既有 **open** Release PR：不会被 ensure 改 draft/ready；新 PR 按新默认创建
+4. 需要 draft 闸门：`create_draft_release_pr: true` 或手动 Convert to draft
 
 ## 相关
 
