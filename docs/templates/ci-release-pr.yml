@@ -1,8 +1,11 @@
 # Release PR + auto-merge + OCR（全仓默认模板）
-# workers-world actions bundle: actions/v0.2.1（禁止 @master）
+# workers-world actions bundle: actions/v0.2.5（禁止 @master）
 # 前置：Org Secret GHA_TOKEN（PAT repo）；
 #       Org Variable NOTIFY_WORKER_URL + Org Secret NOTIFY_GHA_TOKEN（阻断邮件）
-# Caller secrets: inherit（勿显式传 NOTIFY_WORKER_URL）
+# Caller：secrets: inherit（推荐），或显式映射 worker-ci workflow_call secrets（zizmor secrets-inherit / medium）：
+#   GHA_TOKEN, RELEASE_BOT_PRIVATE_KEY, RELEASE_BOT_APP_ID, QODANA_TOKEN,
+#   OCR_LLM_TOKEN, DEEPSEEK_API_KEY, OCR_LLM_URL, OCR_LLM_MODEL, OCR_LLM_EXTRA_HEADERS, NOTIFY_GHA_TOKEN
+# 勿显式传 NOTIFY_WORKER_URL（Org Variable，非 Secret）
 #
 # 差异仓：
 # - 无 SDK：materialize_sdk: false；无 test：run_tests: false（如 manim / r2）

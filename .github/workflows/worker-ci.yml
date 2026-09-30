@@ -20,7 +20,7 @@ name: Worker CI
 #     actions: write   # nested qodana（PR 限频 cache）/ ocr（cache）
 #     checks: read     # nested notify-blocked
 #   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.5
-#   secrets: inherit
+#   secrets: inherit   # 或显式映射 workflow_call.secrets 全集（zizmor secrets-inherit / medium）
 #   with:
 #     sync_packages_lock: true
 #
@@ -85,6 +85,37 @@ on:
         description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App，须配 RELEASE_BOT_*，见 docs/github-app-token-migration.md）。promote 嵌套链暂不受此开关影响"
         type: string
         default: "pat"
+    secrets:
+      GHA_TOKEN:
+        description: 读 Packages / 建 PR / merge / sync-lock 等写操作的 PAT；未传时部分 leaf 回退 GITHUB_TOKEN
+        required: false
+      RELEASE_BOT_PRIVATE_KEY:
+        description: workers-world-release-bot App 私钥（bot=app 时必填；Org Secret）
+        required: false
+      RELEASE_BOT_APP_ID:
+        description: App ID（vars.RELEASE_BOT_APP_ID 未配时的 Secret 回退；bot=app 时必填其一）
+        required: false
+      QODANA_TOKEN:
+        description: JetBrains Qodana token（Org 未配置时为空，gate 会 skip 扫描）
+        required: false
+      OCR_LLM_TOKEN:
+        description: LLM API Key（当前 provider；skip_ocr=true 时可不传）
+        required: false
+      DEEPSEEK_API_KEY:
+        description: 旧名兼容（OCR_LLM_TOKEN 为空时回退）；新配置请用 OCR_LLM_TOKEN
+        required: false
+      OCR_LLM_URL:
+        description: LLM endpoint URL（推荐用 Org Variable；此处声明以兼容 Secret 配置）
+        required: false
+      OCR_LLM_MODEL:
+        description: LLM model 名（推荐用 Org Variable；此处声明以兼容 Secret 配置）
+        required: false
+      OCR_LLM_EXTRA_HEADERS:
+        description: 额外请求头（推荐用 Org Variable；此处声明以兼容 Secret 配置）
+        required: false
+      NOTIFY_GHA_TOKEN:
+        description: 与 notify-worker NOTIFY_GHA_TOKEN 同值（Org Secret）；未配置时 notify-blocked Guard 报错
+        required: false
 
 # 顶层兜底最小权限；各 job 自行显式声明
 permissions: {}
