@@ -1,13 +1,13 @@
 name: Worker ensure release PR
 
 # push 到 dev_* 时确保存在一条 dev → master 的 Release PR。
-# 默认以 draft 创建（控 Cloudflare Builds / 生产部署频率）；Ready for review 后
-# worker-ci 的 require_non_draft_pr + auto-merge 才会合入 master。
+# 默认创建即 ready；门禁全绿后 worker-ci 的 require_non_draft_pr + auto-merge 合入 master。
+# create_draft_release_pr: true 可恢复 draft 闸门（控 Cloudflare Builds 频率）。
 #
 # Caller（push job）：
 #   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.1
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.7
 #   with:
 #     release_branch: ${{ github.ref_name }}
 on:
@@ -26,9 +26,9 @@ on:
         type: string
         default: "release:"
       create_draft_release_pr:
-        description: "true（默认）：新建 Release PR 为 draft；Ready for review 后才 auto-merge。false：创建即 ready（旧行为，易触发每次合入部署）"
+        description: "true：新建 Release PR 为 draft（Ready for review 后才 auto-merge）。false（默认）：创建即 ready"
         type: boolean
-        default: true
+        default: false
       bot:
         description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*，见 docs/github-app-token-migration.md）"
         type: string
@@ -134,8 +134,9 @@ jobs:
             --body "$(cat <<'EOF'
           ## Release PR（自动创建）
 
-          - push 到 `dev_*` 会更新本 PR（默认 **draft**，不触发生产合入）
-          - 版本收尾：在 GitHub 上 **Ready for review** → verify（+ 可选 Qodana/OCR）全绿后 CI 自动 merge 到 `master`
+          - push 到 `dev_*` 会更新本 PR（默认 **ready for review**）
+          - verify（+ 可选 Qodana/OCR）全绿后 CI 自动 merge 到 `master`（`require_non_draft_pr` 仍要求非 draft）
+          - 若需延后合入：可 **Convert to draft**，或 caller 传 `create_draft_release_pr: true`
           - 任一门禁失败时请修复后 push，或人工处理 PR
 
           > 由 `worker-ensure-release-pr` 创建。
