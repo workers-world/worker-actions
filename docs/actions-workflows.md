@@ -221,7 +221,7 @@ flowchart LR
   pin --> hygiene[hygiene_and_secrets_scan]
 ```
 
-zizmor：按 `github.workflow_ref` 解析 reusable workflow 的 `@ref`，从 `workers-world/worker-actions` 拉取 `zizmor.yml` 基线（`actions/*` 与 `workers-world/*` 为 **ref-pin**，其余 hash-pin），与 caller 仓库根目录或 `.github/` 下的 `zizmor.yml` **合并** 后以 `--config` 运行。多数 consumer 无本地配置时仍获得基线；若有（例如仅 `secrets-inherit` ignore），合并后保留 caller 规则且基线 unpinned-uses 策略仍生效。zizmor 在 `--config` 模式下不会二次加载本地文件，故必须显式合并。
+zizmor：从 `zizmor_baseline_repository`（默认 `workers-world/worker-actions`）与 `zizmor_baseline_ref`（嵌套 reusable 时须与 `@actions/vX.Y.Z` pin 一致；直接 `uses` 本 workflow 且 `github.workflow_ref` 指向 `worker-workflow-lint.yml@…` 时可从 workflow_ref 解析）拉取 `zizmor.yml` 基线（`actions/*` 与 `workers-world/*` 为 **ref-pin**，其余 hash-pin），与 caller 仓库根目录或 `.github/` 下的 `zizmor.yml` **合并** 后以 `--config` 运行。嵌套门面（如 `worker-ci`）时 `github.workflow_ref` 为 caller 的 `ci.yml`，不得用作基线 ref。多数 consumer 无本地配置时仍获得基线；若有（例如仅 `secrets-inherit` ignore），合并后保留 caller 规则且基线 unpinned-uses 策略仍生效。zizmor 在 `--config` 模式下不会二次加载本地文件，故必须显式合并。
 
 来源：[`worker-workflow-lint.yml`](../.github/workflows/worker-workflow-lint.yml)。
 
