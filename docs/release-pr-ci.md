@@ -68,7 +68,7 @@ legacy：[worker-promote.yml](../.github/workflows/worker-promote.yml) / [worker
 | 类型 | classic PAT |
 | 权限 | `repo`（含 PR 读写）+ `read:packages`（npm 拉 SDK） |
 | 配置位置 | GitHub Org **workers-world** → Secrets → `GHA_TOKEN` |
-| Caller | `secrets: inherit`（与 worker-verify 相同） |
+| Caller | `secrets: inherit`（推荐），或显式映射 `worker-ci` 的 `workflow_call.secrets` 全集（zizmor `secrets-inherit` / medium）；**勿**向未声明的 secret 名传值（`actions/v0.2.7` tag 缺声明时会 startup_failure，预期 `actions/v0.2.8` patch 修复） |
 
 > 旧名 `GH_DEPS_TOKEN` 已废弃；Org 中请改名或新建同名 Secret（PAT 值不变）。
 
@@ -112,7 +112,7 @@ Org 须已配置：
 4. 另复制 [templates/sync-default-branch.yml](../templates/sync-default-branch.yml) 为独立 workflow
 5. 门禁全绿后 auto-merge → Builds；需 draft 闸门时传 `create_draft_release_pr: true` 或手动 Convert to draft
 
-**Secret 传递**：入口层 `secrets: inherit`；`worker-ci` 内部对每个 leaf **显式映射最小集**。
+**Secret 传递**：入口层 `secrets: inherit`（推荐），或显式映射 `worker-ci` `workflow_call.secrets` 全集；`worker-ci` 内部对每个 leaf **显式映射最小集**。
 
 **package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` 刷新 lock；bot 自身 push **不**再跑 lint/verify/ensure/sync-default。
 
