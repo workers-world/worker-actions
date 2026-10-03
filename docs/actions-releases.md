@@ -159,6 +159,11 @@ sed -i '' 's|@actions/v0\.4\.31|@actions/v0.4.33|g' .github/workflows/*.yml
 
 | Tag | SHA | 日期 | 摘要 |
 |-----|-----|------|------|
+| `actions/v0.2.10` | （合入 master 后 `release-actions-bundle` patch+1） | — | 公开仓 `runs-on` 固定 `ubuntu-latest`（`worker-ensure-release-pr` 补齐 private 门控）；内层嵌套 pin 与本 tag 对齐 |
+| `actions/v0.2.9` | 41ba6e4 | 2026-09-30 | 内层嵌套 pin 对齐 `v0.2.8`（zizmor baseline）；**未**修复 ensure-release-pr / 旧嵌套上的 self-hosted 门控 |
+| `actions/v0.2.8` | （合入 master 后 `release-actions-bundle` patch+1） | — | 恢复 `worker-ci` `workflow_call.secrets`（v0.2.7 误删回归）；保留 `create_draft_release_pr` 默认 false |
+| `actions/v0.2.7` | fd66f97 | 2026-09-30 | Release PR 默认 ready（`create_draft_release_pr: false`）；**回归**：`worker-ci` 未声明 `workflow_call.secrets`，显式 caller `secrets:` 映射会 startup_failure |
+| `actions/v0.2.6` | — | 2026-09-30 | 末版含完整 `workflow_call.secrets`；draft Release PR 默认 |
 | `actions/v0.4.6` | （本 PR 合入后自动 patch+1） | 2026-08-11 | `worker-promote`→PR merge；同仓嵌套改 `$/`；Smoke dollar-self |
 | `actions/v0.4.5` | e6df1a5 | 2026-08-11 | 嵌套 pin / templates 与 bundle 同版本；OCR `Checkout base`→`path: base` |
 | `actions/v0.4.4` | e8012f0 | 2026-08-11 | PR #54：OCR/AI Gateway/权限与阻断阈值等（嵌套仍指向 v0.4.3，由 v0.4.5 修正） |
