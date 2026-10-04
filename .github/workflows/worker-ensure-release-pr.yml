@@ -1,6 +1,7 @@
 name: Worker ensure release PR
 
 # push 到 dev_* 时确保存在一条 dev → master 的 Release PR。
+# 开 PR 前若 dev 未包含 master，先 merge master 入 dev 并 push（干净则继续；冲突则停，见 docs/release-pr-ci.md）。
 # 默认创建即 ready；门禁全绿后 worker-ci 的 require_non_draft_pr + auto-merge 合入 master。
 # create_draft_release_pr: true 可恢复 draft 闸门（控 Cloudflare Builds 频率）。
 #
@@ -71,6 +72,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
           # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
           permission-pull-requests: write
+          permission-contents: write
 
       # permissions: {} 时 GITHUB_TOKEN 无法拉取私有仓 composite action（codeload 404）；内联安装 gh
       # （若 bundle 仓转私有，此内联是唯一可靠路径；公开仓也可改用 ensure-gh-cli composite）
@@ -95,6 +97,87 @@ jobs:
           chmod +x "$bindir/gh"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/gh" --version
+
+      - name: Validate write credentials
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+          BOT: ${{ inputs.bot }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::缺少写凭证（bot=${BOT}）。bot=pat 请在 Org Secrets 配置 GHA_TOKEN（classic PAT: repo）；bot=app 请配 Org Variable RELEASE_BOT_APP_ID + Org Secret RELEASE_BOT_PRIVATE_KEY，见 docs/github-app-token-migration.md。"
+            exit 1
+          fi
+
+      - name: Checkout release branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_branch }}
+          token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+
+      - name: Sync master into release branch before release PR
+        id: sync-master
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+          MASTER_BRANCH: ${{ inputs.master_branch }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_BRANCH" =~ ^dev_ ]]; then
+            echo "Skip sync: release_branch must match dev_*"
+            exit 0
+          fi
+          git fetch origin "$MASTER_BRANCH" "$RELEASE_BRANCH"
+          behind_by="$(gh api "repos/${REPO}/compare/${MASTER_BRANCH}...${RELEASE_BRANCH}" --jq '.behind_by')"
+          if [ "${behind_by}" = "0" ]; then
+            echo "Skip sync: ${RELEASE_BRANCH} already contains ${MASTER_BRANCH}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout "$RELEASE_BRANCH"
+          git pull --ff-only origin "$RELEASE_BRANCH"
+          behind_by="$(gh api "repos/${REPO}/compare/${MASTER_BRANCH}...${RELEASE_BRANCH}" --jq '.behind_by')"
+          if [ "${behind_by}" = "0" ]; then
+            echo "Skip sync: ${RELEASE_BRANCH} already contains ${MASTER_BRANCH} (after fetch)"
+            exit 0
+          fi
+          merge_msg="chore: merge ${MASTER_BRANCH} into ${RELEASE_BRANCH} before release PR"
+          if ! git merge "origin/${MASTER_BRANCH}" -m "$merge_msg"; then
+            mapfile -t conflict_files < <(git diff --name-only --diff-filter=U | sort -u)
+            git merge --abort
+            conflict_list=""
+            for f in "${conflict_files[@]}"; do
+              [ -n "$f" ] || continue
+              conflict_list="${conflict_list}"$'\n'"- \`${f}\`"
+            done
+            comment_body="$(cat <<EOF
+          ## Release PR：无法自动 sync \`${MASTER_BRANCH}\` → \`${RELEASE_BRANCH}\`
+
+          \`worker-ensure-release-pr\` 在开 Release PR 前尝试将 \`${MASTER_BRANCH}\` 合并入当前 dev 分支，但存在冲突。请在本分支上人工 merge/rebase \`${MASTER_BRANCH}\` 并解决下列文件后 push（**不会**自动改 \`package.json\` / lockfile / workflow）：
+
+          ${conflict_list}
+
+          解决并 push 后 CI 会重跑本步骤；合并干净后才会创建或继续维护 Release PR。
+          EOF
+          )"
+            pr_num="$(gh pr list --repo "$REPO" --head "$RELEASE_BRANCH" --base "$MASTER_BRANCH" --state open --json number --jq '.[0].number // empty')"
+            if [ -n "$pr_num" ]; then
+              is_draft="$(gh pr view "$pr_num" --repo "$REPO" --json isDraft --jq '.isDraft')"
+              if [ "$is_draft" != "true" ]; then
+                gh pr ready "$pr_num" --undo --repo "$REPO"
+              fi
+              gh pr comment "$pr_num" --repo "$REPO" --body "$comment_body"
+              echo "::error::无法将 ${MASTER_BRANCH} 合并入 ${RELEASE_BRANCH}（冲突文件：${conflict_files[*]:-unknown}）。已将 Release PR #${pr_num} 保持为 draft 并留言；未打开带冲突的 Release PR。"
+            else
+              echo "::error::无法将 ${MASTER_BRANCH} 合并入 ${RELEASE_BRANCH}（冲突文件：${conflict_files[*]:-unknown}）。无 open Release PR，本 job 失败且未创建 conflicted Release PR。"
+            fi
+            exit 1
+          fi
+          git push origin "$RELEASE_BRANCH"
+          echo "Synced ${MASTER_BRANCH} into ${RELEASE_BRANCH} (merge commit pushed)"
 
       - name: Open release PR if missing
         id: open-pr
