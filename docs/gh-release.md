@@ -86,9 +86,10 @@ sequenceDiagram
 | 仓 | 打 tag 方式 |
 |----|-------------|
 | worker-actions / java-actions | `release-actions-bundle` 自动 `actions/v*` |
+| `framework_sdk_worker` / `framework_sdk_ui` | `ci-publish` 新发 Packages 后自动 `v{semver}` |
 | 业务 / 个人仓 | 手工或脚本，例如 `git tag v1.0.0 && git push origin v1.0.0` |
 
-Caller **不会**自动打 tag；只负责「有 tag 时建 Release」。
+Caller **不会**自动打 tag；只负责「有 tag 时建 Release」（SDK / Actions bundle 由各自发版 workflow 打 tag）。
 
 ## 外部仓迁移
 

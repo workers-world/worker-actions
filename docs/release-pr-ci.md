@@ -112,7 +112,7 @@ Org 须已配置：
 4. 另复制 [templates/sync-default-branch.yml](../templates/sync-default-branch.yml) 为独立 workflow
 5. 门禁全绿后 auto-merge → Builds；需 draft 闸门时传 `create_draft_release_pr: true` 或手动 Convert to draft
 
-**Secret 传递**：入口层 `secrets: inherit`；`worker-ci` 内部对每个 leaf **显式映射最小集**。
+**Secret 传递**：入口层 `secrets: inherit`（推荐），或显式映射 `worker-ci` `workflow_call.secrets` 全集；`worker-ci` 内部对每个 leaf **显式映射最小集**。
 
 **package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` 刷新 lock；bot 自身 push **不**再跑 lint/verify/ensure/sync-default。
 

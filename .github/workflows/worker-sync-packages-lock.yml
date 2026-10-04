@@ -129,7 +129,7 @@ jobs:
             rm -f package-lock.json
           fi
           echo "按 package.json 刷新 lock → framework_sdk_worker@${WANT_VER}"
-          npm install --no-fund --no-audit
+          npm install --no-fund --no-audit --legacy-peer-deps
           if ! lock_matches_version; then
             echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。请确认 Packages 已发布且 GHA_TOKEN/read 权限正常。"
             exit 1

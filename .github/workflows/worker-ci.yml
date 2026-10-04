@@ -7,6 +7,7 @@ name: Worker CI
 #
 # 成本策略（actions/v0.2.7+）：
 #   - Release PR 默认创建即 ready；门禁全绿 + require_non_draft_pr 后 auto-merge → Cloudflare Builds
+#   - workflow_call.secrets 须声明（与 actions/v0.2.6 同集）；actions/v0.2.7 tag 误删该块会导致 caller 显式 secrets: 映射 startup_failure — 合 master 后预期 actions/v0.2.8 patch；caller 可用 secrets: inherit 或显式映射下列 secrets
 #   - push 默认不跑 verify / workflow-lint；verify 仅在 pull_request（门禁）
 #   - skip_ocr / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
 #   - github-actions[bot]（lock-bot）跳过 lint/verify/qodana/ocr/ensure
