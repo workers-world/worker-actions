@@ -117,9 +117,10 @@ jobs:
         env:
           BASELINE_REPO_INPUT: ${{ inputs.zizmor_baseline_repository }}
           BASELINE_REF_INPUT: ${{ inputs.zizmor_baseline_ref }}
+          WF_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          wf_ref='${{ github.workflow_ref }}'
+          wf_ref="$WF_REF"
           ref_suffix="${wf_ref##*@}"
           if [ -z "$ref_suffix" ] || [ "$ref_suffix" = "$wf_ref" ]; then
             ref_suffix=""
