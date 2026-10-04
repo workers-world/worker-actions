@@ -26,3 +26,6 @@ jobs:
     uses: ./.github/workflows/worker-workflow-lint.yml
     with:
       runner: ubuntu-latest
+      zizmor_baseline_repository: workers-world/worker-actions
+      # PR 上 github.workflow_ref 为 refs/pull/N/merge，无法解析 @ref；显式用 head commit
+      zizmor_baseline_ref: ${{ github.event.pull_request.head.sha || github.sha }}
