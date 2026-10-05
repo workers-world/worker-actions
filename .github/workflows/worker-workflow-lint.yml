@@ -10,7 +10,7 @@ name: Worker workflow lint
 #      合并后 --config 注入；--min-severity medium 起判；composite 内行内 ignore）
 #   4. JSON / YAML 解析：.opencodereview/rule.json、manifest/actions-bundle.yaml
 #   5. Pin 检查：uses: 禁止 @master / @main / @HEAD
-#   6. 内层 pin 一致性：@actions/vX.Y.Z 全仓同版本（防「外层升内层没升」）
+#   6. 内层 pin 一致性：@actions/vX.Y.Z 全仓同版本，且须为最新 tag 或 patch+1 待发 tag
 #   7. manifest 格式：current 须为 actions/vX.Y.Z（不校验 tag 是否已 push；发版 PR 中 manifest 常领先 tag）
 #   8. 卫生检查：CRLF / 尾随空白 / 合并冲突标记 <<<<<<<
 #   9. 凭据泄露扫描：ghp_ / sk- / cf- / -----BEGIN ... PRIVATE KEY-----
@@ -302,7 +302,7 @@ jobs:
         run: |
           set -euo pipefail
           # 防「外层已升、内层仍旧」：bundle 内所有跨仓自引用（leaf workflow / composite / 模板示例）
-          # 必须指向同一 actions/vX.Y.Z；git tag 为权威制品，manifest 仅说明书（见 docs/actions-releases.md）
+          # 必须指向同一 actions/vX.Y.Z；且须等于最新 tag 或 release-actions-bundle 的 patch+1 待发 tag
           versions="$(grep -rhoE '@actions/v[0-9]+\.[0-9]+\.[0-9]+' \
             .github/workflows .github/actions templates docs/templates \
             --include='*.yml' --include='*.yaml' 2>/dev/null | sort -u || true)"
@@ -312,7 +312,26 @@ jobs:
             printf '%s\n' "${versions}" | sed 's/^/  /'
             exit 1
           fi
-          echo "ok: 内层 pin 一致（${versions:-无跨仓自引用}）"
+          if [ "$n" -eq 0 ]; then
+            echo "ok: 无跨仓自引用 @actions pin"
+            exit 0
+          fi
+          pin="${versions}"
+          pin_tag="${pin#@}"
+          git fetch --tags origin 2>/dev/null || true
+          latest="$(git tag -l 'actions/v*' --sort=-v:refname | head -1 || true)"
+          if [ -z "$latest" ]; then
+            echo "ok: 内层 pin 一致（${pin}）；无既有 actions/v* tag，跳过与 tag 对齐"
+            exit 0
+          fi
+          latest_ver="${latest#actions/v}"
+          IFS=. read -r maj min pat <<< "${latest_ver}"
+          next="actions/v${maj}.${min}.$((pat + 1))"
+          if [ "$pin_tag" != "$latest" ] && [ "$pin_tag" != "$next" ]; then
+            echo "::error::内层 pin ${pin_tag} 须与最新 tag ${latest} 或待发版 ${next} 对齐（与 release-actions-bundle patch+1 一致）"
+            exit 1
+          fi
+          echo "ok: 内层 pin ${pin_tag}（latest=${latest}，next=${next}）"
 
       - name: manifest 格式检查
         run: |
