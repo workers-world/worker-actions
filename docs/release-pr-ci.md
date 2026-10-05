@@ -70,7 +70,7 @@ legacy：[worker-promote.yml](../.github/workflows/worker-promote.yml) / [worker
 | 类型 | classic PAT |
 | 权限 | `repo`（含 PR 读写）+ `read:packages`（npm 拉 SDK） |
 | 配置位置 | GitHub Org **workers-world** → Secrets → `GHA_TOKEN` |
-| Caller | `secrets: inherit`（推荐），或显式映射 `worker-ci` 的 `workflow_call.secrets` 全集（zizmor `secrets-inherit` / medium）；**勿**向未声明的 secret 名传值。公开仓须 pin **`@actions/v0.2.10`**（合 master 发 tag 后），否则 Org `GHA_RUNNER` 仍可能经旧嵌套 pin 落到 self-hosted；`actions/v0.2.7` 曾缺 `workflow_call.secrets`，`v0.2.8+` 已恢复 |
+| Caller | `secrets: inherit`（推荐），或显式映射 `worker-ci` 的 `workflow_call.secrets` 全集（zizmor `secrets-inherit` / medium）；**勿**向未声明的 secret 名传值。公开仓须 pin **`@actions/v0.2.12`**（合 master 发 tag 后），否则 Org `GHA_RUNNER` 仍可能经旧嵌套 pin 落到 self-hosted；`actions/v0.2.7` 曾缺 `workflow_call.secrets`，`v0.2.8+` 已恢复 |
 
 > 旧名 `GH_DEPS_TOKEN` 已废弃；Org 中请改名或新建同名 Secret（PAT 值不变）。
 
@@ -156,7 +156,7 @@ OCR 启用时：`block_merge_on_comments: true` 时 high 意见 fail ocr → 不
 
 ## 迁移自 push-promote / 旧 draft 默认
 
-1. bump pin 到 `@actions/v0.2.10`（tag 须已存在；公开仓 runner 门控 + 内层嵌套对齐）；仍 pin `@actions/v0.2.6` 时可显式 `create_draft_release_pr: false` 获得相同行为
+1. bump pin 到 `@actions/v0.2.12`（tag 须已存在；公开仓 runner 门控 + 内层嵌套对齐）；仍 pin `@actions/v0.2.6` 时可显式 `create_draft_release_pr: false` 获得相同行为
 2. 复制最新 `templates/ci-release-pr.yml` / `sync-default-branch.yml`
 3. 既有 **open** Release PR：不会被 ensure 改 draft/ready；新 PR 按新默认创建
 4. 需要 draft 闸门：`create_draft_release_pr: true` 或手动 Convert to draft
