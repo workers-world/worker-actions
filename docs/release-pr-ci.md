@@ -38,6 +38,8 @@ Leaf workflow 的 `runs-on`：公开 caller 固定 `ubuntu-latest`；私有 call
 |----------|------|
 | [worker-ci.yml](../.github/workflows/worker-ci.yml) | **业务仓 CI 门面**（唯一入口；`ci.yml` 只调这一次；内嵌下列 leaf） |
 | [worker-ensure-release-pr.yml](../.github/workflows/worker-ensure-release-pr.yml) | push dev 时创建 Release PR（`create_draft_release_pr` 默认 **false**，创建即 ready） |
+
+**开 PR 前的 master 同步（`worker-ensure-release-pr`）**：若 compare 显示当前 `dev_*` **已包含** `master`（`behind_by = 0`），跳过，不产生额外 commit/push，随后按原逻辑创建或复用 open Release PR。若 dev **落后** `master`，workflow 会先把 `master` merge 进 dev 并 push；merge **无冲突** 时继续开/维护 Release PR（push 触发的下一次 run 因已包含 master 而不再 merge，避免循环）。merge **有冲突** 时不自动改 `package.json`/lockfile/workflow：若已有 open Release PR 则转为 draft 并留言冲突文件；否则 **fail job** 且 **不** 创建带冲突的 Release PR。
 | [worker-release-auto-merge.yml](../.github/workflows/worker-release-auto-merge.yml) | 非 draft + 门禁通过后 merge PR |
 | [open-code-review.yml](../.github/workflows/open-code-review.yml) | OCR（DeepSeek）；`skip_ocr: true` 时门面 **不调用**（无空 runner） |
 | [worker-notify-release-pr-blocked.yml](../.github/workflows/worker-notify-release-pr-blocked.yml) | 未能 auto-merge 时邮件通知（仅非 draft） |
@@ -68,7 +70,7 @@ legacy：[worker-promote.yml](../.github/workflows/worker-promote.yml) / [worker
 | 类型 | classic PAT |
 | 权限 | `repo`（含 PR 读写）+ `read:packages`（npm 拉 SDK） |
 | 配置位置 | GitHub Org **workers-world** → Secrets → `GHA_TOKEN` |
-| Caller | `secrets: inherit`（推荐），或显式映射 `worker-ci` 的 `workflow_call.secrets` 全集（zizmor `secrets-inherit` / medium）；**勿**向未声明的 secret 名传值。公开仓须 pin **`@actions/v0.2.10`**（合 master 发 tag 后），否则 Org `GHA_RUNNER` 仍可能经旧嵌套 pin 落到 self-hosted；`actions/v0.2.7` 曾缺 `workflow_call.secrets`，`v0.2.8+` 已恢复 |
+| Caller | `secrets: inherit`（推荐），或显式映射 `worker-ci` 的 `workflow_call.secrets` 全集（zizmor `secrets-inherit` / medium）；**勿**向未声明的 secret 名传值。公开仓须 pin **`@actions/v0.2.12`**（合 master 发 tag 后），否则 Org `GHA_RUNNER` 仍可能经旧嵌套 pin 落到 self-hosted；`actions/v0.2.7` 曾缺 `workflow_call.secrets`，`v0.2.8+` 已恢复 |
 
 > 旧名 `GH_DEPS_TOKEN` 已废弃；Org 中请改名或新建同名 Secret（PAT 值不变）。
 
@@ -154,7 +156,7 @@ OCR 启用时：`block_merge_on_comments: true` 时 high 意见 fail ocr → 不
 
 ## 迁移自 push-promote / 旧 draft 默认
 
-1. bump pin 到 `@actions/v0.2.10`（tag 须已存在；公开仓 runner 门控 + 内层嵌套对齐）；仍 pin `@actions/v0.2.6` 时可显式 `create_draft_release_pr: false` 获得相同行为
+1. bump pin 到 `@actions/v0.2.12`（tag 须已存在；公开仓 runner 门控 + 内层嵌套对齐）；仍 pin `@actions/v0.2.6` 时可显式 `create_draft_release_pr: false` 获得相同行为
 2. 复制最新 `templates/ci-release-pr.yml` / `sync-default-branch.yml`
 3. 既有 **open** Release PR：不会被 ensure 改 draft/ready；新 PR 按新默认创建
 4. 需要 draft 闸门：`create_draft_release_pr: true` 或手动 Convert to draft
