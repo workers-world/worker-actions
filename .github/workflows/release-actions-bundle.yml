@@ -91,8 +91,8 @@ jobs:
       - name: Resolve version, align pins, create tag, open backfill PR
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          # Phase A：tag push 可用 App 或 GHA_TOKEN（tag 不含 .github/workflows 改动）。
-          # Phase B：仅 App token（permission-workflows: write）。禁止回落 GHA_TOKEN/GITHUB_TOKEN——
+          # Phase A tag push 与 Phase B 均须 App token（tag 树含 .github/workflows pin 对齐）。
+          # 禁止回落 GHA_TOKEN/GITHUB_TOKEN——
           # PAT 无 workflow scope 时会静默失败（run 37625776021）。
           # checkout 的 App/PAT 会写 includeIf.gitdir → Phase B 须先清本地 cred 再 set-url。
           RELEASE_GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
@@ -134,10 +134,9 @@ jobs:
             git push "$@"
           }
 
-          # Phase A (tag tree): actions/templates only — tagged commit must not touch
-          # .github/workflows/* or PAT without `workflow` scope rejects tag push.
-          TAG_PIN_GLOBS=(.github/actions templates docs/templates)
-          WORKFLOW_PIN_GLOBS=(.github/workflows)
+          # Tag 树须含 workflow/action/template 全部 nested @actions/v* 对齐，否则 caller pin 新 tag 仍解析到旧 leaf。
+          # 含 .github/workflows 的 commit/tag push 须 release-bot App（workflows:write），禁止仅 GHA_TOKEN。
+          BUNDLE_PIN_GLOBS=(.github/actions .github/workflows templates docs/templates)
 
           rewrite_nested_pins() {
             local target_tag="$1"
@@ -157,6 +156,15 @@ jobs:
             else
               echo "No @actions/v* pins to rewrite under: ${globs[*]}"
             fi
+          }
+
+          git_push_tag() {
+            if [ -z "${WORKFLOW_PUSH_GH_TOKEN}" ]; then
+              echo "::error::Tag push 含 .github/workflows pin 对齐，须 release-bot App token（workflows:write）。"
+              echo "Configure RELEASE_BOT_APP_ID + RELEASE_BOT_PRIVATE_KEY；勿用无 workflow scope 的 PAT。"
+              exit 1
+            fi
+            git_push_phase_b "$@"
           }
 
           TRIGGER_REF="$(git rev-parse HEAD)"
@@ -215,7 +223,7 @@ jobs:
           TODAY="$(date -u +%Y-%m-%d)"
           BRANCH="chore/actions-bundle-${VERSION}"
           COMMIT_MSG="chore: release actions bundle ${TAG} — align action/template pins + manifest [skip actions-release]"
-          WORKFLOW_COMMIT_MSG="chore: align workflow nested pins for ${TAG} [skip actions-release]"
+          WORKFLOW_COMMIT_MSG="chore: align remaining nested pins for ${TAG} [skip actions-release]"
 
           write_manifest() {
             local ref="$1"
@@ -238,9 +246,17 @@ jobs:
           git fetch origin master
           git checkout -B "$BRANCH" origin/master
 
-          # --- Phase A: pin rewrite for tag tree (no .github/workflows) ---
-          rewrite_nested_pins "${TAG}" "${TAG_PIN_GLOBS[@]}"
-          git add "${TAG_PIN_GLOBS[@]}"
+          if [ "$NEED_TAG" = 1 ] && [ -z "${WORKFLOW_PUSH_GH_TOKEN}" ]; then
+            echo "::error::新发 tag 须在含 .github/workflows pin 对齐的 commit 上打出，须 release-bot App token。"
+            echo "Mint skipped/failed. Configure RELEASE_BOT_APP_ID (Org Variable or Secret) and"
+            echo "RELEASE_BOT_PRIVATE_KEY (Org Secret); install workers-world-release-bot on this repo."
+            echo "See docs/github-app-token-migration.md."
+            exit 1
+          fi
+
+          # --- Phase A: align all bundle nested pins (incl. workflows) before tagging ---
+          rewrite_nested_pins "${TAG}" "${BUNDLE_PIN_GLOBS[@]}"
+          git add "${BUNDLE_PIN_GLOBS[@]}"
           PHASE_A_STAGED=0
           if ! git diff --cached --quiet; then
             PHASE_A_STAGED=1
@@ -264,15 +280,15 @@ jobs:
             fi
             REF="$(git rev-parse HEAD)"
             git tag -a "$TAG" -m "Actions bundle ${TAG}"
-            git_push_auth "${RELEASE_GH_TOKEN}" origin "$TAG"
+            git_push_tag origin "$TAG"
             TAG_CREATED=1
-            echo "Created ${TAG} at ${REF} (tag tree excludes .github/workflows pin rewrites)"
+            echo "Created ${TAG} at ${REF} (tag tree includes workflow + action/template nested pins)"
           else
             REF="$(git rev-list -n 1 "$TAG" 2>/dev/null || git rev-parse HEAD)"
             write_manifest "$REF"
             git add "$MANIFEST"
             if git diff --cached --quiet && [ "$PHASE_A_STAGED" = 0 ]; then
-              echo "Backfill branch manifest/pins already aligned for ${TAG} (phase A)"
+              echo "Backfill branch manifest/pins already aligned for ${TAG}"
             else
               if [ "$PHASE_A_STAGED" = 1 ]; then
                 git commit --amend -m "${COMMIT_MSG}" 2>/dev/null || git commit -m "${COMMIT_MSG}"
@@ -282,7 +298,7 @@ jobs:
             fi
           fi
 
-          # --- Phase B: requires release-bot App token; fail closed (no PAT fallback) ---
+          # --- Phase B: backfill PR push (App token); idempotent pin pass for drift ---
           if [ -z "${WORKFLOW_PUSH_GH_TOKEN}" ]; then
             echo "::error::Phase B needs release-bot App installation token (workflows:write)."
             echo "Mint skipped/failed. Configure RELEASE_BOT_APP_ID (Org Variable or Secret) and"
@@ -291,14 +307,13 @@ jobs:
             exit 1
           fi
 
-          # --- Phase B: workflow pin rewrite on backfill branch (after tag push) ---
-          rewrite_nested_pins "${TAG}" "${WORKFLOW_PIN_GLOBS[@]}"
-          git add "${WORKFLOW_PIN_GLOBS[@]}"
+          rewrite_nested_pins "${TAG}" "${BUNDLE_PIN_GLOBS[@]}"
+          git add "${BUNDLE_PIN_GLOBS[@]}"
           if ! git diff --cached --quiet; then
             git commit -m "${WORKFLOW_COMMIT_MSG}"
-            echo "Phase B: workflow nested pins committed for backfill PR"
+            echo "Phase B: extra nested pin drift committed for backfill PR"
           else
-            echo "Phase B: workflow nested pins already aligned on backfill branch"
+            echo "Phase B: nested pins already aligned on backfill branch"
           fi
 
           if [ "$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
@@ -317,11 +332,11 @@ jobs:
                 --body "$(cat <<EOF
           ## Actions bundle backfill
 
-          - Tag: \`${TAG}\`（已存在于远程；tag 树内 action/template nested pin 与 tag 一致）
+          - Tag: \`${TAG}\`（已存在于远程；tag 树内 workflow/action/template nested pin 与 tag 一致）
           - Tag SHA: \`${REF}\`
           - tag_created_this_run: ${TAG_CREATED}
 
-          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（\`RELEASE_GH_TOKEN\` = release-bot App，workflows:write）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`（回填分支由同一 App token push，**非** \`GITHUB_TOKEN\`）。合入即可；**PR 标题**（squash subject）与 commit subject 含 \`[skip actions-release]\`，不会再打 tag。
+          两阶段发版：tag 在 **已对齐全部 nested pin**（含 \`.github/workflows/**\`）的 commit 上打出（须 release-bot App \`workflows:write\`）；本 PR 合入 \`manifest/actions-bundle.yaml\` 与 master 对齐。回填分支由 App token push（**非** \`GITHUB_TOKEN\`）。**PR 标题**（squash subject）与 commit subject 含 \`[skip actions-release]\`，不会再打 tag。
           EOF
           )"
               echo "Opened backfill PR for ${TAG}"

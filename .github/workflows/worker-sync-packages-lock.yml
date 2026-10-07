@@ -3,10 +3,11 @@ name: update package-lock.json file
 # 按 package.json 刷新 package-lock（GitHub Packages 解析 SDK + 其它依赖）。
 # 不修改 package.json——SDK 与其它依赖版本均以开发者提交的 package.json 为准。
 #
-# 跳过条件（须同时满足）：
+# 跳过条件（须同时满足，见 package-lock-in-sync / lock-matches-package-json.mjs）：
 # 1) lock 已是目标 SDK 的 GitHub Packages 解析（非 file:）
 # 2) package.json 根 dependencies/devDependencies 与 lock packages[""] 一致
-# 仅 SDK 版本匹配时跳过会漏掉普通依赖增删（如 chanfana），导致 npm ci EUSAGE。
+# 3) npm ci --dry-run 通过（传递依赖/lock 完整性）
+# 仅 SDK + 根依赖字符串匹配会漏掉无效 lock，导致 sync-lock noop 后 verify npm ci 失败。
 #
 # 由 worker-verify 在 verify 前调用；也可单独 workflow_call。
 # 需刷新时：全量 npm install（非仅改 SDK 版本字段），提交前 npm ci 校验 lock 可安装。
@@ -60,8 +61,10 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.20
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.23
         id: lock_check
+        with:
+          node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Lock already in sync
         if: steps.lock_check.outputs.in_sync == 'true' && steps.lock_check.outputs.skip != 'true'
