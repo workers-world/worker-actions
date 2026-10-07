@@ -53,8 +53,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      # Phase B 回填 PR 含 .github/workflows pin 改动；GITHUB_TOKEN 须 workflows:write（PAT 无 workflow scope 时仍可用）
-      workflows: write
     if: >
       always() &&
       (
