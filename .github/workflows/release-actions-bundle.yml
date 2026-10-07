@@ -282,7 +282,7 @@ jobs:
           - Tag SHA: \`${REF}\`
           - tag_created_this_run: ${TAG_CREATED}
 
-          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（PAT 无 \`workflow\` scope 亦可 push tag）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`。合入即可；commit subject 含 \`[skip actions-release]\`，不会再打 tag。
+          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（App/PAT \`RELEASE_GH_TOKEN\` push tag）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`（分支由 \`GITHUB_TOKEN\` push，无需 PAT \`workflow\` scope）。合入即可；commit subject 含 \`[skip actions-release]\`，不会再打 tag。
           EOF
           )"
               echo "Opened backfill PR for ${TAG}"
