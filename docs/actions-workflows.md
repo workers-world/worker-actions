@@ -186,7 +186,7 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：checkout（PR 用 **head SHA**，非 merge ref）→ 拉取 sync-lock 提交（push）→ PR 轮询等待 lock（可选）→ setup-node → 物化 SDK（可选）→ `npm ci` → `npm run check` → `npm test`（可选）。
+verify 步骤摘要：sync-lock（push）→ lock-precheck（PR 未同步则 **skipped** verify）→ checkout（PR **head SHA**）→ 拉取 sync-lock 提交（push）→ setup-node → 物化 SDK（可选）→ `npm ci` → `npm run check` → `npm test`（可选）。lock 刷新由 bot synchronize 触发二次 verify，不靠长轮询。
 
 | Job | 条件 |
 |-----|------|

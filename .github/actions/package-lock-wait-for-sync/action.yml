@@ -1,5 +1,7 @@
 name: Wait for package-lock sync on PR head
-description: PR verify 前轮询 dev HEAD，等待 sync-lock bot 提交 lock（避免与 push workflow 并行竞态）
+description: >-
+  轮询 dev HEAD 直至 lock 与 package.json 一致（legacy 兜底）。
+  新编排见 worker-verify lock-precheck + bot synchronize；仅旧 pin 或未 bump bundle 的 caller 作兜底。
 
 inputs:
   branch:

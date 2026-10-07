@@ -149,8 +149,15 @@ jobs:
 
   verify:
     # push：仅 sync-lock（非 bot）+ 可选 verify_on_push；PR：全量门禁
+    # bot synchronize：sync-lock 仅提交 lock 时须跑 verify（用户 push 触发的 PR run 会因 lock-precheck 跳过）
     if: |
-      github.actor != 'github-actions[bot]' &&
+      (
+        github.actor != 'github-actions[bot]' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.action == 'synchronize'
+        )
+      ) &&
       (
         github.event_name == 'pull_request' ||
         (
