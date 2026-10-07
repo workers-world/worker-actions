@@ -1,0 +1,1015 @@
+{
+  "generated_at": "2026-10-07T15:57:47.144Z",
+  "profile_path": "/workspace/tools/release-pipeline-benchmark/profiles.phase-a.json",
+  "workflow_meta": [
+    {
+      "repo": "worker-actions",
+      "file": "ci.yml",
+      "label": "CI (dogfood PR/push)",
+      "machine_lane": "verify_release_pr",
+      "sampled": 25
+    },
+    {
+      "repo": "worker-actions",
+      "file": "release-actions-bundle.yml",
+      "label": "Release actions bundle",
+      "machine_lane": "destin_to_tag",
+      "sampled": 22
+    },
+    {
+      "repo": "worker-actions",
+      "file": "gh-release-on-tag.yml",
+      "label": "Create GitHub Release (tag push)",
+      "machine_lane": "tag_to_gh_release",
+      "sampled": 25
+    },
+    {
+      "repo": "mok1",
+      "file": "ci.yml",
+      "label": "CI (Worker CI caller)",
+      "machine_lane": "consumer_release_pr",
+      "sampled": 19
+    },
+    {
+      "repo": "mok1",
+      "file": "planning-release.yml",
+      "label": "Planning Release",
+      "machine_lane": "consumer_planning",
+      "sampled": 0
+    }
+  ],
+  "sample_count": 91,
+  "run_stats": [
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) (pull_request)",
+      "n": 9,
+      "p50": 50,
+      "p95": 80.6,
+      "min": 31,
+      "max": 83,
+      "mean": 53
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) (pull_request)",
+      "n": 20,
+      "p50": 38.5,
+      "p95": 56.1,
+      "min": 29,
+      "max": 58,
+      "mean": 39.4
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) (push)",
+      "n": 10,
+      "p50": 24.5,
+      "p95": 47.99999999999998,
+      "min": 15,
+      "max": 57,
+      "mean": 27.2
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) (push)",
+      "n": 5,
+      "p50": 37,
+      "p95": 44.8,
+      "min": 36,
+      "max": 46,
+      "mean": 39.2
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle (push)",
+      "n": 12,
+      "p50": 14,
+      "p95": 23.45,
+      "min": 6,
+      "max": 24,
+      "mean": 13.5
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle (workflow_dispatch)",
+      "n": 10,
+      "p50": 15,
+      "p95": 19.099999999999998,
+      "min": 11,
+      "max": 20,
+      "mean": 15.3
+    },
+    {
+      "key": "workers-world/worker-actions | Create GitHub Release (tag push) (push)",
+      "n": 25,
+      "p50": 15,
+      "p95": 17,
+      "min": 10,
+      "max": 49,
+      "mean": 15.52
+    }
+  ],
+  "job_stats": [
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint",
+      "n": 25,
+      "p50": 34,
+      "p95": 41.8,
+      "min": 27,
+      "max": 42,
+      "mean": 33.88
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint",
+      "n": 9,
+      "p50": 15,
+      "p95": 36.79999999999999,
+      "min": 12,
+      "max": 50,
+      "mean": 18.22222222222222
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify",
+      "n": 9,
+      "p50": 26,
+      "p95": 32.199999999999996,
+      "min": 15,
+      "max": 35,
+      "mean": 23.77777777777778
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag",
+      "n": 18,
+      "p50": 11,
+      "p95": 14.599999999999994,
+      "min": 6,
+      "max": 18,
+      "mean": 11.055555555555555
+    },
+    {
+      "key": "workers-world/worker-actions | Create GitHub Release (tag push) | release / release",
+      "n": 25,
+      "p50": 10,
+      "p95": 12.799999999999997,
+      "min": 7,
+      "max": 45,
+      "mean": 11.52
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / release-auto-merge / merge",
+      "n": 7,
+      "p50": 10,
+      "p95": 11,
+      "min": 7,
+      "max": 11,
+      "mean": 9.571428571428571
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock",
+      "n": 10,
+      "p50": 7.5,
+      "p95": 10,
+      "min": 6,
+      "max": 10,
+      "mean": 7.6
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ensure-release-pr / ensure",
+      "n": 10,
+      "p50": 5,
+      "p95": 6.549999999999999,
+      "min": 3,
+      "max": 7,
+      "mean": 5
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / lock-precheck",
+      "n": 1,
+      "p50": 6,
+      "p95": 6,
+      "min": 6,
+      "max": 6,
+      "mean": 6
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ci-summary",
+      "n": 19,
+      "p50": 3,
+      "p95": 4,
+      "min": 2,
+      "max": 4,
+      "mean": 3.210526315789474
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | gate",
+      "n": 5,
+      "p50": 3,
+      "p95": 3.8,
+      "min": 2,
+      "max": 4,
+      "mean": 2.8
+    }
+  ],
+  "step_stats": [
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Pin 检查（禁止 @master/@main/@HEAD）",
+      "n": 25,
+      "p50": 20,
+      "p95": 21,
+      "min": 13,
+      "max": 22,
+      "mean": 18.24
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Run npm ci",
+      "n": 9,
+      "p50": 6,
+      "p95": 17.399999999999995,
+      "min": 4,
+      "max": 23,
+      "mean": 7.888888888888889
+    },
+    {
+      "key": "workers-world/worker-actions | Create GitHub Release (tag push) | release / release :: Create or update GitHub Release",
+      "n": 25,
+      "p50": 8,
+      "p95": 8,
+      "min": 3,
+      "max": 8,
+      "mean": 6.8
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Resolve version, create tag, open manifest PR",
+      "n": 16,
+      "p50": 5,
+      "p95": 7,
+      "min": 2,
+      "max": 7,
+      "mean": 5.3125
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / release-auto-merge / merge :: Merge release PR",
+      "n": 7,
+      "p50": 6,
+      "p95": 6.699999999999999,
+      "min": 1,
+      "max": 7,
+      "mean": 5.142857142857143
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Post Run actions/setup-node@v7",
+      "n": 9,
+      "p50": 2,
+      "p95": 6.599999999999998,
+      "min": 0,
+      "max": 9,
+      "mean": 2.3333333333333335
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Resolve version, align pins, create tag, open backfill PR",
+      "n": 2,
+      "p50": 5.5,
+      "p95": 5.949999999999999,
+      "min": 5,
+      "max": 6,
+      "mean": 5.5
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Install zizmor",
+      "n": 25,
+      "p50": 4,
+      "p95": 5,
+      "min": 2,
+      "max": 5,
+      "mean": 3.88
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Run actions/setup-node@v7",
+      "n": 25,
+      "p50": 1,
+      "p95": 4.799999999999997,
+      "min": 0,
+      "max": 5,
+      "mean": 1.44
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Install zizmor",
+      "n": 9,
+      "p50": 4,
+      "p95": 4.6,
+      "min": 3,
+      "max": 5,
+      "mean": 3.6666666666666665
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Run actions/setup-node@v7",
+      "n": 9,
+      "p50": 2,
+      "p95": 4.6,
+      "min": 1,
+      "max": 5,
+      "mean": 2.4444444444444446
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Run actions/checkout@v7",
+      "n": 9,
+      "p50": 1,
+      "p95": 4.399999999999999,
+      "min": 1,
+      "max": 6,
+      "mean": 1.7777777777777777
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Run actions/setup-node@v7",
+      "n": 9,
+      "p50": 1,
+      "p95": 4.199999999999999,
+      "min": 0,
+      "max": 5,
+      "mean": 1.3333333333333333
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Materialize SDK from GitHub Packages",
+      "n": 9,
+      "p50": 2,
+      "p95": 3,
+      "min": 1,
+      "max": 3,
+      "mean": 2.2222222222222223
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ensure-release-pr / ensure :: Open release PR if missing",
+      "n": 10,
+      "p50": 0.5,
+      "p95": 2.649999999999997,
+      "min": 0,
+      "max": 4,
+      "mean": 0.8
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Run npm run check",
+      "n": 9,
+      "p50": 2,
+      "p95": 2.5999999999999996,
+      "min": 1,
+      "max": 3,
+      "mean": 1.8888888888888888
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock :: Run actions/setup-node@v7",
+      "n": 10,
+      "p50": 0.5,
+      "p95": 2.099999999999998,
+      "min": 0,
+      "max": 3,
+      "mean": 0.7
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Run actions/checkout@v7",
+      "n": 25,
+      "p50": 1,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 1.16
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Checkout zizmor baseline",
+      "n": 25,
+      "p50": 1,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 1.08
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Set up job",
+      "n": 18,
+      "p50": 1,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 1.0555555555555556
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Checkout zizmor baseline",
+      "n": 9,
+      "p50": 1,
+      "p95": 2,
+      "min": 1,
+      "max": 2,
+      "mean": 1.4444444444444444
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / lock-precheck :: Run workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.24",
+      "n": 1,
+      "p50": 2,
+      "p95": 2,
+      "min": 2,
+      "max": 2,
+      "mean": 2
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Set up job",
+      "n": 9,
+      "p50": 1,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 1.1111111111111112
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: npm test",
+      "n": 9,
+      "p50": 1,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 1.2222222222222223
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / release-auto-merge / merge :: Ensure GitHub CLI",
+      "n": 7,
+      "p50": 1,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 1
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock :: Set up job",
+      "n": 10,
+      "p50": 1.5,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 1.4
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock :: Run actions/checkout@v7",
+      "n": 10,
+      "p50": 1,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 1
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Wait for sync-lock bot on PR head (if lock stale)",
+      "n": 8,
+      "p50": 0,
+      "p95": 2,
+      "min": 0,
+      "max": 2,
+      "mean": 0.625
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ensure-release-pr / ensure :: Checkout release branch",
+      "n": 2,
+      "p50": 1.5,
+      "p95": 1.95,
+      "min": 1,
+      "max": 2,
+      "mean": 1.5
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / release-auto-merge / merge :: Set up job",
+      "n": 7,
+      "p50": 1,
+      "p95": 1.6999999999999993,
+      "min": 0,
+      "max": 2,
+      "mean": 1
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Set up job",
+      "n": 9,
+      "p50": 1,
+      "p95": 1.5999999999999996,
+      "min": 0,
+      "max": 2,
+      "mean": 1
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Pin 检查（禁止 @master/@main/@HEAD）",
+      "n": 9,
+      "p50": 1,
+      "p95": 1.5999999999999996,
+      "min": 1,
+      "max": 2,
+      "mean": 1.1111111111111112
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Run ./.github/actions/ensure-gh-cli",
+      "n": 18,
+      "p50": 0,
+      "p95": 1.4499999999999957,
+      "min": 0,
+      "max": 4,
+      "mean": 0.5555555555555556
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Run actions/checkout@v7",
+      "n": 18,
+      "p50": 1,
+      "p95": 1.2999999999999972,
+      "min": 0,
+      "max": 3,
+      "mean": 1.0555555555555556
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ci-summary :: Write CI cost summary",
+      "n": 19,
+      "p50": 0,
+      "p95": 1.0999999999999979,
+      "min": 0,
+      "max": 2,
+      "mean": 0.3157894736842105
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Set up job",
+      "n": 25,
+      "p50": 1,
+      "p95": 1,
+      "min": 0,
+      "max": 2,
+      "mean": 0.84
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Install actionlint",
+      "n": 25,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.4
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Install shellcheck",
+      "n": 25,
+      "p50": 1,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.52
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: zizmor（Actions 安全审计，≥medium 阻断）",
+      "n": 25,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.24
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: actionlint (workflows + composite actions)",
+      "n": 25,
+      "p50": 1,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.52
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: 内层 pin 一致性（@actions/vX.Y.Z 全仓同版本）",
+      "n": 25,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.12
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: 卫生检查（CRLF / 尾随空白 / 合并冲突标记）",
+      "n": 25,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.16
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Post Checkout zizmor baseline",
+      "n": 25,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.24
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Post Run actions/setup-node@v7",
+      "n": 25,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.12
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Post Run actions/checkout@v7",
+      "n": 25,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.2
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | gate :: Skip gate ([skip actions-release])",
+      "n": 5,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.4
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Post Run actions/checkout@v7",
+      "n": 18,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.2222222222222222
+    },
+    {
+      "key": "workers-world/worker-actions | Create GitHub Release (tag push) | release / release :: Set up job",
+      "n": 25,
+      "p50": 1,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.96
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Run actions/checkout@v7",
+      "n": 9,
+      "p50": 1,
+      "p95": 1,
+      "min": 1,
+      "max": 1,
+      "mean": 1
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Install actionlint",
+      "n": 9,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.3333333333333333
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Install shellcheck",
+      "n": 9,
+      "p50": 1,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.5555555555555556
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: 内层 pin 一致性（@actions/vX.Y.Z 全仓同版本）",
+      "n": 9,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.2222222222222222
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / lock-precheck :: Run actions/checkout@v7",
+      "n": 1,
+      "p50": 1,
+      "p95": 1,
+      "min": 1,
+      "max": 1,
+      "mean": 1
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Post Run actions/checkout@v7",
+      "n": 9,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.2222222222222222
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ci-summary :: Set up job",
+      "n": 19,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.10526315789473684
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock :: Run workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.24",
+      "n": 1,
+      "p50": 1,
+      "p95": 1,
+      "min": 1,
+      "max": 1,
+      "mean": 1
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock :: Post Run actions/setup-node@v7",
+      "n": 10,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.2
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock :: Post Run actions/checkout@v7",
+      "n": 10,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.4
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ensure-release-pr / ensure :: Set up job",
+      "n": 10,
+      "p50": 1,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.6
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ensure-release-pr / ensure :: Ensure GitHub CLI",
+      "n": 10,
+      "p50": 0,
+      "p95": 1,
+      "min": 0,
+      "max": 1,
+      "mean": 0.2
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock :: Run workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.12",
+      "n": 1,
+      "p50": 1,
+      "p95": 1,
+      "min": 1,
+      "max": 1,
+      "mean": 1
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Mint GitHub App token",
+      "n": 2,
+      "p50": 0.5,
+      "p95": 0.95,
+      "min": 0,
+      "max": 1,
+      "mean": 0.5
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Post Mint GitHub App token",
+      "n": 2,
+      "p50": 0.5,
+      "p95": 0.95,
+      "min": 0,
+      "max": 1,
+      "mean": 0.5
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ensure-release-pr / ensure :: Sync master into release branch before release PR",
+      "n": 2,
+      "p50": 0.5,
+      "p95": 0.95,
+      "min": 0,
+      "max": 1,
+      "mean": 0.5
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Resolve zizmor baseline ref",
+      "n": 25,
+      "p50": 0,
+      "p95": 0.7999999999999972,
+      "min": 0,
+      "max": 1,
+      "mean": 0.08
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: JSON / YAML 解析",
+      "n": 25,
+      "p50": 0,
+      "p95": 0.7999999999999972,
+      "min": 0,
+      "max": 1,
+      "mean": 0.08
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: manifest 格式检查",
+      "n": 25,
+      "p50": 0,
+      "p95": 0.7999999999999972,
+      "min": 0,
+      "max": 1,
+      "mean": 0.08
+    },
+    {
+      "key": "workers-world/worker-actions | Create GitHub Release (tag push) | release / release :: Complete job",
+      "n": 25,
+      "p50": 0,
+      "p95": 0.7999999999999972,
+      "min": 0,
+      "max": 1,
+      "mean": 0.08
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: manifest 格式检查",
+      "n": 9,
+      "p50": 0,
+      "p95": 0.5999999999999996,
+      "min": 0,
+      "max": 1,
+      "mean": 0.1111111111111111
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Post Checkout zizmor baseline",
+      "n": 9,
+      "p50": 0,
+      "p95": 0.5999999999999996,
+      "min": 0,
+      "max": 1,
+      "mean": 0.1111111111111111
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Post Run actions/setup-node@v7",
+      "n": 9,
+      "p50": 0,
+      "p95": 0.5999999999999996,
+      "min": 0,
+      "max": 1,
+      "mean": 0.1111111111111111
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / workflow-lint / lint :: Post Run actions/checkout@v7",
+      "n": 9,
+      "p50": 0,
+      "p95": 0.5999999999999996,
+      "min": 0,
+      "max": 1,
+      "mean": 0.1111111111111111
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / verify :: Complete job",
+      "n": 9,
+      "p50": 0,
+      "p95": 0.5999999999999996,
+      "min": 0,
+      "max": 1,
+      "mean": 0.1111111111111111
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / verify / sync-lock / sync-lock :: Lock already in sync",
+      "n": 10,
+      "p50": 0,
+      "p95": 0.5499999999999989,
+      "min": 0,
+      "max": 1,
+      "mean": 0.1
+    },
+    {
+      "key": "workers-world/mok1 | CI (Worker CI caller) | release-pr / ensure-release-pr / ensure :: Complete job",
+      "n": 10,
+      "p50": 0,
+      "p95": 0.5499999999999989,
+      "min": 0,
+      "max": 1,
+      "mean": 0.1
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: 凭据泄露扫描",
+      "n": 25,
+      "p50": 0,
+      "p95": 0,
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "key": "workers-world/worker-actions | CI (dogfood PR/push) | workflow-lint / lint :: Complete job",
+      "n": 25,
+      "p50": 0,
+      "p95": 0,
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | gate :: Set up job",
+      "n": 5,
+      "p50": 0,
+      "p95": 0,
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | gate :: Complete job",
+      "n": 5,
+      "p50": 0,
+      "p95": 0,
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    },
+    {
+      "key": "workers-world/worker-actions | Release actions bundle | tag :: Complete job",
+      "n": 18,
+      "p50": 0,
+      "p95": 0,
+      "min": 0,
+      "max": 0,
+      "mean": 0
+    }
+  ],
+  "calendar": {
+    "rows": [
+      {
+        "tag": "actions/v0.2.17",
+        "tag_at": "2026-10-07T12:45:24Z",
+        "consumer": "workers-world/mok1",
+        "bump_at": null,
+        "bump_sha": null,
+        "consumer_ci_success_at": null,
+        "calendar_tag_to_bump_sec": null,
+        "calendar_tag_to_consumer_ci_sec": null
+      },
+      {
+        "tag": "actions/v0.2.18",
+        "tag_at": "2026-10-07T12:53:07Z",
+        "consumer": "workers-world/mok1",
+        "bump_at": null,
+        "bump_sha": null,
+        "consumer_ci_success_at": null,
+        "calendar_tag_to_bump_sec": null,
+        "calendar_tag_to_consumer_ci_sec": null
+      },
+      {
+        "tag": "actions/v0.2.19",
+        "tag_at": "2026-10-07T12:59:08Z",
+        "consumer": "workers-world/mok1",
+        "bump_at": null,
+        "bump_sha": null,
+        "consumer_ci_success_at": null,
+        "calendar_tag_to_bump_sec": null,
+        "calendar_tag_to_consumer_ci_sec": null
+      },
+      {
+        "tag": "actions/v0.2.20",
+        "tag_at": "2026-10-07T13:05:28Z",
+        "consumer": "workers-world/mok1",
+        "bump_at": null,
+        "bump_sha": null,
+        "consumer_ci_success_at": null,
+        "calendar_tag_to_bump_sec": null,
+        "calendar_tag_to_consumer_ci_sec": null
+      },
+      {
+        "tag": "actions/v0.2.21",
+        "tag_at": "2026-10-07T13:20:28Z",
+        "consumer": "workers-world/mok1",
+        "bump_at": null,
+        "bump_sha": null,
+        "consumer_ci_success_at": null,
+        "calendar_tag_to_bump_sec": null,
+        "calendar_tag_to_consumer_ci_sec": null
+      },
+      {
+        "tag": "actions/v0.2.22",
+        "tag_at": "2026-10-07T14:01:09Z",
+        "consumer": "workers-world/mok1",
+        "bump_at": null,
+        "bump_sha": null,
+        "consumer_ci_success_at": null,
+        "calendar_tag_to_bump_sec": null,
+        "calendar_tag_to_consumer_ci_sec": null
+      },
+      {
+        "tag": "actions/v0.2.23",
+        "tag_at": "2026-10-07T14:13:17Z",
+        "consumer": "workers-world/mok1",
+        "bump_at": "2026-10-07T22:30:46.000+08:00",
+        "bump_sha": "05e25cbd2f0e3321910966e3fa366763765ec9ed",
+        "consumer_ci_success_at": "2026-10-07T15:35:01Z",
+        "calendar_tag_to_bump_sec": 1049,
+        "calendar_tag_to_consumer_ci_sec": 4904
+      },
+      {
+        "tag": "actions/v0.2.24",
+        "tag_at": "2026-10-07T14:47:02Z",
+        "consumer": "workers-world/mok1",
+        "bump_at": "2026-10-07T22:50:35.000+08:00",
+        "bump_sha": "442e47d9c2955fee46a3df7df1fd9e579c29de24",
+        "consumer_ci_success_at": "2026-10-07T15:35:01Z",
+        "calendar_tag_to_bump_sec": 213,
+        "calendar_tag_to_consumer_ci_sec": 2879
+      }
+    ],
+    "notes": []
+  }
+}
