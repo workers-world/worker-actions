@@ -39,10 +39,11 @@ jobs:
           MSG: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
-          # Squash-merge 回填 PR 的 subject 常为 PR 标题（无 skip）；token 在 squash 正文里仍须生效
-          if [[ "$MSG" == *'[skip actions-release]'* ]]; then
+          # Squash-merge：subject = PR 标题（首行）；正文含历史 commit 说明，勿扫描全文
+          subject="${MSG%%$'\n'*}"
+          if [[ "$subject" == *'[skip actions-release]'* ]]; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "Skip release: commit message contains [skip actions-release]"
+            echo "Skip release: commit subject contains [skip actions-release]"
           else
             echo "proceed=true" >> "$GITHUB_OUTPUT"
           fi
@@ -272,7 +273,7 @@ jobs:
               gh pr create --repo "$REPO" \
                 --base master \
                 --head "$BRANCH" \
-                --title "chore: actions bundle ${TAG} (pins + manifest)" \
+                --title "chore: actions bundle ${TAG} (pins + manifest) [skip actions-release]" \
                 --body "$(cat <<EOF
           ## Actions bundle backfill
 
@@ -280,7 +281,7 @@ jobs:
           - Tag SHA: \`${REF}\`
           - tag_created_this_run: ${TAG_CREATED}
 
-          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（App/PAT \`RELEASE_GH_TOKEN\` push tag）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`（分支由 \`GITHUB_TOKEN\` push，无需 PAT \`workflow\` scope）。合入即可；commit subject 含 \`[skip actions-release]\`，不会再打 tag。
+          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（App/PAT \`RELEASE_GH_TOKEN\` push tag）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`（分支由 \`GITHUB_TOKEN\` push，无需 PAT \`workflow\` scope）。合入即可；**PR 标题**（squash subject）与 commit subject 含 \`[skip actions-release]\`，不会再打 tag。
           EOF
           )"
               echo "Opened backfill PR for ${TAG}"
