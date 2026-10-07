@@ -85,8 +85,8 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
    - 取最新 `actions/v*` → **patch +1**
    - **Phase A（tag 树）**：在 `chore/actions-bundle-*` 分支上仅重写 `.github/actions`、`templates`、`docs/templates` 内 `@actions/v*` → 即将发布的 tag；写入 `manifest/actions-bundle.yaml` → 在该 commit 打 **annotated tag** 并 push（**此 commit 不改** `.github/workflows/**`）
    - **Phase B（回填）**：同一分支再重写 `.github/workflows/**` 内 nested pin → 开 PR 合入 master（含 manifest）。回填 PR **标题**须含 `[skip actions-release]`（bot 自动带上）；各 commit subject 亦含该 token。**Squash 合入**时 GitHub 用 **PR 标题**作 squash commit 的 subject、各 commit 说明进正文；`release-actions-bundle` gate **只检查 subject（首行）**，正文里历史 commit 的 `[skip actions-release]` **不会**误跳过发版（Release PR squash 正文常含此类历史行）
-   - **Phase B 分支 push** 使用 job 内 `GITHUB_TOKEN`（`contents: write` 即可在同仓 push 含 `.github/workflows/**` 的 commit），避免 Org `GHA_TOKEN`（无 `workflow` OAuth scope）拒推；**tag push** 仍用 App/PAT（`RELEASE_GH_TOKEN`）
-   - 可选：Release GitHub App 可 mint `permission-workflows: write`；无 App 时仍靠两阶段 + Phase B 的 `GITHUB_TOKEN`
+   - **Phase B 分支 push** 必须用 release-bot App installation token（`WORKFLOW_PUSH_GH_TOKEN` = mint 输出，`permission-workflows: write`）。清掉 checkout 写入的 `includeIf.gitdir*` 后再 push。**禁止**回落 `GHA_TOKEN`（classic PAT 常无 `workflow` scope → 拒推）。未配置 `RELEASE_BOT_APP_ID`（Variable 或 Secret）+ `RELEASE_BOT_PRIVATE_KEY` 时 Phase B **显式失败**（见 docs/github-app-token-migration.md）
+   - **tag push（Phase A）** 仍可用 App 或 `GHA_TOKEN`（tag 树不含 `.github/workflows/**` 改动）
 2. tag push 触发 [`gh-release-on-tag.yml`](../.github/workflows/gh-release-on-tag.yml) → [`create-gh-release.yml`](../.github/workflows/create-gh-release.yml) 建 GitHub Release 页（见 [gh-release.md](./gh-release.md)）
 3. tag 推送成功后，在需要升级的 **各业务仓** 手工 bump `@actions/v…` 并走 Release PR（无 org 级自动 bump bot）。
 
