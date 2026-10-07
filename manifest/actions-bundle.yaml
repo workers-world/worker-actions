@@ -1,7 +1,7 @@
 # Actions bundle 当前版本（Worker 仓 pin 此 tag）
 # 完整变更见 docs/actions-releases.md；权威来源为 git tag
-current: actions/v0.2.16
-sha: "11a057fc68427bb56214e851daf0d63ee17e032b"
+current: actions/v0.2.23
+sha: "a1b3dcbe62fbeaba2dc118edb88e709e536497b1"
 released_at: "2026-10-07"
 notes: |
-  Backfill after actions/v0.2.16 tag (Phase B push failed); align workflow nested pins + manifest.
+  Released via workflow_dispatch.
