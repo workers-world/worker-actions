@@ -20,7 +20,7 @@ name: Worker CI
 #     issues: write
 #     actions: write   # nested qodana（PR 限频 cache）/ ocr（cache）
 #     checks: read     # nested notify-blocked
-#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.13
+#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.15
 #   secrets: inherit   # 或显式映射 workflow_call.secrets 全集（zizmor secrets-inherit / medium）
 #   with:
 #     sync_packages_lock: true
@@ -142,7 +142,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
-    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.13
+    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.15
     with:
       zizmor_baseline_repository: workers-world/worker-actions
       zizmor_baseline_ref: actions/v0.2.13
@@ -169,7 +169,7 @@ jobs:
     permissions:
       contents: write
       packages: read
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.13
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.15
     # 最小 secret 集：GHA_TOKEN 读 Packages；RELEASE_BOT_* 仅 bot=app 时由 sync-lock 消费
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
@@ -195,7 +195,7 @@ jobs:
       github.event.deleted != true
     # PAT 建 PR（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.13
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.15
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
@@ -224,7 +224,7 @@ jobs:
       issues: write
       # nested worker-qodana-scan 需 actions: write（qodana-scan-gate PR 限频 cache）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.2.13
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.2.15
     # 最小 secret 集：qodana 只需 QODANA_TOKEN（Org 未配置时为空，由 gate skip，不报错）
     secrets:
       QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
@@ -254,7 +254,7 @@ jobs:
       pull-requests: write
       # nested open-code-review 需 actions: write（actions/cache session save）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.2.13
+    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.2.15
     # 最小 secret 集（open-code-review 声明的全集）；旧名 DEEPSEEK_API_KEY 兼容保留
     secrets:
       OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
@@ -284,7 +284,7 @@ jobs:
       (needs.ocr.result == 'success' || needs.ocr.result == 'skipped')
     # merge 凭证走 PAT（GHA_TOKEN）或 App（bot=app）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.2.13
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.2.15
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
@@ -312,7 +312,7 @@ jobs:
       )
     permissions:
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.2.13
+    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.2.15
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_ref: ${{ github.head_ref }}
@@ -355,7 +355,7 @@ jobs:
           (needs.ocr.result == 'success' || needs.ocr.result == 'skipped')
         )
       )
-    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.13
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.15
     # 最小 secret 集：发信走 NOTIFY_*；GHA_TOKEN 跨仓拉取 annotation helper（公开仓可空）
     secrets:
       NOTIFY_GHA_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}

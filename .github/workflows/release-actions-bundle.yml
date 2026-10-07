@@ -33,16 +33,16 @@ jobs:
     outputs:
       proceed: ${{ steps.check.outputs.proceed }}
     steps:
-      - name: Skip gate (subject line only)
+      - name: Skip gate ([skip actions-release])
         id: check
         env:
           MSG: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
-          subject="${MSG%%$'\n'*}"
-          if [[ "$subject" == *'[skip actions-release]'* ]]; then
+          # Squash-merge 回填 PR 的 subject 常为 PR 标题（无 skip）；token 在 squash 正文里仍须生效
+          if [[ "$MSG" == *'[skip actions-release]'* ]]; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "Skip release: subject contains [skip actions-release]"
+            echo "Skip release: commit message contains [skip actions-release]"
           else
             echo "proceed=true" >> "$GITHUB_OUTPUT"
           fi
