@@ -103,6 +103,15 @@ jobs:
             git -c "http.extraHeader=AUTHORIZATION: bearer ${token}" push "$@"
           }
 
+          # checkout 的 token（App/PAT）会写入 origin URL 与 http.extraHeader；仅改 extraHeader
+          # 无法保证 push 不用 PAT。改 .github/workflows 须 GITHUB_TOKEN（同仓 workflow 写权限）。
+          git_push_phase_b() {
+            git config --unset-all 'http.https://github.com/.extraheader' 2>/dev/null || true
+            git config --local --unset-all credential.helper 2>/dev/null || true
+            git remote set-url origin "https://x-access-token:${WORKFLOW_PUSH_GH_TOKEN}@github.com/${REPO}.git"
+            git push "$@"
+          }
+
           # Phase A (tag tree): actions/templates only — tagged commit must not touch
           # .github/workflows/* or PAT without `workflow` scope rejects tag push.
           TAG_PIN_GLOBS=(.github/actions templates docs/templates)
@@ -262,7 +271,7 @@ jobs:
           fi
 
           if [ "$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
-            git_push_auth "${WORKFLOW_PUSH_GH_TOKEN}" -u origin "HEAD:${BRANCH}" --force-with-lease
+            git_push_phase_b -u origin "HEAD:${BRANCH}" --force-with-lease
           fi
 
           if [ "$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
