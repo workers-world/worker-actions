@@ -17,9 +17,8 @@ on:
         type: string
         default: ""
 
-permissions:
-  contents: write
-  pull-requests: write
+# 写权限仅 tag job 需要；gate 只读 commit subject（zizmor excessive-permissions）
+permissions: {}
 
 concurrency:
   group: release-actions-bundle
@@ -29,6 +28,8 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
+    permissions:
+      contents: read
     outputs:
       proceed: ${{ steps.check.outputs.proceed }}
     steps:
@@ -49,6 +50,9 @@ jobs:
   tag:
     runs-on: ubuntu-latest
     needs: gate
+    permissions:
+      contents: write
+      pull-requests: write
     if: >
       always() &&
       (
