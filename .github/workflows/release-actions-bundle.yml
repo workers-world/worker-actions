@@ -3,6 +3,7 @@ name: Release actions bundle
 # 合入 master（且变更触及可复用 workflow/action）后自动打不可变 tag actions/vX.Y.Z。
 # 也可 workflow_dispatch 指定版本。Worker 仓 pin 该 tag，勿再用 @master。
 # 打 tag 前在 release 分支对齐内层 @actions/v* pin；manifest 经 PR 回填（master 禁止直推）。见 docs/actions-releases.md
+# Phase B 鉴权：须 mint release-bot App（RELEASE_BOT_APP_ID = Variable 或 Secret + RELEASE_BOT_PRIVATE_KEY）；见 docs/github-app-token-migration.md
 on:
   push:
     branches: [master]
@@ -60,15 +61,20 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         (github.event_name == 'push' && needs.gate.result == 'success' && needs.gate.outputs.proceed == 'true')
       )
+    # secrets 不可用于 step if:（actionlint / GHA context rules）；经 job env 聚合 Variable|Secret
+    env:
+      RELEASE_BOT_APP_ID_EFFECTIVE: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
     steps:
-      # App 通道（可选）：配置 RELEASE_BOT_APP_ID 变量 + RELEASE_BOT_PRIVATE_KEY Secret 后自动启用；
-      # 未配置时保持 GHA_TOKEN/GITHUB_TOKEN。tag push 须由 App/PAT 发起（GITHUB_TOKEN 不触发下游 workflow）
+      # App 通道：RELEASE_BOT_APP_ID 可为 Org Variable **或** Secret（与 leaf workflows /
+      # docs/github-app-token-migration.md 一致）。vars-only 的 if 会在 APP_ID 仅存于 Secret 时跳过 mint
+      # （见 actions/runs/37625776021），随后静默回落 GHA_TOKEN PAT → Phase B 无 workflow scope 被拒。
+      # Phase A tag push 仍可回落 GHA_TOKEN；Phase B 必须使用 mint 出的 App token（workflows:write）。
       - name: Mint GitHub App token
         id: bot-token
-        if: vars.RELEASE_BOT_APP_ID != ''
+        if: env.RELEASE_BOT_APP_ID_EFFECTIVE != ''
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          app-id: ${{ env.RELEASE_BOT_APP_ID_EFFECTIVE }}
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
           # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
           permission-contents: write
@@ -85,11 +91,12 @@ jobs:
       - name: Resolve version, align pins, create tag, open backfill PR
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          # Phase A tag push 与 Phase B 回填分支 push 均须 App/PAT（含 workflows:write）。
-          # GITHUB_TOKEN（含默认 Actions token）无法授予 workflows 权限，不能 push .github/workflows/**。
-          # checkout 的 App/PAT 会写 includeIf.gitdir → Phase B 须先清本地 cred 再 set-url 用下方 token。
+          # Phase A：tag push 可用 App 或 GHA_TOKEN（tag 不含 .github/workflows 改动）。
+          # Phase B：仅 App token（permission-workflows: write）。禁止回落 GHA_TOKEN/GITHUB_TOKEN——
+          # PAT 无 workflow scope 时会静默失败（run 37625776021）。
+          # checkout 的 App/PAT 会写 includeIf.gitdir → Phase B 须先清本地 cred 再 set-url。
           RELEASE_GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
-          WORKFLOW_PUSH_GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          WORKFLOW_PUSH_GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
@@ -273,6 +280,15 @@ jobs:
                 git commit -m "chore: bump actions bundle manifest to ${TAG} [skip actions-release]"
               fi
             fi
+          fi
+
+          # --- Phase B: requires release-bot App token; fail closed (no PAT fallback) ---
+          if [ -z "${WORKFLOW_PUSH_GH_TOKEN}" ]; then
+            echo "::error::Phase B needs release-bot App installation token (workflows:write)."
+            echo "Mint skipped/failed. Configure RELEASE_BOT_APP_ID (Org Variable or Secret) and"
+            echo "RELEASE_BOT_PRIVATE_KEY (Org Secret); install workers-world-release-bot on this repo."
+            echo "See docs/github-app-token-migration.md. Refusing GHA_TOKEN fallback (no workflow scope)."
+            exit 1
           fi
 
           # --- Phase B: workflow pin rewrite on backfill branch (after tag push) ---
