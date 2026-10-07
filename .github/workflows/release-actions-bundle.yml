@@ -85,9 +85,11 @@ jobs:
       - name: Resolve version, align pins, create tag, open backfill PR
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          # tag push 须 App/PAT（GITHUB_TOKEN 不触发下游 workflow）；回填分支 push 用 GITHUB_TOKEN（可改 workflow 文件）
+          # Phase A tag push 与 Phase B 回填分支 push 均须 App/PAT（含 workflows:write）。
+          # GITHUB_TOKEN（含默认 Actions token）无法授予 workflows 权限，不能 push .github/workflows/**。
+          # checkout 的 App/PAT 会写 includeIf.gitdir → Phase B 须先清本地 cred 再 set-url 用下方 token。
           RELEASE_GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
-          WORKFLOW_PUSH_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_PUSH_GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
@@ -103,8 +105,8 @@ jobs:
             git -c "http.extraHeader=AUTHORIZATION: bearer ${token}" push "$@"
           }
 
-          # checkout 的 token（App/PAT）会写入 origin URL 与 http.extraHeader；仅改 extraHeader
-          # 无法保证 push 不用 PAT。改 .github/workflows 须 GITHUB_TOKEN（同仓 workflow 写权限）。
+          # checkout 的 token（App/PAT）会写入 origin URL、http.extraHeader 与 includeIf.gitdir；
+          # push 前须清干净再 set-url 为 WORKFLOW_PUSH_GH_TOKEN（release-bot App，workflows:write）。
           git_push_phase_b() {
             # checkout (App/PAT) leaves local extraHeader + includeIf.gitdir:/… → temp creds; PAT then blocks .github/workflows/**
             git config --local --unset-all 'http.https://github.com/.extraheader' 2>/dev/null || true
@@ -303,7 +305,7 @@ jobs:
           - Tag SHA: \`${REF}\`
           - tag_created_this_run: ${TAG_CREATED}
 
-          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（App/PAT \`RELEASE_GH_TOKEN\` push tag）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`（分支由 \`GITHUB_TOKEN\` push，无需 PAT \`workflow\` scope）。合入即可；**PR 标题**（squash subject）与 commit subject 含 \`[skip actions-release]\`，不会再打 tag。
+          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（\`RELEASE_GH_TOKEN\` = release-bot App，workflows:write）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`（回填分支由同一 App token push，**非** \`GITHUB_TOKEN\`）。合入即可；**PR 标题**（squash subject）与 commit subject 含 \`[skip actions-release]\`，不会再打 tag。
           EOF
           )"
               echo "Opened backfill PR for ${TAG}"
