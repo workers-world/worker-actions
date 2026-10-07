@@ -106,12 +106,20 @@ jobs:
           # checkout 的 token（App/PAT）会写入 origin URL 与 http.extraHeader；仅改 extraHeader
           # 无法保证 push 不用 PAT。改 .github/workflows 须 GITHUB_TOKEN（同仓 workflow 写权限）。
           git_push_phase_b() {
-            # checkout (App/PAT) leaves local extraHeader + includeIf.gitdir → temp creds; PAT then blocks .github/workflows/**
+            # checkout (App/PAT) leaves local extraHeader + includeIf.gitdir:/… → temp creds; PAT then blocks .github/workflows/**
             git config --local --unset-all 'http.https://github.com/.extraheader' 2>/dev/null || true
+            # git config --name-only 在 Linux 上会把 includeIf 规范为 includeif；须 -i 且匹配 gitdir: 而非 gitdir.
+            include_if_keys="$(git config --local --name-only -l 2>/dev/null | grep -i '^includeif\.gitdir' || true)"
+            if [ -n "${include_if_keys}" ]; then
+              echo "Phase B push: clearing includeIf.gitdir* local config keys:"
+              printf '%s\n' "${include_if_keys}" | sed 's/^/  /'
+            else
+              echo "Phase B push: no includeIf.gitdir* keys in local git config"
+            fi
             while IFS= read -r key; do
               [ -n "$key" ] || continue
               git config --local --unset-all "$key" 2>/dev/null || true
-            done < <(git config --local --name-only -l 2>/dev/null | grep '^includeIf\.gitdir\.' || true)
+            done <<< "${include_if_keys}"
             git config --local --unset-all credential.helper 2>/dev/null || true
             git remote set-url origin "https://x-access-token:${WORKFLOW_PUSH_GH_TOKEN}@github.com/${REPO}.git"
             git push "$@"
