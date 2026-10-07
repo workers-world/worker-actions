@@ -1,5 +1,5 @@
 # Release PR + auto-merge + OCR（全仓默认模板）
-# workers-world actions bundle: actions/v0.2.12（禁止 @master）
+# workers-world actions bundle: actions/v0.2.13（禁止 @master）
 # 前置：Org Secret GHA_TOKEN（PAT repo）；
 #       Org Variable NOTIFY_WORKER_URL + Org Secret NOTIFY_GHA_TOKEN（阻断邮件）
 # Caller：secrets: inherit（推荐），或显式映射 worker-ci workflow_call secrets（zizmor secrets-inherit / medium）：

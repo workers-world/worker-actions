@@ -1,6 +1,6 @@
 # 独立 workflow：复制到 Worker 根目录 .github/workflows/sync-default-branch.yml
 # 与 ci.yml 解耦，CI 失败不影响默认分支同步。说明见 docs/release-pr-ci.md
-# workers-world actions bundle: actions/v0.2.12（禁止 @master）
+# workers-world actions bundle: actions/v0.2.13（禁止 @master）
 # 勿设 contents: write——改默认分支走 PAT；GITHUB_TOKEN 应保持无权限。
 name: Sync default branch
 

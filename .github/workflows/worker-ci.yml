@@ -145,7 +145,7 @@ jobs:
     uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.13
     with:
       zizmor_baseline_repository: workers-world/worker-actions
-      zizmor_baseline_ref: actions/v0.2.12
+      zizmor_baseline_ref: actions/v0.2.13
 
   verify:
     # push：仅 sync-lock（非 bot）+ 可选 verify_on_push；PR：全量门禁
@@ -266,7 +266,7 @@ jobs:
     with:
       rule: ${{ inputs.ocr_rule }}
       skip: false
-      actions_bundle_ref: actions/v0.2.12
+      actions_bundle_ref: actions/v0.2.13
 
   release-auto-merge:
     needs: [workflow-lint, verify, qodana, ocr]
@@ -368,7 +368,7 @@ jobs:
       qodana_result: ${{ needs.qodana.result }}
       ocr_result: ${{ needs.ocr.result }}
       merge_result: ${{ needs.release-auto-merge.result }}
-      actions_bundle_ref: actions/v0.2.12
+      actions_bundle_ref: actions/v0.2.13
 
   # 仪器：进来多少 job、哪些 skipped、估算 hosted 分钟下界（文章「Claude 的眼睛」）
   ci-summary:
