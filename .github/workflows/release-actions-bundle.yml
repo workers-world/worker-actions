@@ -106,7 +106,12 @@ jobs:
           # checkout 的 token（App/PAT）会写入 origin URL 与 http.extraHeader；仅改 extraHeader
           # 无法保证 push 不用 PAT。改 .github/workflows 须 GITHUB_TOKEN（同仓 workflow 写权限）。
           git_push_phase_b() {
-            git config --unset-all 'http.https://github.com/.extraheader' 2>/dev/null || true
+            # checkout (App/PAT) leaves local extraHeader + includeIf.gitdir → temp creds; PAT then blocks .github/workflows/**
+            git config --local --unset-all 'http.https://github.com/.extraheader' 2>/dev/null || true
+            while IFS= read -r key; do
+              [ -n "$key" ] || continue
+              git config --local --unset-all "$key" 2>/dev/null || true
+            done < <(git config --local --name-only -l 2>/dev/null | grep '^includeIf\.gitdir\.' || true)
             git config --local --unset-all credential.helper 2>/dev/null || true
             git remote set-url origin "https://x-access-token:${WORKFLOW_PUSH_GH_TOKEN}@github.com/${REPO}.git"
             git push "$@"
