@@ -33,16 +33,16 @@ jobs:
     outputs:
       proceed: ${{ steps.check.outputs.proceed }}
     steps:
-      - name: Skip gate (subject line only)
+      - name: Skip gate ([skip actions-release])
         id: check
         env:
           MSG: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
-          subject="${MSG%%$'\n'*}"
-          if [[ "$subject" == *'[skip actions-release]'* ]]; then
+          # Squash-merge 回填 PR 的 subject 常为 PR 标题（无 skip）；token 在 squash 正文里仍须生效
+          if [[ "$MSG" == *'[skip actions-release]'* ]]; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "Skip release: subject contains [skip actions-release]"
+            echo "Skip release: commit message contains [skip actions-release]"
           else
             echo "proceed=true" >> "$GITHUB_OUTPUT"
           fi
@@ -84,7 +84,10 @@ jobs:
       - name: Resolve version, align pins, create tag, open backfill PR
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          # tag push 须 App/PAT（GITHUB_TOKEN 不触发下游 workflow）；回填分支 push 用 GITHUB_TOKEN（可改 workflow 文件）
+          RELEASE_GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          WORKFLOW_PUSH_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
         run: |
@@ -92,6 +95,12 @@ jobs:
           git fetch --tags origin
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git_push_auth() {
+            local token="$1"
+            shift
+            git -c "http.extraHeader=AUTHORIZATION: bearer ${token}" push "$@"
+          }
 
           # Phase A (tag tree): actions/templates only — tagged commit must not touch
           # .github/workflows/* or PAT without `workflow` scope rejects tag push.
@@ -223,7 +232,7 @@ jobs:
             fi
             REF="$(git rev-parse HEAD)"
             git tag -a "$TAG" -m "Actions bundle ${TAG}"
-            git push origin "$TAG"
+            git_push_auth "${RELEASE_GH_TOKEN}" origin "$TAG"
             TAG_CREATED=1
             echo "Created ${TAG} at ${REF} (tag tree excludes .github/workflows pin rewrites)"
           else
@@ -252,7 +261,7 @@ jobs:
           fi
 
           if [ "$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
-            git push -u origin "$BRANCH" --force-with-lease
+            git_push_auth "${WORKFLOW_PUSH_GH_TOKEN}" -u origin "HEAD:${BRANCH}" --force-with-lease
           fi
 
           if [ "$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
@@ -271,7 +280,7 @@ jobs:
           - Tag SHA: \`${REF}\`
           - tag_created_this_run: ${TAG_CREATED}
 
-          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（PAT 无 \`workflow\` scope 亦可 push tag）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`。合入即可；commit subject 含 \`[skip actions-release]\`，不会再打 tag。
+          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（App/PAT \`RELEASE_GH_TOKEN\` push tag）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`（分支由 \`GITHUB_TOKEN\` push，无需 PAT \`workflow\` scope）。合入即可；commit subject 含 \`[skip actions-release]\`，不会再打 tag。
           EOF
           )"
               echo "Opened backfill PR for ${TAG}"
