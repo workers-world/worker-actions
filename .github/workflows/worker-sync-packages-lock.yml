@@ -9,6 +9,7 @@ name: update package-lock.json file
 # 仅 SDK 版本匹配时跳过会漏掉普通依赖增删（如 chanfana），导致 npm ci EUSAGE。
 #
 # 由 worker-verify 在 verify 前调用；也可单独 workflow_call。
+# 需刷新时：全量 npm install（非仅改 SDK 版本字段），提交前 npm ci 校验 lock 可安装。
 # composite action 须全路径 @actions/vX.Y.Z（跨仓 workflow_call 时 ./ 解析到 caller 仓）。
 on:
   workflow_call:
@@ -128,8 +129,11 @@ jobs:
             echo "移除 file: link 残留 lock，重新生成"
             rm -f package-lock.json
           fi
-          echo "按 package.json 刷新 lock → framework_sdk_worker@${WANT_VER}"
+          echo "按 package.json 全量刷新 lock → framework_sdk_worker@${WANT_VER}"
           npm install --no-fund --no-audit --legacy-peer-deps
+          echo "校验 lock：npm ci（与 Release PR verify / Cloudflare Builds 一致）"
+          rm -rf node_modules
+          npm ci --no-fund --no-audit --legacy-peer-deps
           if ! lock_matches_version; then
             echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。请确认 Packages 已发布且 GHA_TOKEN/read 权限正常。"
             exit 1
