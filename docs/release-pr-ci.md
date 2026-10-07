@@ -21,7 +21,7 @@ flowchart LR
 | 事件 | 运行的 job |
 |------|------------|
 | `push` → `dev_*`（非 bot） | `sync-lock`（若启用）；`ensure-release-pr`（默认 **ready**）；**Sync default branch**（仅当默认分支 ≠ 当前 ref） |
-| `push` → `dev_*`（`github-actions[bot]`） | **全部跳过**（lock 提交会 synchronize 已有 Release PR） |
+| `push` → `dev_*`（`github-actions[bot]`） | **跳过** push 侧 job；lock 提交 **synchronize** Release PR 时会跑 **verify**（lock 已在 tip 同步） |
 | `pull_request` → `master`（head=`dev_*`，非 draft） | **verify**（唯一全量门禁）；`workflow-lint`；可选 qodana/OCR；**auto-merge**（门禁绿） |
 | `pull_request`（仍 draft） | verify / lint / 可选扫描；**不** auto-merge（`require_non_draft_pr` 默认 true） |
 | `ready_for_review` | 非 draft 后与上相同 + **auto-merge**（门禁绿） |
@@ -116,7 +116,7 @@ Org 须已配置：
 
 **Secret 传递**：入口层 `secrets: inherit`（推荐），或显式映射 `worker-ci` `workflow_call.secrets` 全集；`worker-ci` 内部对每个 leaf **显式映射最小集**。
 
-**package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` 刷新 lock；bot 自身 push **不**再跑 lint/verify/ensure/sync-default。
+**package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` **全量**刷新 lock（`npm install` + 提交前 `npm ci` 校验）；与用户 push 并行的 PR verify 若 lock 未就绪则 **skipped**，bot lock push 触发的 PR synchronize 再跑 verify。bot push **不**跑 push 侧 lint/ensure/sync-default。
 
 ## 成本与空转 job（`v0.2.0`）
 
