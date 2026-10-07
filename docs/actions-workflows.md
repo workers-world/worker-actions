@@ -344,10 +344,10 @@ sequenceDiagram
   Dev->>CI: push
   CI->>Master: Release_PR_auto-merge
   Master->>Rel: push_paths_workflows_or_actions
-  Rel->>Rel: tag_actions_vX_Y_Z
+  Rel->>Rel: align_nested_pins_and_tag
   Rel->>GHR: push_tag_event
   GHR->>GHR: create_gh_release
-  Rel->>Master: open_manifest_PR_skip_release
+  Rel->>Master: open_pins_and_manifest_PR_skip_release
   Note over Consumers: 各仓手工 bump @actions/v pin
 ```
 
@@ -360,12 +360,14 @@ sequenceDiagram
 ```mermaid
 flowchart LR
   trigger[push_master_or_dispatch] --> resolve[resolve_version]
-  resolve --> tag[git_tag_actions_v]
+  resolve --> pins[rewrite_nested_pins]
+  pins --> commit[commit_on_chore_branch]
+  commit --> tag[git_tag_actions_v]
   tag --> pushTag[push_tag]
-  pushTag --> manifestPr[open_manifest_PR]
+  pushTag --> backfillPr[open_pins_manifest_PR]
 ```
 
-触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。commit message 含 `[skip actions-release]` 时跳过。
+触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。**commit subject**（首行）含 `[skip actions-release]` 时跳过（squash 正文里的历史 skip 不触发）。
 
 来源：[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml)。
 
