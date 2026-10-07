@@ -72,6 +72,7 @@ jobs:
           # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
           permission-contents: write
           permission-pull-requests: write
+          permission-workflows: write
 
       - uses: actions/checkout@v7
         with:
@@ -92,10 +93,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          PIN_GLOBS=(.github/workflows .github/actions templates docs/templates)
+          # Phase A (tag tree): actions/templates only — tagged commit must not touch
+          # .github/workflows/* or PAT without `workflow` scope rejects tag push.
+          TAG_PIN_GLOBS=(.github/actions templates docs/templates)
+          WORKFLOW_PIN_GLOBS=(.github/workflows)
 
           rewrite_nested_pins() {
             local target_tag="$1"
+            shift
+            local globs=("$@")
             local changed=0
             while IFS= read -r -d '' f; do
               if grep -qE '@actions/v[0-9]+\.[0-9]+\.[0-9]+' "$f"; then
@@ -103,12 +109,12 @@ jobs:
                 changed=1
               fi
             done < <(
-              find "${PIN_GLOBS[@]}" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 2>/dev/null || true
+              find "${globs[@]}" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 2>/dev/null || true
             )
             if [ "$changed" = 1 ]; then
-              echo "Rewrote nested @actions/v* pins → @${target_tag}"
+              echo "Rewrote nested @actions/v* pins → @${target_tag} under: ${globs[*]}"
             else
-              echo "No @actions/v* pins to rewrite (already aligned or none present)"
+              echo "No @actions/v* pins to rewrite under: ${globs[*]}"
             fi
           }
 
@@ -167,7 +173,8 @@ jobs:
           MANIFEST="manifest/actions-bundle.yaml"
           TODAY="$(date -u +%Y-%m-%d)"
           BRANCH="chore/actions-bundle-${VERSION}"
-          COMMIT_MSG="chore: release actions bundle ${TAG} — align nested pins + manifest [skip actions-release]"
+          COMMIT_MSG="chore: release actions bundle ${TAG} — align action/template pins + manifest [skip actions-release]"
+          WORKFLOW_COMMIT_MSG="chore: align workflow nested pins for ${TAG} [skip actions-release]"
 
           write_manifest() {
             local ref="$1"
@@ -190,12 +197,12 @@ jobs:
           git fetch origin master
           git checkout -B "$BRANCH" origin/master
 
-          rewrite_nested_pins "${TAG}"
-
-          git add "${PIN_GLOBS[@]}"
-          PINS_STAGED=0
+          # --- Phase A: pin rewrite for tag tree (no .github/workflows) ---
+          rewrite_nested_pins "${TAG}" "${TAG_PIN_GLOBS[@]}"
+          git add "${TAG_PIN_GLOBS[@]}"
+          PHASE_A_STAGED=0
           if ! git diff --cached --quiet; then
-            PINS_STAGED=1
+            PHASE_A_STAGED=1
             git commit -m "${COMMIT_MSG}"
           fi
 
@@ -203,7 +210,7 @@ jobs:
             REF="$(git rev-parse HEAD)"
             write_manifest "$REF"
             git add "$MANIFEST"
-            if [ "$PINS_STAGED" = 1 ]; then
+            if [ "$PHASE_A_STAGED" = 1 ]; then
               git commit --amend --no-edit
             else
               git commit -m "${COMMIT_MSG}"
@@ -214,23 +221,34 @@ jobs:
             if ! git diff --cached --quiet; then
               git commit --amend --no-edit
             fi
+            REF="$(git rev-parse HEAD)"
             git tag -a "$TAG" -m "Actions bundle ${TAG}"
             git push origin "$TAG"
             TAG_CREATED=1
-            echo "Created ${TAG} at ${REF}"
+            echo "Created ${TAG} at ${REF} (tag tree excludes .github/workflows pin rewrites)"
           else
             REF="$(git rev-list -n 1 "$TAG" 2>/dev/null || git rev-parse HEAD)"
             write_manifest "$REF"
             git add "$MANIFEST"
-            if git diff --cached --quiet && [ "$PINS_STAGED" = 0 ]; then
-              echo "Backfill branch already up to date for ${TAG}"
+            if git diff --cached --quiet && [ "$PHASE_A_STAGED" = 0 ]; then
+              echo "Backfill branch manifest/pins already aligned for ${TAG} (phase A)"
             else
-              if [ "$PINS_STAGED" = 1 ]; then
+              if [ "$PHASE_A_STAGED" = 1 ]; then
                 git commit --amend -m "${COMMIT_MSG}" 2>/dev/null || git commit -m "${COMMIT_MSG}"
               else
                 git commit -m "chore: bump actions bundle manifest to ${TAG} [skip actions-release]"
               fi
             fi
+          fi
+
+          # --- Phase B: workflow pin rewrite on backfill branch (after tag push) ---
+          rewrite_nested_pins "${TAG}" "${WORKFLOW_PIN_GLOBS[@]}"
+          git add "${WORKFLOW_PIN_GLOBS[@]}"
+          if ! git diff --cached --quiet; then
+            git commit -m "${WORKFLOW_COMMIT_MSG}"
+            echo "Phase B: workflow nested pins committed for backfill PR"
+          else
+            echo "Phase B: workflow nested pins already aligned on backfill branch"
           fi
 
           if [ "$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
@@ -249,11 +267,11 @@ jobs:
                 --body "$(cat <<EOF
           ## Actions bundle backfill
 
-          - Tag: \`${TAG}\`（已存在于远程；树内 nested pin 与 tag 一致）
-          - SHA: \`${REF}\`
+          - Tag: \`${TAG}\`（已存在于远程；tag 树内 action/template nested pin 与 tag 一致）
+          - Tag SHA: \`${REF}\`
           - tag_created_this_run: ${TAG_CREATED}
 
-          master 禁止直推，故经 PR 回填 nested pin 与 \`manifest/actions-bundle.yaml\`。合入即可；commit subject 含 \`[skip actions-release]\`，不会再打 tag。
+          两阶段发版：tag 在 **不含** \`.github/workflows\` pin 改动的 commit 上打出（PAT 无 \`workflow\` scope 亦可 push tag）；本 PR 另含 workflow nested pin 与 \`manifest/actions-bundle.yaml\`。合入即可；commit subject 含 \`[skip actions-release]\`，不会再打 tag。
           EOF
           )"
               echo "Opened backfill PR for ${TAG}"

@@ -81,11 +81,11 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 
 ### Actions bundle tag → 各仓 bump pin
 
-1. 上一步合入 `master` 且改动了 `.github/workflows/**` 或 `.github/actions/**` 时，[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml) **自动**：
+1. 上一步合入 `master` 且改动了 `.github/workflows/**` 或 `.github/actions/**` 时，[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml) **自动**（**两阶段**，避免 PAT 无 `workflow` scope 时 tag push 被拒）：
    - 取最新 `actions/v*` → **patch +1**
-   - 在 `chore/actions-bundle-*` 分支上把 `.github/workflows`、`.github/actions`、`templates`、`docs/templates` 内全部 `@actions/v*` 重写为 **即将发布的 tag**（与 `workflow-lint` 内层 pin 范围一致）
-   - 在该 commit（nested pin == tag）上打 **annotated tag** 并 push
-   - 开 PR 回填 **nested pin +** `manifest/actions-bundle.yaml`（master 禁止直推；commit **subject** 含 `[skip actions-release]`，避免 squash 正文里的历史 skip 误触发）
+   - **Phase A（tag 树）**：在 `chore/actions-bundle-*` 分支上仅重写 `.github/actions`、`templates`、`docs/templates` 内 `@actions/v*` → 即将发布的 tag；写入 `manifest/actions-bundle.yaml` → 在该 commit 打 **annotated tag** 并 push（**此 commit 不改** `.github/workflows/**`）
+   - **Phase B（回填）**：同一分支再重写 `.github/workflows/**` 内 nested pin → 开 PR 合入 master（含 manifest；commit **subject** 含 `[skip actions-release]`，避免 squash 正文里的历史 skip 误触发）
+   - 可选：配置 Release GitHub App 时 mint token 带 `permission-workflows: write`，便于未来单 commit 路径；**未配置 App 时**仍依赖上述两阶段 + 无 `workflow` scope 的 PAT
 2. tag push 触发 [`gh-release-on-tag.yml`](../.github/workflows/gh-release-on-tag.yml) → [`create-gh-release.yml`](../.github/workflows/create-gh-release.yml) 建 GitHub Release 页（见 [gh-release.md](./gh-release.md)）
 3. tag 推送成功后，在需要升级的 **各业务仓** 手工 bump `@actions/v…` 并走 Release PR（无 org 级自动 bump bot）。
 
