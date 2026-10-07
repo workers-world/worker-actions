@@ -26,6 +26,7 @@ runs:
         MAX_ATTEMPTS: ${{ inputs.max_attempts }}
         SLEEP_SECONDS: ${{ inputs.sleep_seconds }}
         LOCK_CHECK_SCRIPT: ${{ github.action_path }}/../package-lock-in-sync/lock-matches-package-json.mjs
+        LOCK_CHECK_SKIP_DRY_RUN: "1"
       run: |
         set -euo pipefail
         branch="$BRANCH"

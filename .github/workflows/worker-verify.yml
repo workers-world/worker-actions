@@ -115,6 +115,8 @@ jobs:
 
       - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.20
         id: lock_check
+        with:
+          node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Lock not ready on PR (sync-lock will push on parallel push workflow)
         if: >
