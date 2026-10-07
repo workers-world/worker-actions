@@ -99,7 +99,7 @@ jobs:
             local changed=0
             while IFS= read -r -d '' f; do
               if grep -qE '@actions/v[0-9]+\.[0-9]+\.[0-9]+' "$f"; then
-                sed -i -E "s/@actions\\/v[0-9]+\\.[0-9]+\\.[0-9]+/@${target_tag}/g" "$f"
+                sed -i -E "s|@actions/v[0-9]+\.[0-9]+\.[0-9]+|@${target_tag}|g" "$f"
                 changed=1
               fi
             done < <(
