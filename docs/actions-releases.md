@@ -57,7 +57,7 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 |------|------|------|
 | 1. 开发 bundle | 本仓 `dev_*` | 内层嵌套 pin 与 **本 PR 目标版本** 对齐；跨仓 reusable 用全路径 `@actions/v…` |
 | 2. 合入 master | CI auto-merge | 改动了 `.github/workflows/**` 或 actions 时触发发版 |
-| 3. 打 tag | `release-actions-bundle` | patch+1 → `actions/vX.Y.Z` push 到远端（权威制品） |
+| 3. 打 tag | `release-actions-bundle` | patch+1 → 对齐内层 pin → `actions/vX.Y.Z` push 到远端（**tag 树内 pin 须等于该 tag**） |
 | 4. bump 消费者 | **各业务仓** | tag 存在后，在需要升级的仓内 bump 外层 `@actions/v…` 并走 Release PR |
 
 **开发期验证**（tag 尚未打出时）可临时 pin：
@@ -83,8 +83,9 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 
 1. 上一步合入 `master` 且改动了 `.github/workflows/**` 或 `.github/actions/**` 时，[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml) **自动**：
    - 取最新 `actions/v*` → **patch +1**
-   - 打 tag 并 push
-   - 开 PR 回填 `manifest/actions-bundle.yaml`（master 禁止直推；commit 含 `[skip actions-release]`）
+   - 在 `chore/actions-bundle-*` 分支上把 `.github/workflows`、`.github/actions`、`templates`、`docs/templates` 内全部 `@actions/v*` 重写为 **即将发布的 tag**（与 `workflow-lint` 内层 pin 范围一致）
+   - 在该 commit（nested pin == tag）上打 **annotated tag** 并 push
+   - 开 PR 回填 **nested pin +** `manifest/actions-bundle.yaml`（master 禁止直推；commit **subject** 含 `[skip actions-release]`，避免 squash 正文里的历史 skip 误触发）
 2. tag push 触发 [`gh-release-on-tag.yml`](../.github/workflows/gh-release-on-tag.yml) → [`create-gh-release.yml`](../.github/workflows/create-gh-release.yml) 建 GitHub Release 页（见 [gh-release.md](./gh-release.md)）
 3. tag 推送成功后，在需要升级的 **各业务仓** 手工 bump `@actions/v…` 并走 Release PR（无 org 级自动 bump bot）。
 

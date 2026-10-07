@@ -79,7 +79,7 @@ sequenceDiagram
   GHR->>UI: create-gh-release
 ```
 
-`release-actions-bundle` **只打 tag**；`gh-release-on-tag` 监听 tag push 建 Release 页。manifest PR（`[skip actions-release]`）不会二次打 tag。
+`release-actions-bundle` 在对齐内层 pin 的 commit 上 **打 tag**；`gh-release-on-tag` 监听 tag push 建 Release 页。回填 PR（subject 含 `[skip actions-release]`）不会二次打 tag。
 
 ## tag 从哪来
 
