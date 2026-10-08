@@ -87,7 +87,8 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
    - **Phase B（回填）**：同一分支 idempotent 复核 nested pin → 开 PR 合入 master（含 manifest）。回填 PR **标题**须含 `[skip actions-release]`（bot 自动带上）；各 commit subject 亦含该 token。**Squash 合入**时 GitHub 用 **PR 标题**作 squash commit 的 subject、各 commit 说明进正文；`release-actions-bundle` gate **只检查 subject（首行）**，正文里历史 commit 的 `[skip actions-release]` **不会**误跳过发版（Release PR squash 正文常含此类历史行）
    - **tag push 与 Phase B 分支 push** 必须用 release-bot App installation token（`WORKFLOW_PUSH_GH_TOKEN` = mint 输出，`permission-workflows: write`；tag 树含 `.github/workflows/**`）。清掉 checkout 写入的 `includeIf.gitdir*` 后再 push。**禁止**回落 `GHA_TOKEN`（classic PAT 常无 `workflow` scope → 拒推）。未配置 `RELEASE_BOT_APP_ID`（Variable 或 Secret）+ `RELEASE_BOT_PRIVATE_KEY` 时 **显式失败**（见 docs/github-app-token-migration.md）
 2. tag push 触发 [`gh-release-on-tag.yml`](../.github/workflows/gh-release-on-tag.yml) → [`create-gh-release.yml`](../.github/workflows/create-gh-release.yml) 建 GitHub Release 页（见 [gh-release.md](./gh-release.md)）
-3. tag 推送成功后，在需要升级的 **各业务仓** 手工 bump `@actions/v…` 并走 Release PR（无 org 级自动 bump bot）。
+3. tag 推送成功后，在需要升级的 **各业务仓** bump `@actions/v…` 并走 Release PR。  
+   **试点（WW-150）**：新 **annotated** `actions/v*` tag 会触发 [`worker-consumer-actions-bump.yml`](../.github/workflows/worker-consumer-actions-bump.yml)，向 **workers-world/mok1** 自动开/更新 bump PR（仅 `.github/workflows` 外层 pin；**不自动合**）。见 [consumer-actions-bump.md](./consumer-actions-bump.md)。其余仓仍手工 bump，直至后续推广。
 
 **嵌套 reusable workflow / composite action（跨仓暴露路径）**：一律全路径 `@actions/vX.Y.Z`（与本 bundle 同版本）。  
 本仓 dogfood `ci.yml` / `smoke-dollar-self` 仍可用 `./` 或 `$/` 验证同仓相对路径。
