@@ -165,14 +165,16 @@ ${msg}`,
       `${PR_TITLE_PREFIX}${tagName}`,
     ]);
 
+    // Prefer x-access-token URL (same as release-actions-bundle Phase B).
+    // Plain https + http.extraHeader bearer failed on ubuntu-latest with:
+    //   fatal: could not read Username for 'https://github.com'
+    const pushUrl = `https://x-access-token:${ghToken}@github.com/${repo}.git`;
     run("git", [
       "-C",
       tmp,
-      "-c",
-      `http.extraHeader=AUTHORIZATION: bearer ${ghToken}`,
       "push",
       "--force-with-lease",
-      `https://github.com/${repo}.git`,
+      pushUrl,
       `${headBranch}:${headBranch}`,
     ]);
 
