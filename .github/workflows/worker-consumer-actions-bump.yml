@@ -1,0 +1,142 @@
+name: Consumer actions pin bump
+
+# WW-150 / worker-actions#101 — Phase 1: open PR on pilot consumer (mok1) when a new
+# annotated actions/v* tag is created. Does NOT listen to release published.
+# See docs/consumer-actions-bump.md
+on:
+  create:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing actions/vX.Y.Z to bump to (pilot / manual)"
+        required: true
+        type: string
+      consumer_repo:
+        description: "Pilot consumer (default workers-world/mok1)"
+        required: false
+        type: string
+        default: "workers-world/mok1"
+      dry_run:
+        description: "Rewrite only; do not push or open PR"
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: consumer-actions-bump-${{ github.event_name }}-${{ github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    if: >
+      vars.ACTIONS_AUTO_BUMP != 'false' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'create' &&
+          github.ref_type == 'tag' &&
+          startsWith(github.ref_name, 'actions/v')
+        )
+      )
+    permissions:
+      contents: read
+    env:
+      RELEASE_BOT_APP_ID_EFFECTIVE: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+      CONSUMER_REPO: ${{ github.event_name == 'workflow_dispatch' && inputs.consumer_repo || 'workers-world/mok1' }}
+      TARGET_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+    steps:
+      - name: Validate tag name
+        run: |
+          set -euo pipefail
+          if ! [[ "${TARGET_TAG}" =~ ^actions/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::TARGET_TAG must be actions/vX.Y.Z, got: ${TARGET_TAG}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            tools/consumer-actions-bump
+            .github/actions/ensure-gh-cli
+          persist-credentials: false
+
+      - uses: ./.github/actions/ensure-gh-cli
+
+      - name: Resolve pilot consumer
+        id: consumer
+        env:
+          CONSUMER_REPO: ${{ env.CONSUMER_REPO }}
+        run: |
+          set -euo pipefail
+          case "${CONSUMER_REPO}" in
+            workers-world/mok1)
+              echo "short_name=mok1" >> "$GITHUB_OUTPUT"
+              ;;
+            workers-world/tal1)
+              echo "short_name=tal1" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Phase 1 pilot only: workers-world/mok1 (tal1 backup). Got: ${CONSUMER_REPO}"
+              exit 1
+              ;;
+          esac
+
+      - name: Require annotated tag (create event only)
+        id: require-annotated-tag
+        if: github.event_name == 'create'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_TAG: ${{ env.TARGET_TAG }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          obj_type="$(gh api "repos/${REPO}/git/ref/tags/${TARGET_TAG}" --jq '.object.type')"
+          if [ "${obj_type}" != "tag" ]; then
+            echo "::notice::Skip consumer bump: ref ${TARGET_TAG} is not an annotated tag (object.type=${obj_type})"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Annotated tag ${TARGET_TAG} confirmed"
+
+      - name: Mint GitHub App token (consumer repo)
+        id: bot-token
+        if: >-
+          env.RELEASE_BOT_APP_ID_EFFECTIVE != '' &&
+          steps.require-annotated-tag.outputs.skip != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ env.RELEASE_BOT_APP_ID_EFFECTIVE }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: workers-world
+          repositories: ${{ steps.consumer.outputs.short_name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Validate write credentials
+        if: >-
+          env.DRY_RUN != 'true' &&
+          steps.require-annotated-tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::Consumer bump requires release-bot App token with Contents + Pull requests write on ${CONSUMER_REPO}."
+            echo "Configure RELEASE_BOT_APP_ID (Variable or Secret) + RELEASE_BOT_PRIVATE_KEY; install workers-world-release-bot on ${CONSUMER_REPO}."
+            echo "See docs/consumer-actions-bump.md and docs/github-app-token-migration.md."
+            exit 1
+          fi
+
+      - name: Bump consumer workflow pins
+        if: steps.require-annotated-tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          CONSUMER_REPO: ${{ env.CONSUMER_REPO }}
+          TARGET_TAG: ${{ env.TARGET_TAG }}
+          DRY_RUN: ${{ env.DRY_RUN }}
+        run: node tools/consumer-actions-bump/bump-consumer.mjs

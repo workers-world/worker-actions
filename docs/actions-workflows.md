@@ -31,7 +31,7 @@
 | 轨 | 入口 | 用途 |
 |----|------|------|
 | Worker Release PR | `worker-ci.yml`（业务仓）/ `ci.yml`（本仓 dogfood） | `dev_*` → Release PR → 门禁 → auto-merge → `master` |
-| Actions Bundle | `release-actions-bundle.yml` + `gh-release-on-tag.yml` | 打 `actions/vX.Y.Z` + GitHub Release 页；各业务仓手工 bump pin |
+| Actions Bundle | `release-actions-bundle.yml` + `gh-release-on-tag.yml` + `worker-consumer-actions-bump.yml`（试点 mok1） | 打 `actions/vX.Y.Z` + GitHub Release 页；mok1 自动 bump PR（Phase 1） |
 
 ---
 
@@ -348,7 +348,8 @@ sequenceDiagram
   Rel->>GHR: push_tag_event
   GHR->>GHR: create_gh_release
   Rel->>Master: open_pins_and_manifest_PR_skip_release
-  Note over Consumers: 各仓手工 bump @actions/v pin
+  Note over GHR,Consumers: tag create → worker-consumer-actions-bump（mok1 PR）；push tag → GHR
+  Note over Consumers: 其余仓仍手工 bump
 ```
 
 ### `gh-release-on-tag.yml`
@@ -370,6 +371,10 @@ flowchart LR
 触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。**commit subject**（首行）含 `[skip actions-release]` 时跳过（squash 正文里的历史 skip 不触发）。
 
 来源：[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml)。
+
+### `worker-consumer-actions-bump.yml`
+
+`create` → annotated `actions/v*` tag 后，对试点消费者（**mok1**）克隆 default `dev_*`、重写 `.github/workflows` 外层 pin、开/更新 `chore/bump-worker-actions-pins` PR。`workflow_dispatch` + `dry_run` 可试点；**不**订阅 `release published`。详见 [consumer-actions-bump.md](./consumer-actions-bump.md)。
 
 ---
 
@@ -431,6 +436,7 @@ flowchart TB
 | `worker-promote-gated.yml` | `workflow_call` | Leaf / legacy | 遗留 caller | worker-promote |
 | `release-actions-bundle.yml` | push `master`（paths）；dispatch | 本仓发版 | — | tag + manifest PR |
 | `gh-release-on-tag.yml` | push `actions/v*` | 本仓入口 | tag push | create-gh-release |
+| `worker-consumer-actions-bump.yml` | `create` tag `actions/v*`；dispatch | 本仓入口 | annotated tag | mok1 bump PR（试点） |
 | `create-gh-release.yml` | `workflow_call` | Leaf（跨仓通用） | gh-release-on-tag / 业务仓 caller | softprops Release |
 
 内层嵌套 pin 与外层入口 pin 须同版本；勿长期「外层已升、内层仍旧」。权威 tag 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml)。
