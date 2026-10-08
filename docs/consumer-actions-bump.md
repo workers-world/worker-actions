@@ -38,11 +38,11 @@ Kill switch：仓库或 Org Variable **`ACTIONS_AUTO_BUMP=false`** 时整个 wor
 
 - `owner: workers-world`
 - `repositories: mok1`（或 dispatch 允许的 `tal1`）
-- `permission-contents: write`、`permission-pull-requests: write`
+- `permission-contents: write`、`permission-pull-requests: write`、`permission-workflows: write`（消费者 bump 会改写 `.github/workflows/**`，与 Phase B 相同）
 
 **Ops 清单**
 
-- [ ] App 已安装到 **workers-world/mok1**（及可选 tal1），且具备 Contents + Pull requests 写
+- [ ] App 已安装到 **workers-world/mok1**（及可选 tal1），且具备 Contents + Pull requests + **Workflows** 写
 - [ ] 消费者仓 Settings → Actions → General：**Allow GitHub Actions to create and approve pull requests**（bot-know D4）
 - [ ] worker-actions 仓可读到 `RELEASE_BOT_*`（与 `release-actions-bundle` 相同）
 - [ ] 未设置 `ACTIONS_AUTO_BUMP=false`（除非刻意关闭）
