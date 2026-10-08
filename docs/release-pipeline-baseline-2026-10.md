@@ -105,6 +105,31 @@
 | P2 | CF Builds 与 GH verify 重复工作合并 | 假设待验证：本 Phase 未接入 CF Builds API |
 | P1 | Phase B 回填 PR + 消费者 bump 自动化（缩短 calendar） | 数据支撑：actions/v0.2.23 tag→bump 1049.0s（mok1） |
 
+## Phase B 试点结果（2026-10-08）
+
+度量方式与 Phase A 相同（GHA job/step 墙钟 p50/p95）；样本来自 **PR CI** 上 `worker-actions` 的 dogfood workflow（analyzer 协议一致，未为 benchmark 单独触发 production workflow）。
+
+### Pilot 1 — `workflow-lint / lint`（PR [#96](https://github.com/workers-world/worker-actions/pull/96)）
+
+| 指标 | Phase A 基线 (n=25) | Phase B PR CI (n=8) | Δ p95 |
+| --- | --- | --- | --- |
+| job `workflow-lint / lint` p50 / p95 | 34.0s / **41.8s** | **15.5s / 18.0s** | **−23.8s（−57%）** |
+| step `Pin 检查（禁止 @master/@main/@HEAD）` p50 / p95 | 20.0s / **21.0s** | **0.0s / 0.7s** | **−20.3s（−97%）** |
+
+**根因**：Pin 检查对 ~4k 行 YAML 逐行 `grep` 子进程（本地 ~12s CPU）；改为单次 bash 正则扫描。附带：`actions/cache` 复用 actionlint/shellcheck/zizmor venv；checkout `fetch-tags: true` 去掉内层 pin 步骤里的 `git fetch --tags`。
+
+**验收**：p95 相对基线下降 ≥15% 且 ≥5s — **通过**。
+
+### Pilot 2 — 消费者 verify `Run npm ci`（PR [#97](https://github.com/workers-world/worker-actions/pull/97)）
+
+| 指标 | Phase A 基线 mok1 (n=9) | Phase B dogfood `ci-verify-dogfood.yml` (n=7) | 说明 |
+| --- | --- | --- | --- |
+| step `Run npm ci` p50 / p95 | 6.0s / **17.4s** | **1.0s / 2.7s** | 同 `worker-verify` 步骤实现；fixture 为 `tools/npm-ci-dogfood`（无 SDK / 无 private packages） |
+
+**改动**：`node_modules` cache（key= lock 文件 hash + OS + Node）；cache hit 时 `npm ci --prefer-offline`（仍执行 `npm ci` 语义校验，不削弱 lock-precheck / v0.2.24 `npm ci --dry-run` 深检）。`@workers-world` Packages 鉴权路径未改。
+
+**验收（dogfood）**：p95 17.4s → 2.7s — **通过**（暖缓存路径）。**mok1 实仓**仍 pin `@actions/v0.2.24`，需在 bundle tag 升级后复跑 `analyze.mjs` 确认全尺寸依赖树下的 p95；预期冷启动首 run 仍接近全量 `npm ci`，后续 synchronize 受益。
+
 ## 复跑
 
 ```bash
