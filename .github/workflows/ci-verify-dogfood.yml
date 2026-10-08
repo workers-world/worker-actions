@@ -16,8 +16,10 @@ concurrency:
 
 jobs:
   verify-dogfood:
+    # worker-verify 顶层声明 contents: write（sync-lock 路径）；须满足 reusable 启动校验
     permissions:
-      contents: read
+      contents: write
+      packages: read
       actions: write
     uses: ./.github/workflows/worker-verify.yml
     with:
