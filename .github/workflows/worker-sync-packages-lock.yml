@@ -134,19 +134,18 @@ jobs:
             echo "移除 file: link 残留 lock，重新生成"
             rm -f package-lock.json
           fi
-          NPM_PEER_ARGS=""
+          NPM_COMMON_ARGS=(--no-fund --no-audit)
           if [ "${{ steps.lock_check.outputs.legacy_peer_deps }}" = "true" ]; then
-            NPM_PEER_ARGS="--legacy-peer-deps"
+            NPM_COMMON_ARGS+=(--legacy-peer-deps)
             echo "caller 启用 legacy-peer-deps，npm install/ci 将带上 --legacy-peer-deps"
           else
             echo "caller 未启用 legacy-peer-deps，npm install/ci 写入/校验完整 peer 依赖树"
           fi
           echo "按 package.json 全量刷新 lock → framework_sdk_worker@${WANT_VER}"
-          # shellcheck disable=SC2086 — NPM_PEER_ARGS 为空或单一固定 flag
-          npm install --no-fund --no-audit ${NPM_PEER_ARGS}
+          npm install "${NPM_COMMON_ARGS[@]}"
           echo "校验 lock：npm ci（与 Release PR verify / Cloudflare Builds 一致）"
           rm -rf node_modules
-          npm ci --no-fund --no-audit ${NPM_PEER_ARGS}
+          npm ci "${NPM_COMMON_ARGS[@]}"
           if ! lock_matches_version; then
             echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。请确认 Packages 已发布且 GHA_TOKEN/read 权限正常。"
             exit 1
