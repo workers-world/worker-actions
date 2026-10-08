@@ -60,6 +60,10 @@ on:
         description: "sync-lock git push 凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App，须配 RELEASE_BOT_*）。npm 认证不走 App（无 packages:read）；promote 嵌套链暂走 PAT"
         type: string
         default: "pat"
+      working_directory:
+        description: "含 package.json / package-lock.json 的目录（默认仓库根；dogfood / 子项目用）"
+        type: string
+        default: "."
     secrets:
       GHA_TOKEN:
         description: 读 Packages / 写 master 的 PAT；未传则尝试 GITHUB_TOKEN
@@ -98,6 +102,9 @@ jobs:
       inputs.run_verify &&
       (needs.sync-lock.result == 'success' || needs.sync-lock.result == 'skipped')
     runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
     permissions:
       contents: read
     outputs:
@@ -116,6 +123,7 @@ jobs:
       - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.24
         id: lock_check
         with:
+          working-directory: ${{ inputs.working_directory }}
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Lock not ready on PR (sync-lock will push on parallel push workflow)
@@ -143,9 +151,13 @@ jobs:
         !(inputs.sync_packages_lock && inputs.materialize_sdk)
       )
     runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
     permissions:
       contents: read
       packages: read
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -162,6 +174,14 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
           cache: npm
+          cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
+
+      - name: Restore node_modules cache
+        uses: actions/cache/restore@v6
+        id: node_modules_cache
+        with:
+          path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
+          key: verify-deps-v1-${{ runner.os }}-node${{ inputs.node_version }}-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
 
       - name: Materialize SDK from GitHub Packages
         if: inputs.materialize_sdk
@@ -212,9 +232,26 @@ jobs:
 
       # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
-      - run: npm ci
+      # node_modules 缓存命中时用 npm ci --prefer-offline（仍校验 lock，不跳过 dry-run 级完整性）；
+      # lock 变更时 cache key 变，自动全量 npm ci。不替代 lock-precheck 的 npm ci --dry-run。
+      - name: Run npm ci
+        run: |
+          set -euo pipefail
+          common=(--no-fund --no-audit)
+          if [ "${{ steps.node_modules_cache.outputs.cache-hit }}" = "true" ]; then
+            npm ci --prefer-offline "${common[@]}"
+          else
+            npm ci "${common[@]}"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Save node_modules cache
+        if: steps.node_modules_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
+          key: verify-deps-v1-${{ runner.os }}-node${{ inputs.node_version }}-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
       - run: npm run check
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}

@@ -1,0 +1,27 @@
+name: CI verify dogfood (Phase B npm ci benchmark)
+
+# 本仓无根 package.json；用最小 fixture 在 PR 上度量 worker-verify 的 npm ci 路径。
+# 消费者 mok1 指标在 bundle tag 升级后复跑 analyze.mjs 对比 Phase A。
+on:
+  pull_request:
+    branches: ["master", "dev_00_02_00"]
+    paths:
+      - ".github/workflows/worker-verify.yml"
+      - ".github/workflows/ci-verify-dogfood.yml"
+      - "tools/npm-ci-dogfood/**"
+
+concurrency:
+  group: ci-verify-dogfood-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify-dogfood:
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/worker-verify.yml
+    with:
+      materialize_sdk: false
+      sync_packages_lock: false
+      run_tests: true
+      working_directory: tools/npm-ci-dogfood
