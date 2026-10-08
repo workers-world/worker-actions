@@ -11,6 +11,8 @@ name: update package-lock.json file
 #
 # 由 worker-verify 在 verify 前调用；也可单独 workflow_call。
 # 需刷新时：全量 npm install（非仅改 SDK 版本字段），提交前 npm ci 校验 lock 可安装。
+# npm install/ci 仅当 caller .npmrc 或 npm_config_legacy_peer_deps 启用时才加 --legacy-peer-deps
+# （与 package-lock-in-sync / lock-matches-package-json.mjs dry-run 一致；否则 peer deps 须写入 lock）。
 # composite action 须全路径 @actions/vX.Y.Z（跨仓 workflow_call 时 ./ 解析到 caller 仓）。
 on:
   workflow_call:
@@ -132,11 +134,19 @@ jobs:
             echo "移除 file: link 残留 lock，重新生成"
             rm -f package-lock.json
           fi
+          NPM_PEER_ARGS=""
+          if [ "${{ steps.lock_check.outputs.legacy_peer_deps }}" = "true" ]; then
+            NPM_PEER_ARGS="--legacy-peer-deps"
+            echo "caller 启用 legacy-peer-deps，npm install/ci 将带上 --legacy-peer-deps"
+          else
+            echo "caller 未启用 legacy-peer-deps，npm install/ci 写入/校验完整 peer 依赖树"
+          fi
           echo "按 package.json 全量刷新 lock → framework_sdk_worker@${WANT_VER}"
-          npm install --no-fund --no-audit --legacy-peer-deps
+          # shellcheck disable=SC2086 — NPM_PEER_ARGS 为空或单一固定 flag
+          npm install --no-fund --no-audit ${NPM_PEER_ARGS}
           echo "校验 lock：npm ci（与 Release PR verify / Cloudflare Builds 一致）"
           rm -rf node_modules
-          npm ci --no-fund --no-audit --legacy-peer-deps
+          npm ci --no-fund --no-audit ${NPM_PEER_ARGS}
           if ! lock_matches_version; then
             echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。请确认 Packages 已发布且 GHA_TOKEN/read 权限正常。"
             exit 1

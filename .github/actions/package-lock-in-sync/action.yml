@@ -22,6 +22,9 @@ outputs:
   skip:
     description: package.json 无 framework_sdk_worker
     value: ${{ steps.check.outputs.skip }}
+  legacy_peer_deps:
+    description: caller 是否配置 legacy-peer-deps（sync-lock npm install/ci 须与此一致）
+    value: ${{ steps.check.outputs.legacy_peer_deps }}
 
 runs:
   using: composite
@@ -40,7 +43,10 @@ runs:
         NODE_AUTH_TOKEN: ${{ inputs.node_auth_token }}
       run: |
         set -euo pipefail
-        script="${{ github.action_path }}/lock-matches-package-json.mjs"
+        action_dir="${{ github.action_path }}"
+        script="${action_dir}/lock-matches-package-json.mjs"
+        legacy_peer_deps="$(node "${action_dir}/npm-ci-legacy-peer-deps.mjs")"
+        echo "legacy_peer_deps=${legacy_peer_deps}" >> "$GITHUB_OUTPUT"
         if node "$script"; then
           echo "in_sync=true" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
