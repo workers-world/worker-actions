@@ -377,6 +377,8 @@ flowchart LR
 
 本仓 `ci.yml` 对 **所有 PR（含 fork）** 跑 [`worker-workflow-lint.yml`](../.github/workflows/worker-workflow-lint.yml)（无 secrets）。Java Maven reusable workflow 在独立仓 [workers-world/java-actions](https://github.com/workers-world/java-actions)。
 
+发布管线 **耗时基线 / benchmark**（WW-148 Phase A）：[`release-pipeline-benchmark.md`](./release-pipeline-benchmark.md) · 分析器 [`tools/release-pipeline-benchmark/`](../tools/release-pipeline-benchmark/analyze.mjs)。
+
 ---
 
 ## 8. Composite actions 矩阵

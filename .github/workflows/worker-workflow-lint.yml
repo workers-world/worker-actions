@@ -67,15 +67,34 @@ jobs:
     timeout-minutes: 8
     permissions:
       contents: read
+      # actions/cache save（actionlint / zizmor venv）
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # manifest tag 一致性需要 git tag
+          fetch-tags: true  # 内层 pin 一致性读 actions/v* tag，避免 step 内 git fetch --tags
           persist-credentials: false  # 纯只读 lint，不留凭据
 
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node_version }}
+
+      - name: Restore lint tool cache (actionlint / shellcheck)
+        uses: actions/cache/restore@v6
+        id: lint_tools_cache
+        with:
+          path: ${{ runner.temp }}/gha-bin
+          key: lint-tools-v1-${{ runner.os }}-actionlint-${{ inputs.actionlint_version }}-shellcheck-${{ inputs.shellcheck_version }}
+
+      - name: Restore zizmor venv cache
+        uses: actions/cache/restore@v6
+        id: zizmor_venv_cache
+        with:
+          path: |
+            ${{ runner.temp }}/zizmor-venv
+            ~/.cache/pip
+          key: lint-tools-v1-${{ runner.os }}-zizmor-${{ inputs.zizmor_version }}
 
       - name: Install actionlint
         env:
@@ -84,6 +103,11 @@ jobs:
           set -euo pipefail
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
+          if [ -x "$bindir/actionlint" ]; then
+            echo "$bindir" >> "$GITHUB_PATH"
+            "$bindir/actionlint" -version
+            exit 0
+          fi
           base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
           # 官方 checksums.txt 校验（防下载产物被篡改/镜像投毒）
           curl -fsSL "${base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt" -o "${RUNNER_TEMP}/actionlint.sha256"
@@ -104,6 +128,11 @@ jobs:
           set -euo pipefail
           bindir="${RUNNER_TEMP}/gha-bin"
           mkdir -p "$bindir"
+          if [ -x "$bindir/shellcheck" ]; then
+            echo "$bindir" >> "$GITHUB_PATH"
+            "$bindir/shellcheck" --version
+            exit 0
+          fi
           base="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}"
           curl -fsSL "$base/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o "${RUNNER_TEMP}/shellcheck.tar.xz"
           # koalaman 发行包无官方 checksums（TODO: 固化 SHA256 或改源）；先确保下载完整可解压
@@ -186,13 +215,35 @@ jobs:
           ZIZMOR_VERSION: ${{ inputs.zizmor_version }}
         run: |
           set -euo pipefail
+          venv="${RUNNER_TEMP}/zizmor-venv"
+          if [ -x "${venv}/bin/zizmor" ]; then
+            echo "${venv}/bin" >> "$GITHUB_PATH"
+            "${venv}/bin/zizmor" --version
+            exit 0
+          fi
           # venv 安装（ubuntu runner 的 python 受 PEP 668 保护）；固定版本，升级须复核 zizmor.yml 基线
-          python3 -m venv "${RUNNER_TEMP}/zizmor-venv"
-          "${RUNNER_TEMP}/zizmor-venv/bin/pip" install --quiet --disable-pip-version-check \
+          python3 -m venv "$venv"
+          "${venv}/bin/pip" install --quiet --disable-pip-version-check \
             "zizmor==${ZIZMOR_VERSION}" "pyyaml"
-          echo "${RUNNER_TEMP}/zizmor-venv/bin" >> "$GITHUB_PATH"
+          echo "${venv}/bin" >> "$GITHUB_PATH"
           # GITHUB_PATH 仅对后续 step 生效；本步用绝对路径校验
-          "${RUNNER_TEMP}/zizmor-venv/bin/zizmor" --version
+          "${venv}/bin/zizmor" --version
+
+      - name: Save lint tool cache (actionlint / shellcheck)
+        if: steps.lint_tools_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/gha-bin
+          key: lint-tools-v1-${{ runner.os }}-actionlint-${{ inputs.actionlint_version }}-shellcheck-${{ inputs.shellcheck_version }}
+
+      - name: Save zizmor venv cache
+        if: steps.zizmor_venv_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ runner.temp }}/zizmor-venv
+            ~/.cache/pip
+          key: lint-tools-v1-${{ runner.os }}-zizmor-${{ inputs.zizmor_version }}
 
       - name: zizmor（Actions 安全审计，≥medium 阻断）
         run: |
@@ -276,24 +327,18 @@ jobs:
           set -euo pipefail
           fail=0
           IFS=',' read -ra tags <<< "$FORBID_TAGS"
-          # 扫所有 yml/yaml 里非注释 uses: 行
+          # 单遍扫描 .github 下 yml/yaml（与旧逻辑相同：# 前为有效内容，禁止 @master/@main/@HEAD）
+          pin_re='@('"$(IFS='|'; echo "${tags[*]}")"')([[:space:]]|$|"|'"'"')'
           while IFS= read -r f; do
-            while IFS= read -r line; do
-              # 跳过整行注释
+            while IFS= read -r line || [ -n "$line" ]; do
               case "$line" in
-                *'#'*)
-                  # 取 # 之前部分
-                  pre="${line%%#*}"
-                  ;;
+                *'#'*) pre="${line%%#*}" ;;
                 *) pre="$line" ;;
               esac
-              for t in "${tags[@]}"; do
-                # @<tag> 出现在 uses: 末尾（允许子路径后 @tag）
-                if printf '%s' "$pre" | grep -Eq "@${t}([[:space:]]|\$|\"|\')"; then
-                  echo "::error::$f: 禁止使用 @${t}：${line}"
-                  fail=1
-                fi
-              done
+              if [[ "$pre" =~ $pin_re ]]; then
+                echo "::error::$f: 禁止使用 @${BASH_REMATCH[1]}：${line}"
+                fail=1
+              fi
             done < "$f"
           done < <(find .github -type f \( -name '*.yml' -o -name '*.yaml' \) -print)
           exit $fail
@@ -318,7 +363,6 @@ jobs:
           fi
           pin="${versions}"
           pin_tag="${pin#@}"
-          git fetch --tags origin 2>/dev/null || true
           latest="$(git tag -l 'actions/v*' --sort=-v:refname | head -1 || true)"
           if [ -z "$latest" ]; then
             echo "ok: 内层 pin 一致（${pin}）；无既有 actions/v* tag，跳过与 tag 对齐"

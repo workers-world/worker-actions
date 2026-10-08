@@ -23,6 +23,7 @@ jobs:
   workflow-lint:
     permissions:
       contents: read
+      actions: write
     uses: ./.github/workflows/worker-workflow-lint.yml
     with:
       runner: ubuntu-latest

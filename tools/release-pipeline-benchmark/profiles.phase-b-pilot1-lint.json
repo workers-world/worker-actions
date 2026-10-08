@@ -1,0 +1,22 @@
+{
+  "$schema": "release-pipeline-benchmark profile (Phase B pilot 1 — PR branch)",
+  "sample": {
+    "conclusions": ["success"],
+    "runs_per_workflow": 25,
+    "notes": "PR #96 branch; 与 Phase A 同 ci.yml / workflow-lint 分组"
+  },
+  "repos": [
+    {
+      "id": "worker-actions",
+      "repo": "workers-world/worker-actions",
+      "workflows": [
+        {
+          "file": "ci.yml",
+          "label": "CI (dogfood PR/push)",
+          "branch": "cursor/workflow-lint-phase-b-pin-cache-d54c",
+          "machine_lane": "verify_release_pr"
+        }
+      ]
+    }
+  ]
+}

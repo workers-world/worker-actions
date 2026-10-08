@@ -1,0 +1,62 @@
+{
+  "$schema": "release-pipeline-benchmark profile (Phase A)",
+  "sample": {
+    "conclusions": ["success"],
+    "runs_per_workflow": 25,
+    "notes": "只读采样真实 GHA run；不为 benchmark 触发 workflow"
+  },
+  "repos": [
+    {
+      "id": "worker-actions",
+      "repo": "workers-world/worker-actions",
+      "workflows": [
+        {
+          "file": "ci.yml",
+          "label": "CI (dogfood PR/push)",
+          "machine_lane": "verify_release_pr"
+        },
+        {
+          "file": "release-actions-bundle.yml",
+          "label": "Release actions bundle",
+          "machine_lane": "destin_to_tag"
+        },
+        {
+          "file": "gh-release-on-tag.yml",
+          "label": "Create GitHub Release (tag push)",
+          "machine_lane": "tag_to_gh_release"
+        }
+      ]
+    },
+    {
+      "id": "mok1",
+      "repo": "workers-world/mok1",
+      "workflows": [
+        {
+          "file": "ci.yml",
+          "label": "CI (Worker CI caller)",
+          "machine_lane": "consumer_release_pr"
+        },
+        {
+          "file": "planning-release.yml",
+          "label": "Planning Release",
+          "machine_lane": "consumer_planning"
+        }
+      ]
+    }
+  ],
+  "calendar": {
+    "bundle_repo": "workers-world/worker-actions",
+    "tag_prefix": "actions/v",
+    "consumer_repos": [
+      { "id": "mok1", "repo": "workers-world/mok1", "bump_needle": "actions/v" }
+    ],
+    "optional_consumer": {
+      "repo": "workers-world/deploy-tracker-worker",
+      "note": "本 run 的 token 无法访问该仓（404）；若后续授权可加入 profile"
+    }
+  },
+  "cloudflare_builds": {
+    "status": "gap",
+    "note": "Phase A 未配置 CF API 凭据；阶段级 CF Builds 耗时需 Phase A+ 或人工 Dashboard 导出"
+  }
+}

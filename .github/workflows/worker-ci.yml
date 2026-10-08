@@ -142,6 +142,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
+      actions: write
     uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.24
     with:
       zizmor_baseline_repository: workers-world/worker-actions
@@ -169,6 +170,7 @@ jobs:
     permissions:
       contents: write
       packages: read
+      actions: write
     uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.24
     # 最小 secret 集：GHA_TOKEN 读 Packages；RELEASE_BOT_* 仅 bot=app 时由 sync-lock 消费
     secrets:
