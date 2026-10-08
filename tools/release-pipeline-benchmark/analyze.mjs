@@ -151,7 +151,10 @@ function aggregateRunStats(samples) {
 async function sampleWorkflow(repo, wf, profileSample, verbose) {
   const limit = profileSample.runs_per_workflow ?? 25;
   const allowed = new Set(profileSample.conclusions ?? ['success']);
-  const runs = await listWorkflowRuns(repo, wf.file, { limit: limit * 2 });
+  const runs = await listWorkflowRuns(repo, wf.file, {
+    branch: wf.branch,
+    limit: limit * 2,
+  });
   const filtered = runs.filter((r) => allowed.has(r.conclusion)).slice(0, limit);
   const details = [];
   for (const run of filtered) {
