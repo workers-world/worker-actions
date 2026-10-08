@@ -1,0 +1,22 @@
+{
+  "$schema": "release-pipeline-benchmark profile (Phase B pilot 2 — dogfood)",
+  "sample": {
+    "conclusions": ["success"],
+    "runs_per_workflow": 25,
+    "notes": "PR #97 branch ci-verify-dogfood；Run npm ci 步骤与 worker-verify 一致；Phase A 对照组仍为 mok1 verify"
+  },
+  "repos": [
+    {
+      "id": "worker-actions",
+      "repo": "workers-world/worker-actions",
+      "workflows": [
+        {
+          "file": "ci-verify-dogfood.yml",
+          "label": "CI verify dogfood (Phase B npm ci benchmark)",
+          "branch": "cursor/verify-npm-ci-cache-d54c",
+          "machine_lane": "verify_release_pr"
+        }
+      ]
+    }
+  ]
+}

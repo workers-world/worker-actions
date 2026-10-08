@@ -107,28 +107,37 @@
 
 ## Phase B 试点结果（2026-10-08）
 
-度量方式与 Phase A 相同（GHA job/step 墙钟 p50/p95）；样本来自 **PR CI** 上 `worker-actions` 的 dogfood workflow（analyzer 协议一致，未为 benchmark 单独触发 production workflow）。
+度量：`node tools/release-pipeline-benchmark/analyze.mjs`（与 Phase A 相同 job/step 墙钟 → p50/p95）；Phase B 样本用 profile **`branch`** 限定 PR head（见 `tools/release-pipeline-benchmark/profiles.phase-b-pilot*.json`）。对照 Phase A 数字来自 `docs/release-pipeline-baseline-2026-10.json`。验收阈：p95 相对基线 **≥5s 或 ≥15%** 降幅。
 
 ### Pilot 1 — `workflow-lint / lint`（PR [#96](https://github.com/workers-world/worker-actions/pull/96)）
 
-| 指标 | Phase A 基线 (n=25) | Phase B PR CI (n=8) | Δ p95 |
-| --- | --- | --- | --- |
-| job `workflow-lint / lint` p50 / p95 | 34.0s / **41.8s** | **15.5s / 18.0s** | **−23.8s（−57%）** |
-| step `Pin 检查（禁止 @master/@main/@HEAD）` p50 / p95 | 20.0s / **21.0s** | **0.0s / 0.7s** | **−20.3s（−97%）** |
+| 指标 | Phase A 基线 p50 / p95 (n) | Phase B 新 run p50 / p95 (n) | Δ p95 | Verdict |
+| --- | --- | --- | --- | --- |
+| job `workflow-lint / lint` | 34.0s / 41.8s (25) | 15.0s / 17.8s (9) | −24.0s | **前进** |
+| step `Pin 检查（禁止 @master/@main/@HEAD）` | 20.0s / 21.0s (25) | 0.0s / 0.6s (9) | −20.4s | **前进** |
 
-**根因**：Pin 检查对 ~4k 行 YAML 逐行 `grep` 子进程（本地 ~12s CPU）；改为单次 bash 正则扫描。附带：`actions/cache` 复用 actionlint/shellcheck/zizmor venv；checkout `fetch-tags: true` 去掉内层 pin 步骤里的 `git fetch --tags`。
+**总评**：**前进**（两项目标均达阈；同分组 `worker-actions` / `ci.yml` / workflow-lint）。
 
-**验收**：p95 相对基线下降 ≥15% 且 ≥5s — **通过**。
+```bash
+node tools/release-pipeline-benchmark/analyze.mjs \
+  --profile tools/release-pipeline-benchmark/profiles.phase-b-pilot1-lint.json \
+  --json /tmp/phase-b-pilot1.json
+```
 
 ### Pilot 2 — 消费者 verify `Run npm ci`（PR [#97](https://github.com/workers-world/worker-actions/pull/97)）
 
-| 指标 | Phase A 基线 mok1 (n=9) | Phase B dogfood `ci-verify-dogfood.yml` (n=7) | 说明 |
-| --- | --- | --- | --- |
-| step `Run npm ci` p50 / p95 | 6.0s / **17.4s** | **1.0s / 2.7s** | 同 `worker-verify` 步骤实现；fixture 为 `tools/npm-ci-dogfood`（无 SDK / 无 private packages） |
+| 指标 | Phase A 基线 p50 / p95 (n) | Phase B 新 run p50 / p95 (n) | Δ p95 | Verdict |
+| --- | --- | --- | --- | --- |
+| mok1 `release-pr / verify / verify :: Run npm ci`（ROI 原分组） | 6.0s / 17.4s (9) | —（仍 pin `@actions/v0.2.24`，无本 PR 代码） | — | **未测** |
+| dogfood `verify-dogfood / verify :: Run npm ci`（同 `worker-verify` 步骤） | （上栏作 ROI 对照） | 1.0s / 2.6s (8) | −14.7s vs mok1 基线 p95 | **前进**（代理） |
 
-**改动**：`node_modules` cache（key= lock 文件 hash + OS + Node）；cache hit 时 `npm ci --prefer-offline`（仍执行 `npm ci` 语义校验，不削弱 lock-precheck / v0.2.24 `npm ci --dry-run` 深检）。`@workers-world` Packages 鉴权路径未改。
+**总评**：**前进（dogfood 同 analyzer 协议、达阈）**；**mok1 实仓未前进也未退步（未部署，不能宣称 consumer 验收完成）**。tag bump 后须对 mok1 重跑 Phase A profile 关闭 ROI 分组。
 
-**验收（dogfood）**：p95 17.4s → 2.7s — **通过**（暖缓存路径）。**mok1 实仓**仍 pin `@actions/v0.2.24`，需在 bundle tag 升级后复跑 `analyze.mjs` 确认全尺寸依赖树下的 p95；预期冷启动首 run 仍接近全量 `npm ci`，后续 synchronize 受益。
+```bash
+node tools/release-pipeline-benchmark/analyze.mjs \
+  --profile tools/release-pipeline-benchmark/profiles.phase-b-pilot2-npm-ci.json \
+  --json /tmp/phase-b-pilot2.json
+```
 
 ## 复跑
 
