@@ -9,6 +9,7 @@
  */
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import { npmCiUsesLegacyPeerDeps } from "./npm-ci-legacy-peer-deps.mjs";
 
 function readJson(path) {
   return JSON.parse(fs.readFileSync(path, "utf8"));
@@ -49,13 +50,6 @@ function shallowInSync(pkg, lockText, lock) {
   const wantVer = wantSdkVersion(pkg);
   if (!wantVer) return false;
   return lockMatchesSdkVersion(lockText, wantVer) && rootDepsInSync(pkg, lock);
-}
-
-function npmCiUsesLegacyPeerDeps() {
-  if (process.env.npm_config_legacy_peer_deps === "true") return true;
-  if (!fs.existsSync(".npmrc")) return false;
-  const rc = fs.readFileSync(".npmrc", "utf8");
-  return /^legacy-peer-deps\s*=\s*true\s*$/m.test(rc);
 }
 
 function ensureNpmrcForGithubPackages() {
