@@ -105,6 +105,40 @@
 | P2 | CF Builds 与 GH verify 重复工作合并 | 假设待验证：本 Phase 未接入 CF Builds API |
 | P1 | Phase B 回填 PR + 消费者 bump 自动化（缩短 calendar） | 数据支撑：actions/v0.2.23 tag→bump 1049.0s（mok1） |
 
+## Phase B 试点结果（2026-10-08）
+
+度量：`node tools/release-pipeline-benchmark/analyze.mjs`（与 Phase A 相同 job/step 墙钟 → p50/p95）；Phase B 样本用 profile **`branch`** 限定 PR head（见 `tools/release-pipeline-benchmark/profiles.phase-b-pilot*.json`）。对照 Phase A 数字来自 `docs/release-pipeline-baseline-2026-10.json`。验收阈：p95 相对基线 **≥5s 或 ≥15%** 降幅。
+
+### Pilot 1 — `workflow-lint / lint`（PR [#96](https://github.com/workers-world/worker-actions/pull/96)）
+
+| 指标 | Phase A 基线 p50 / p95 (n) | Phase B 新 run p50 / p95 (n) | Δ p95 | Verdict |
+| --- | --- | --- | --- | --- |
+| job `workflow-lint / lint` | 34.0s / 41.8s (25) | 15.0s / 17.8s (9) | −24.0s | **前进** |
+| step `Pin 检查（禁止 @master/@main/@HEAD）` | 20.0s / 21.0s (25) | 0.0s / 0.6s (9) | −20.4s | **前进** |
+
+**总评**：**前进**（两项目标均达阈；同分组 `worker-actions` / `ci.yml` / workflow-lint）。
+
+```bash
+node tools/release-pipeline-benchmark/analyze.mjs \
+  --profile tools/release-pipeline-benchmark/profiles.phase-b-pilot1-lint.json \
+  --json /tmp/phase-b-pilot1.json
+```
+
+### Pilot 2 — 消费者 verify `Run npm ci`（PR [#97](https://github.com/workers-world/worker-actions/pull/97)）
+
+| 指标 | Phase A 基线 p50 / p95 (n) | Phase B 新 run p50 / p95 (n) | Δ p95 | Verdict |
+| --- | --- | --- | --- | --- |
+| mok1 `release-pr / verify / verify :: Run npm ci`（ROI 原分组） | 6.0s / 17.4s (9) | —（仍 pin `@actions/v0.2.24`，无本 PR 代码） | — | **未测** |
+| dogfood `verify-dogfood / verify :: Run npm ci`（同 `worker-verify` 步骤） | （上栏作 ROI 对照） | 1.0s / 2.6s (8) | −14.7s vs mok1 基线 p95 | **前进**（代理） |
+
+**总评**：**前进（dogfood 同 analyzer 协议、达阈）**；**mok1 实仓未前进也未退步（未部署，不能宣称 consumer 验收完成）**。tag bump 后须对 mok1 重跑 Phase A profile 关闭 ROI 分组。
+
+```bash
+node tools/release-pipeline-benchmark/analyze.mjs \
+  --profile tools/release-pipeline-benchmark/profiles.phase-b-pilot2-npm-ci.json \
+  --json /tmp/phase-b-pilot2.json
+```
+
 ## 复跑
 
 ```bash

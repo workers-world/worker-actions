@@ -142,6 +142,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
+      actions: write
     uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.24
     with:
       zizmor_baseline_repository: workers-world/worker-actions
