@@ -116,6 +116,7 @@ jobs:
           repositories: ${{ steps.consumer.outputs.short_name }}
           permission-contents: write
           permission-pull-requests: write
+          permission-workflows: write
 
       - name: Validate write credentials
         if: >-
@@ -126,7 +127,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::Consumer bump requires release-bot App token with Contents + Pull requests write on ${CONSUMER_REPO}."
+            echo "::error::Consumer bump requires release-bot App token with Contents + Pull requests + Workflows write on ${CONSUMER_REPO}."
             echo "Configure RELEASE_BOT_APP_ID (Variable or Secret) + RELEASE_BOT_PRIVATE_KEY; install workers-world-release-bot on ${CONSUMER_REPO}."
             echo "See docs/consumer-actions-bump.md and docs/github-app-token-migration.md."
             exit 1
