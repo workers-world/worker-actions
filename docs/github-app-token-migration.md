@@ -67,7 +67,7 @@ Webhook 全关（本链路不消费事件）。不给 repo events 以外任何�
 | `worker-promote` | 建 PR + merge | ✅ 独立调用时已支持 `bot: app`；⚠️ 经 `worker-verify` 的 promote 嵌套链**暂走 PAT**（与 SDK 物化的 packages 读共用 GHA_TOKEN，全量切 App 前置条件见下） |
 | `worker-sync-default-dev-branch` | PATCH default_branch | ✅ 已支持 `bot: app`，用**独立 App**（`DEFAULT_BRANCH_BOT_*`，administration:write 权限过大不与 release-bot 混用，见 §5） |
 | `release-actions-bundle`（本仓） | push tag + manifest 分支 + PR | ✅ 配置开关式：`RELEASE_BOT_APP_ID`（Org Variable **或** Secret）+ `RELEASE_BOT_PRIVATE_KEY` Secret 即 mint；Phase B **强制** App token（不回落 GHA_TOKEN） |
-| `worker-consumer-actions-bump`（本仓） | 跨仓 clone/push mok1（试点）+ 开 bump PR | ✅ mint 时传 `owner` + `repositories: mok1`（或 tal1）；Contents + Pull requests write；见 [consumer-actions-bump.md](./consumer-actions-bump.md) |
+| `worker-consumer-actions-bump`（本仓） | 跨仓 clone/push mok1（试点）+ 开 bump PR | ✅ mint 时传 `owner` + `repositories: mok1`（或 tal1）；Contents + Pull requests + **Workflows** write；见 [consumer-actions-bump.md](./consumer-actions-bump.md) |
 
 **promote 嵌套链切 App 的前置条件**：试点仓先在 `framework_sdk_worker` 包设置 "Manage Actions access" 授权（或确认 `GITHUB_TOKEN` 路径可用），随后 `worker-verify` 才能把 promote 也切到 App 通道——否则 verify 的 npm 认证会断。
 

@@ -134,9 +134,32 @@ jobs:
             exit 0
           fi
           base="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}"
-          curl -fsSL "$base/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o "${RUNNER_TEMP}/shellcheck.tar.xz"
+          archive="${RUNNER_TEMP}/shellcheck.tar.xz"
+          curl -fsSL "$base/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o "$archive"
+          # koalaman 发行包为 .tar.xz；GitHub-hosted 通常有 xz-utils，自托管 runner 可能没有 xz
           # koalaman 发行包无官方 checksums（TODO: 固化 SHA256 或改源）；先确保下载完整可解压
-          tar -xJ -C "$bindir" --strip-components=1 -f "${RUNNER_TEMP}/shellcheck.tar.xz" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          extract_tar="${archive}"
+          if ! command -v xz >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              if [ "$(id -u)" -eq 0 ]; then
+                apt-get update -qq
+                apt-get install -y -qq xz-utils
+              elif command -v sudo >/dev/null 2>&1; then
+                sudo apt-get update -qq
+                sudo apt-get install -y -qq xz-utils
+              fi
+            fi
+          fi
+          if ! command -v xz >/dev/null 2>&1; then
+            extract_tar="${RUNNER_TEMP}/shellcheck.tar"
+            python3 -c 'import lzma, sys; open(sys.argv[2], "wb").write(lzma.open(sys.argv[1], "rb").read())' \
+              "$archive" "$extract_tar"
+          fi
+          if [ "$extract_tar" = "$archive" ]; then
+            tar -xJ -C "$bindir" --strip-components=1 -f "$extract_tar" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          else
+            tar -x -C "$bindir" --strip-components=1 -f "$extract_tar" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          fi
           chmod +x "$bindir/shellcheck"
           echo "$bindir" >> "$GITHUB_PATH"
           "$bindir/shellcheck" --version
