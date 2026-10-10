@@ -10,7 +10,7 @@ on:
       node_version:
         description: Node.js 版本（解析 SARIF 用）
         type: string
-        default: "22"
+        default: "24"
       fail_on_blocking:
         description: blocking 问题时 fail job
         type: boolean
@@ -163,7 +163,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: "24"
 
       - name: Parse SARIF or skip summary
         id: parse

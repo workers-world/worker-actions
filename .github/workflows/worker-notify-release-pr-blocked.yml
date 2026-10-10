@@ -52,7 +52,7 @@ on:
       node_version:
         description: Node.js 版本（gh-run-annotations.mjs；self-hosted 由 setup-node 安装）
         type: string
-        default: "22"
+        default: "24"
     secrets:
       NOTIFY_GHA_TOKEN:
         description: 与 notify-worker NOTIFY_GHA_TOKEN 同值（Org Secret）。未配置时由 Guard 步骤显式报错
@@ -106,7 +106,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: "24"
 
       - name: Collect workflow annotations
         id: ann

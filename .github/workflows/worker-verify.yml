@@ -11,11 +11,10 @@ name: Worker verify
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
 #
 # PR verify checkout PR head SHA（非 pull/N/merge），与 qodana 一致，避免 stale merge ref 导致 npm ci 失败。
-# sync-lock 与 verify 编排（A/B）：
-#   A) lock 已与 package.json 一致 → push 上 sync-lock 快速 noop；PR lock-precheck 绿 → verify 立即跑。
-#   B) lock 需刷新 → push 上 sync-lock 全量 npm install + npm ci 校验后 push；并行 PR verify 在 lock-precheck
-#      发现未同步时 **skipped**（不轮询、不在旧 SHA 上 npm ci 失败）；bot lock push 触发 PR synchronize
-#      再跑 verify（caller 须允许 bot synchronize，见 worker-ci verify if）。
+# sync-lock 与 verify 编排：
+#   push dev_*：sync-lock 可 npm install 刷新 lock（**不** npm ci）；PR：lock-precheck + verify npm ci 硬门禁。
+#   lock 漂移 → PR lock-precheck **fail**（不得 skip verify 后整段仍绿）；须同 PR 更新 package-lock.json。
+#   bot lock push 仍 synchronize PR；Node **24** 字面量（与 Cloudflare Builds 对齐）。
 # 无 SDK（materialize_sdk: false）时不因 lock 未同步跳过 verify（与旧 wait 行为一致）。
 # SDK 版本唯一来源：caller 仓 package.json 的 framework_sdk_worker（npm:@workers-world/...@X.Y.Z）。
 # promote 默认 false：合入 master 走 ensure-release-pr + OCR 门禁 + release-auto-merge。
@@ -29,9 +28,9 @@ on:
   workflow_call:
     inputs:
       node_version:
-        description: Node.js 版本
+        description: "已废弃（忽略）；CI 固定 Node 24，与 Cloudflare Builds 对齐"
         type: string
-        default: "22"
+        default: "24"
       promote:
         description: push 到 dev_* 且 verify 绿时，经 Release PR merge 到 master（禁止直推；日常 Release PR 仓须 false）
         type: boolean
@@ -126,7 +125,7 @@ jobs:
           working-directory: ${{ inputs.working_directory }}
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Lock not ready on PR (sync-lock will push on parallel push workflow)
+      - name: Fail PR gate when package-lock out of sync
         if: >
           github.event_name == 'pull_request' &&
           inputs.sync_packages_lock &&
@@ -134,8 +133,9 @@ jobs:
           steps.lock_check.outputs.skip != 'true' &&
           steps.lock_check.outputs.in_sync != 'true'
         run: |
-          echo "::notice::PR head 的 package-lock 尚未与 package.json 同步；本 run 跳过 verify。"
-          echo "push workflow 的 sync-lock 提交 lock 后会 synchronize PR，届时 verify 在更新后的 tip 上运行。"
+          echo "::error::PR 门禁：package-lock.json 与 package.json 不同步，或 npm ci --dry-run 失败。"
+          echo "依赖变更须在同一 PR 内提交更新后的 package-lock.json（dev_* push 的 sync-lock 不能替代 PR 绿门）。"
+          exit 1
 
   verify:
     needs: [sync-lock, lock-precheck]
@@ -170,7 +170,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: "24"
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
           cache: npm
@@ -181,7 +181,7 @@ jobs:
         id: node_modules_cache
         with:
           path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
-          key: verify-deps-v1-${{ runner.os }}-node${{ inputs.node_version }}-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
+          key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
 
       - name: Materialize SDK from GitHub Packages
         if: inputs.materialize_sdk
@@ -251,7 +251,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
-          key: verify-deps-v1-${{ runner.os }}-node${{ inputs.node_version }}-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
+          key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
       - run: npm run check
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
