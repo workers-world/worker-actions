@@ -406,6 +406,8 @@ flowchart TB
 | Composite | 被谁调用 |
 |-----------|----------|
 | `ensure-gh-cli` | `release-actions-bundle`（部分 leaf 内联安装 gh，未必走此 action） |
+| `ghcr-docker-login` | 业务仓容器 deploy workflow（caller；见 [container-worker-deploy-auth.md](./container-worker-deploy-auth.md)） |
+| `npm-ci-github-packages` | 业务仓容器 deploy workflow（caller；见 [container-worker-deploy-auth.md](./container-worker-deploy-auth.md)） |
 | `ocr-pr-review` | `open-code-review` |
 | `qodana-parse` | `worker-qodana-scan` |
 | `qodana-scan-gate` | `worker-qodana-scan` |
@@ -448,4 +450,5 @@ flowchart TB
 - [gh-release.md](./gh-release.md) — GitHub Release 页面（跨仓 `create-gh-release`）
 - [open-code-review.md](./open-code-review.md) — OCR
 - [qodana-ci.md](./qodana-ci.md) — Qodana
+- [container-worker-deploy-auth.md](./container-worker-deploy-auth.md) — 容器 Worker GHCR + npm Packages 鉴权 composite（WW-167）
 - Java Maven CI：独立仓 [workers-world/java-actions](https://github.com/workers-world/java-actions)

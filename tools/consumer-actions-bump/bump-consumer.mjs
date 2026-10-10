@@ -36,6 +36,53 @@ function gh(args, env) {
   return run("gh", args, { env: { ...process.env, ...env } });
 }
 
+/** @returns {string | null} first line stdout, or null if empty / missing ref */
+function runOptional(cmd, args, opts = {}) {
+  const r = spawnSync(cmd, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    ...opts,
+  });
+  if (r.status !== 0) {
+    const err = (r.stderr || r.stdout || "").trim();
+    throw new Error(`${cmd} ${args.join(" ")} failed (${r.status}): ${err}`);
+  }
+  const out = (r.stdout || "").trim();
+  return out || null;
+}
+
+/**
+ * Shallow clone only has default branch; leftover bot branch may still exist on remote
+ * (delete_branch_on_merge=false) without a remote-tracking ref → bare --force-with-lease rejects with "stale info".
+ *
+ * @param {string} pushUrl authenticated clone/push URL
+ * @param {string} headBranch bot-owned head only
+ * @returns {string | null} remote tip SHA, or null if branch absent
+ */
+export function resolveRemoteHeadSha(pushUrl, headBranch) {
+  const out = runOptional("git", ["ls-remote", pushUrl, `refs/heads/${headBranch}`]);
+  if (!out) return null;
+  const line = out.split("\n").find((l) => l.trim())?.trim();
+  if (!line) return null;
+  const sha = line.split(/\s+/)[0];
+  return sha || null;
+}
+
+/**
+ * @param {string} headBranch
+ * @param {string | null} remoteHeadSha from {@link resolveRemoteHeadSha}
+ * @returns {string[]} git push options before `<repository> <refspec>`
+ */
+export function buildBotHeadPushLeaseFlags(headBranch, remoteHeadSha) {
+  if (remoteHeadSha) {
+    return [
+      "--force-with-lease",
+      `refs/heads/${headBranch}:${remoteHeadSha}`,
+    ];
+  }
+  return [];
+}
+
 function notice(msg) {
   console.log(`::notice title=consumer-actions-bump::${msg.replace(/\n/g, " ")}`);
 }
@@ -169,11 +216,13 @@ ${msg}`,
     // Plain https + http.extraHeader bearer failed on ubuntu-latest with:
     //   fatal: could not read Username for 'https://github.com'
     const pushUrl = `https://x-access-token:${ghToken}@github.com/${repo}.git`;
+    const remoteHeadSha = resolveRemoteHeadSha(pushUrl, headBranch);
+    const pushLeaseFlags = buildBotHeadPushLeaseFlags(headBranch, remoteHeadSha);
     run("git", [
       "-C",
       tmp,
       "push",
-      "--force-with-lease",
+      ...pushLeaseFlags,
       pushUrl,
       `${headBranch}:${headBranch}`,
     ]);
