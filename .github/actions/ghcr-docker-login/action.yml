@@ -1,0 +1,32 @@
+# WW-167 / worker-actions#117 — 容器 Worker 部署前登录 GHCR，拉取 private `FROM ghcr.io/...` 镜像。
+# Caller 须 `permissions.packages: read`；token 通常为 secrets.GHA_TOKEN || secrets.GITHUB_TOKEN。
+# username 传 ${{ github.actor }}（composite 无法在 action 默认值里引用 github.context）。
+name: GHCR Docker login
+description: docker login ghcr.io（读 Org 私有容器镜像；需 packages:read）
+
+inputs:
+  username:
+    description: GHCR 用户名（caller 传 ${{ github.actor }}）
+    required: true
+  token:
+    description: 具备 read:packages 的 PAT（推荐 GHA_TOKEN）或 GITHUB_TOKEN
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GHCR_USER: ${{ inputs.username }}
+        GHCR_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        if [ -z "${GHCR_USER}" ]; then
+          echo "::error::ghcr-docker-login: username 为空；请传 \${{ github.actor }}"
+          exit 1
+        fi
+        if [ -z "${GHCR_TOKEN}" ]; then
+          echo "::error::ghcr-docker-login: token 为空；请传 secrets.GHA_TOKEN 或 secrets.GITHUB_TOKEN"
+          exit 1
+        fi
+        printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
