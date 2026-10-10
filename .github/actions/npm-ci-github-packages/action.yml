@@ -1,0 +1,50 @@
+name: npm ci (GitHub Packages)
+description: setup-node + npm ci，NODE_AUTH_TOKEN 读 @workers-world GitHub Packages（容器 Worker 部署 Install 步）
+
+inputs:
+  token:
+    description: npm 读 Packages 的 token（推荐 Org Secret GHA_TOKEN；未配时 caller 可传 GITHUB_TOKEN）
+    required: true
+  has_gha_token:
+    description: "'true' 表示 caller 已配置 GHA_TOKEN；'false' 时输出与 worker-verify 一致的 GHA_TOKEN 缺失 warning"
+    required: false
+    default: "true"
+  working-directory:
+    description: 含 package.json / package-lock.json 的目录
+    required: false
+    default: "."
+  node_version:
+    description: setup-node 版本
+    required: false
+    default: "22"
+  registry_url:
+    description: GitHub Packages npm registry
+    required: false
+    default: "https://npm.pkg.github.com"
+  scope:
+    description: npm scope（workers-world 私有包）
+    required: false
+    default: "@workers-world"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node_version }}
+        registry-url: ${{ inputs.registry_url }}
+        scope: ${{ inputs.scope }}
+        cache: npm
+        cache-dependency-path: ${{ inputs.working-directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working-directory) }}
+
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        NODE_AUTH_TOKEN: ${{ inputs.token }}
+        HAS_GHA_TOKEN: ${{ inputs.has_gha_token }}
+      run: |
+        set -euo pipefail
+        if [ "${HAS_GHA_TOKEN}" != "true" ]; then
+          echo "::warning::未配置 GHA_TOKEN，改用 GITHUB_TOKEN。跨仓读 Packages 常 403；请设 Org Secret GHA_TOKEN（read:packages），或在包设置里给本仓开 Actions read。"
+        fi
+        npm ci --no-fund --no-audit
