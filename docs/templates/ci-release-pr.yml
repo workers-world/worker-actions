@@ -17,7 +17,7 @@ on:
   push:
     branches: ["dev_*"]
   pull_request:
-    branches: ["master"]
+    branches: ["master", "dev_*"]
     types: [opened, synchronize, reopened, ready_for_review]
 
 # 同一 PR / 分支只保留最新 run，避免旧 run 的 release-auto-merge 抢先 merge

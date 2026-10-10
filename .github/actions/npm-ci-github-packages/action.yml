@@ -14,9 +14,9 @@ inputs:
     required: false
     default: "."
   node_version:
-    description: setup-node 版本
+    description: "已废弃（忽略）；固定 Node 24，与 Cloudflare Builds 对齐"
     required: false
-    default: "22"
+    default: "24"
   registry_url:
     description: GitHub Packages npm registry
     required: false
@@ -31,7 +31,7 @@ runs:
   steps:
     - uses: actions/setup-node@v7
       with:
-        node-version: ${{ inputs.node_version }}
+        node-version: "24"
         registry-url: ${{ inputs.registry_url }}
         scope: ${{ inputs.scope }}
         cache: npm

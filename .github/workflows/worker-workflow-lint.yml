@@ -52,7 +52,7 @@ on:
       node_version:
         description: Node.js 版本（JSON/manifest 解析；self-hosted 由 setup-node 安装）
         type: string
-        default: "22"
+        default: "24"
       runner:
         description: 可选覆盖 runs-on（默认已按 caller 公开/私有与 GHA_RUNNER 选择 runner）
         type: string
@@ -78,7 +78,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: ${{ inputs.node_version }}
+          node-version: "24"
 
       - name: Restore lint tool cache (actionlint / shellcheck)
         uses: actions/cache/restore@v6

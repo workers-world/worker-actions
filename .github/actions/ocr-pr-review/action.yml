@@ -118,7 +118,7 @@ runs:
       if: steps.check_deps.outputs.node_installed != 'true'
       uses: actions/setup-node@v7
       with:
-        node-version: ${{ inputs.node_version }}
+        node-version: "24"
 
     - name: Resolve PR refs
       shell: bash

@@ -17,7 +17,8 @@ on:
       - "**/*.md"
       - "docs/**"
   pull_request:
-    branches: ["master"]
+    # master：Release PR；dev_*：feature→destin 同样走 verify npm ci 硬门禁
+    branches: ["master", "dev_*"]
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "**/*.md"
