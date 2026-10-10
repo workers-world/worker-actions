@@ -116,7 +116,13 @@ Org 须已配置：
 
 **Secret 传递**：入口层 `secrets: inherit`（推荐），或显式映射 `worker-ci` `workflow_call.secrets` 全集；`worker-ci` 内部对每个 leaf **显式映射最小集**。
 
-**package-lock 与 sync-lock**：`sync_packages_lock: true` 时，push `dev_*` 由 bot 按 `package.json` **全量**刷新 lock（`npm install` + 提交前 `npm ci` 校验）；与用户 push 并行的 PR verify 若 lock 未就绪则 **skipped**，bot lock push 触发的 PR synchronize 再跑 verify。bot push **不**跑 push 侧 lint/ensure/sync-default。
+**package-lock 与 sync-lock（WW-171 / PGREQ20261010000003）**：
+
+- **PR 硬门禁**（feature→`dev_*` 与 Release→`master`）：`lock-precheck`（含 `npm ci --dry-run`）与 verify 内 **干净 `npm ci`** 必须绿；lock 漂移或装不上 → **fail**，不得 auto-merge / 合入。
+- **依赖变更**：同一 PR 内必须提交更新后的 `package-lock.json`（不要只改 `package.json` 指望 push sync-lock 替 PR 过关）。
+- **push `dev_*`**：`sync_packages_lock: true` 时 bot 可按 `package.json` 做 `npm install` 刷新 lock 并提交，**不在 push 上强制干净 `npm ci`**（自托管/网络）；Cloudflare Builds 级校验留在 PR。
+- **Node**：verify / sync-lock / lock 校验路径在 workflow **代码里写死 `node-version: "24"`**（与 CF Builds 默认大版本对齐；不用 Org/repo Actions variable，不做 Node matrix）。
+- bot lock push 仍会 synchronize PR 并重跑 verify；bot push **不**跑 push 侧 lint/ensure/sync-default。
 
 ## 成本与空转 job（`v0.2.0`）
 

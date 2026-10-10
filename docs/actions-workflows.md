@@ -186,7 +186,12 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：sync-lock（push）→ lock-precheck（PR 未同步则 **skipped** verify）→ checkout（PR **head SHA**）→ 拉取 sync-lock 提交（push）→ setup-node → 物化 SDK（可选）→ `npm ci` → `npm run check` → `npm test`（可选）。lock 刷新由 bot synchronize 触发二次 verify，不靠长轮询。
+verify 步骤摘要：sync-lock（**仅 push** `dev_*`，可 `npm install` 刷新 lock，**不**跑干净 `npm ci`）→ lock-precheck（**PR 硬门禁**：未同步或 `npm ci --dry-run` 失败则 **fail job**）→ checkout（PR **head SHA**）→ setup-node **Node 24**（字面量，与 Cloudflare Builds 对齐）→ 物化 SDK（可选）→ **`npm ci`** → `npm run check` → `npm test`（可选）。依赖 bump **须同 PR** 提交 `package-lock.json`；不得靠 skip verify 让 Release PR 仍绿。
+
+| 事件 | npm ci / lock 门禁 |
+|------|-------------------|
+| `pull_request`（feature→`dev_*` 或 Release→`master`） | lock-precheck + verify `npm ci` **必须 success**；失败阻断合入 / auto-merge |
+| `push` → `dev_*` | sync-lock 可选刷新 lock（**无** push 侧 npm ci 硬跑）；合入门槛只在 PR |
 
 | Job | 条件 |
 |-----|------|

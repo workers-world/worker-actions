@@ -6,11 +6,11 @@ name: update package-lock.json file
 # 跳过条件（须同时满足，见 package-lock-in-sync / lock-matches-package-json.mjs）：
 # 1) lock 已是目标 SDK 的 GitHub Packages 解析（非 file:）
 # 2) package.json 根 dependencies/devDependencies 与 lock packages[""] 一致
-# 3) npm ci --dry-run 通过（传递依赖/lock 完整性）
-# 仅 SDK + 根依赖字符串匹配会漏掉无效 lock，导致 sync-lock noop 后 verify npm ci 失败。
+# 3) npm ci --dry-run 通过（传递依赖/lock 完整性；**push 路径 skip_dry_run**，完整校验仅在 PR 门禁）
+# 仅 SDK + 根依赖字符串匹配会漏掉无效 lock；PR verify 的 lock-precheck + npm ci 硬拦合入。
 #
 # 由 worker-verify 在 verify 前调用；也可单独 workflow_call。
-# 需刷新时：全量 npm install（非仅改 SDK 版本字段），提交前 npm ci 校验 lock 可安装。
+# 需刷新时：全量 npm install（非仅改 SDK 版本字段）；**不在 push 上跑 npm ci**（自托管/网络；PR 门禁校验）。
 # npm install/ci 仅当 caller .npmrc 或 npm_config_legacy_peer_deps 启用时才加 --legacy-peer-deps
 # （与 package-lock-in-sync / lock-matches-package-json.mjs dry-run 一致；否则 peer deps 须写入 lock）。
 # composite action 须全路径 @actions/vX.Y.Z（跨仓 workflow_call 时 ./ 解析到 caller 仓）。
@@ -59,7 +59,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
@@ -67,6 +67,7 @@ jobs:
         id: lock_check
         with:
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          skip_dry_run: "true"
 
       - name: Lock already in sync
         if: steps.lock_check.outputs.in_sync == 'true' && steps.lock_check.outputs.skip != 'true'
@@ -143,9 +144,8 @@ jobs:
           fi
           echo "按 package.json 全量刷新 lock → framework_sdk_worker@${WANT_VER}"
           npm install "${NPM_COMMON_ARGS[@]}"
-          echo "校验 lock：npm ci（与 Release PR verify / Cloudflare Builds 一致）"
+          echo "push sync-lock 不跑 npm ci（网络/自托管）；干净 npm ci 仅在 PR 门禁（与 Cloudflare Builds 对齐）"
           rm -rf node_modules
-          npm ci "${NPM_COMMON_ARGS[@]}"
           if ! lock_matches_version; then
             echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。请确认 Packages 已发布且 GHA_TOKEN/read 权限正常。"
             exit 1
