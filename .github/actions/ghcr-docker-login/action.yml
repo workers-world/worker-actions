@@ -22,7 +22,7 @@ runs:
       run: |
         set -euo pipefail
         if [ -z "${GHCR_USER}" ]; then
-          echo "::error::ghcr-docker-login: username 为空；请传 \${{ github.actor }}"
+          echo "::error::ghcr-docker-login: username 为空；请由 caller 传入 github.actor 作为 username"
           exit 1
         fi
         if [ -z "${GHCR_TOKEN}" ]; then
