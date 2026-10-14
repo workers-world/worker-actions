@@ -184,7 +184,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f .notify-cooldown-ts ]; then
-            export COOLDOWN_SENT_AT="$(tr -d ' \n\r' < .notify-cooldown-ts)"
+            COOLDOWN_SENT_AT="$(tr -d ' \n\r' < .notify-cooldown-ts)"
+            export COOLDOWN_SENT_AT
           else
             export COOLDOWN_SENT_AT=""
           fi
