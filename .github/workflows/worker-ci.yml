@@ -329,6 +329,7 @@ jobs:
     permissions:
       actions: read
       checks: read
+      pull-requests: read
     if: |
       always() &&
       github.event_name == 'pull_request' &&

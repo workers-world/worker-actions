@@ -85,7 +85,10 @@ permissions:
   actions: read
   checks: read
   contents: read
+  pull-requests: read
 ```
+
+`notify-blocked` 发信前会查询 PR 是否仍为 open（已 merged/closed 则跳过「需人工」邮件）。
 
 Org 须已配置：
 
