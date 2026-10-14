@@ -197,7 +197,6 @@ jobs:
 
           echo "::warning::notify-step 未在 ref=${ACTIONS_BUNDLE_REF} 中发布；回退旧版 bash 原因 + 邮件构建（无 PR 状态/冷却降噪）"
           reasons=()
-          VERIFY="${VERIFY}" QODANA="${QODANA}" OCR="${OCR}" MERGE="${MERGE}"
           if [ "$VERIFY" = "failure" ]; then
             reasons+=("verify 失败：检查 dev_* push / 测试 / SDK 依赖")
           fi
