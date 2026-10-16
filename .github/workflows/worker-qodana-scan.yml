@@ -75,7 +75,7 @@ jobs:
           echo "QODANA_CACHE_STATE=${RUNNER_TEMP}/qodana-cache/state.json" >> "$GITHUB_ENV"
 
       - name: Checkout caller repository
-        uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.31
+        uses: $/.github/actions/checkout-with-transient-retry
         with:
           ref: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
           fetch-depth: "0"

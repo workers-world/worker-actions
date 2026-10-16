@@ -2,7 +2,8 @@ name: Checkout with transient retry
 description: >-
   Wraps actions/checkout@v7 with one automatic retry when the first checkout fails
   (self-hosted runner lost communication, GnuTLS / network flakes). Permanent failures
-  still fail after two attempts.
+  still fail after two attempts. Bundle 内 dogfood 用 $/ 引用；合 master 打 tag 后 consumer 用
+  workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/vX.Y.Z。
 
 inputs:
   repository:

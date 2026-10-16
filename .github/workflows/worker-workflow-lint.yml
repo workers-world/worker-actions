@@ -70,7 +70,7 @@ jobs:
       # actions/cache save（actionlint / zizmor venv）
       actions: write
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.31
+      - uses: $/.github/actions/checkout-with-transient-retry
         with:
           fetch-depth: 0  # manifest tag 一致性需要 git tag
           fetch-tags: "true"  # 内层 pin 一致性读 actions/v* tag，避免 step 内 git fetch --tags
