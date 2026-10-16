@@ -9,8 +9,7 @@ import {
 test("buildBotHeadPushLeaseFlags: explicit lease when remote bot head exists", () => {
   const flags = buildBotHeadPushLeaseFlags(HEAD_BRANCH, "abc123deadbeef");
   assert.deepEqual(flags, [
-    "--force-with-lease",
-    `refs/heads/${HEAD_BRANCH}:abc123deadbeef`,
+    `--force-with-lease=refs/heads/${HEAD_BRANCH}:abc123deadbeef`,
   ]);
 });
 
