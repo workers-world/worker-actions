@@ -75,10 +75,10 @@ export function resolveRemoteHeadSha(pushUrl, headBranch) {
  */
 export function buildBotHeadPushLeaseFlags(headBranch, remoteHeadSha) {
   if (remoteHeadSha) {
-    return [
-      "--force-with-lease",
-      `refs/heads/${headBranch}:${remoteHeadSha}`,
-    ];
+    // Must be a single argv with "=". Separate "--force-with-lease" + "ref:sha"
+    // makes git treat "ref:sha" as a refspec and the push URL as another refspec
+    // (error: src refspec https://x-access-token does not match any).
+    return [`--force-with-lease=refs/heads/${headBranch}:${remoteHeadSha}`];
   }
   return [];
 }
