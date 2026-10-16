@@ -11,9 +11,9 @@ name: Worker verify
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
 #
 # PR verify checkout PR head SHA（非 pull/N/merge），与 qodana 一致，避免 stale merge ref 导致 npm ci 失败。
-# sync-lock 与 verify 编排：
-#   push dev_*：sync-lock 可 npm install 刷新 lock（**不** npm ci）；PR：lock-precheck + verify npm ci 硬门禁。
-#   lock 漂移 → PR lock-precheck **fail**（不得 skip verify 后整段仍绿）；须同 PR 更新 package-lock.json。
+# sync-lock 与 verify 编排（#132：bump 可仅改 package.json，lock 由 CI heal）：
+#   push dev_* / 同仓 pull_request：sync-lock 在 lock-precheck 前按 package.json 刷新 lock 并 bot push（GHA_TOKEN 读 Packages）。
+#   lock-precheck + verify npm ci 仍为硬门禁；heal 失败则 fail（不要求开发者本地 npm install / 提交 lock）。
 #   bot lock push 仍 synchronize PR；Node **24** 字面量（与 Cloudflare Builds 对齐）。
 # 无 SDK（materialize_sdk: false）时不因 lock 未同步跳过 verify（与旧 wait 行为一致）。
 # SDK 版本唯一来源：caller 仓 package.json 的 framework_sdk_worker（npm:@workers-world/...@X.Y.Z）。
@@ -40,7 +40,7 @@ on:
         type: string
         default: "master"
       sync_packages_lock:
-        description: push 到 dev_* 时按 package.json 刷新 package-lock（SDK + 根依赖不一致时）并提交
+        description: push dev_* 与同仓 PR 上按 package.json 刷新 package-lock（CI heal；须 GHA_TOKEN read:packages）并 bot 提交
         type: boolean
         default: false
       materialize_sdk:
@@ -83,8 +83,16 @@ jobs:
   sync-lock:
     if: >
       inputs.sync_packages_lock &&
-      github.event_name == 'push' &&
-      startsWith(github.ref_name, 'dev_')
+      (
+        (
+          github.event_name == 'push' &&
+          startsWith(github.ref_name, 'dev_')
+        ) ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      )
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
     uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.31
     with:
@@ -109,15 +117,17 @@ jobs:
     outputs:
       in_sync: ${{ steps.lock_check.outputs.in_sync }}
       skip: ${{ steps.lock_check.outputs.skip }}
+    env:
+      SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: $/.github/actions/checkout-with-transient-retry
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
       - name: Pull lock commit from sync-lock job
         if: needs.sync-lock.result == 'success'
-        run: git pull --ff-only origin "${GITHUB_REF_NAME}"
+        run: git pull --ff-only origin "${SYNC_LOCK_BRANCH}"
 
       - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.31
         id: lock_check
@@ -133,8 +143,9 @@ jobs:
           steps.lock_check.outputs.skip != 'true' &&
           steps.lock_check.outputs.in_sync != 'true'
         run: |
-          echo "::error::PR 门禁：package-lock.json 与 package.json 不同步，或 npm ci --dry-run 失败。"
-          echo "依赖变更须在同一 PR 内提交更新后的 package-lock.json（dev_* push 的 sync-lock 不能替代 PR 绿门）。"
+          echo "::error::PR 门禁：package-lock 与 package.json 仍不同步，或 npm ci --dry-run 失败（sync-lock heal 未成功）。"
+          echo "bump 可仅改 package.json；须配置 Org Secret GHA_TOKEN（read:packages）并确认 sync-lock job 已成功 push lock。"
+          echo "勿依赖本地 npm install（开发者网络常无法访问 GitHub Packages）。"
           exit 1
 
   verify:
@@ -158,15 +169,17 @@ jobs:
       contents: read
       packages: read
       actions: write
+    env:
+      SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: $/.github/actions/checkout-with-transient-retry
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
       - name: Pull lock commit from sync-lock job
         if: needs.sync-lock.result == 'success'
-        run: git pull --ff-only origin "${GITHUB_REF_NAME}"
+        run: git pull --ff-only origin "${SYNC_LOCK_BRANCH}"
 
       - uses: actions/setup-node@v7
         with:

@@ -8,7 +8,7 @@ name: Worker CI
 # 成本策略（actions/v0.2.7+）：
 #   - Release PR 默认创建即 ready；门禁全绿 + require_non_draft_pr 后 auto-merge → Cloudflare Builds
 #   - workflow_call.secrets 须声明（与 actions/v0.2.6 同集）；actions/v0.2.7 tag 误删该块会导致 caller 显式 secrets: 映射 startup_failure — 合 master 后预期 actions/v0.2.8 patch；caller 可用 secrets: inherit 或显式映射下列 secrets
-#   - push 默认不跑 verify / workflow-lint；verify 仅在 pull_request（门禁）
+#   - push 默认不跑 verify / workflow-lint；verify 仅在 pull_request（门禁）；push 仍跑 sync-lock，ensure 等其完成（#132）
 #   - skip_ocr / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
 #   - github-actions[bot]（lock-bot）跳过 lint/verify/qodana/ocr/ensure
 #
@@ -43,7 +43,7 @@ on:
         type: boolean
         default: true
       sync_packages_lock:
-        description: push dev_* 时是否按 package.json 刷新并提交 package-lock（含普通依赖增删）
+        description: push dev_* 与同仓 PR 上是否由 CI sync-lock 按 package.json heal 并提交 package-lock（bump 可不含 lock）
         type: boolean
         default: true
       verify_on_push:
@@ -186,11 +186,13 @@ jobs:
       bot: ${{ inputs.bot }}
 
   ensure-release-pr:
-    needs: [workflow-lint]
+    needs: [workflow-lint, verify]
+    # push 上须等 verify 内 sync-lock 完成再开 Release PR，避免 lock-precheck 与 heal 竞态（#132）。
     # push 上 lint 常 skipped；bot（lock）不建/不刷 PR
     if: |
       always() &&
       (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
+      (needs.verify.result == 'success' || needs.verify.result == 'skipped') &&
       github.actor != 'github-actions[bot]' &&
       github.event_name == 'push' &&
       startsWith(github.ref_name, 'dev_') &&

@@ -27,6 +27,7 @@ updates:
       - "/.github/actions/ocr-pr-review"
       - "/.github/actions/package-lock-in-sync"
       - "/.github/actions/package-lock-wait-for-sync"
+      - "/.github/actions/checkout-with-transient-retry"
       - "/.github/actions/qodana-parse"
       - "/.github/actions/qodana-scan-gate"
     schedule:
