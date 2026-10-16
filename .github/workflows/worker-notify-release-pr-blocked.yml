@@ -5,10 +5,10 @@ name: Worker notify Release PR blocked
 #
 # Caller（pull_request → master，needs 含 release-auto-merge）：
 #   if: always() && needs.release-auto-merge.result != 'success' && …
-#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.30
+#   uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.31
 #   secrets: inherit
 # caller 须授予 annotations 拉取权限（发信仍走 NOTIFY_*；GHA nested 权限不能超过 caller）：
-#   permissions: { actions: read, checks: read }
+#   permissions: { actions: read, checks: read, pull-requests: read }
 # 跨仓拉取 workers-world/worker-actions 可传 GHA_TOKEN；公开仓可省略，回退 github.token
 # Org：NOTIFY_WORKER_URL = Variable；NOTIFY_GHA_TOKEN = Secret（secrets: inherit）
 # 勿在 caller 显式 secrets: NOTIFY_WORKER_URL（本 workflow 未声明该 secret；属历史破坏性变更，升级 bundle 时须同步迁移）
@@ -68,6 +68,7 @@ jobs:
     permissions:
       checks: read
       actions: read
+      pull-requests: read
     steps:
       - name: Guard GHA_TOKEN
         env:
@@ -127,7 +128,45 @@ jobs:
           fi
           node "${HELPER}"
 
-      - name: Build reason
+      - name: Resolve PR state
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          state="$(gh pr view "${PR_NUMBER}" --json state -q .state 2>/dev/null || echo OPEN)"
+          echo "state=${state}" >> "$GITHUB_OUTPUT"
+
+      - name: Preflight reason class
+        id: preflight
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          VERIFY: ${{ inputs.verify_result }}
+          QODANA: ${{ inputs.qodana_result }}
+          OCR: ${{ inputs.ocr_result }}
+          MERGE: ${{ inputs.merge_result }}
+          ANNOTATIONS: ${{ steps.ann.outputs.annotations }}
+          REASON_CLASS_ONLY: "true"
+          ACTIONS_BUNDLE_REF: ${{ inputs.actions_bundle_ref }}
+        run: |
+          set -euo pipefail
+          NOTIFY_STEP=".ww-gha/tools/release-pr-blocked-notify-step.mjs"
+          if [ -f "${NOTIFY_STEP}" ]; then
+            node "${NOTIFY_STEP}"
+          else
+            echo "reason_class=legacy" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore notify cooldown cache
+        id: cooldown
+        uses: actions/cache/restore@v4
+        with:
+          path: .notify-cooldown-ts
+          key: notify-${{ github.repository }}-${{ inputs.pr_number }}-${{ steps.preflight.outputs.reason_class }}
+
+      - name: Build notify decision and email
         id: meta
         env:
           REPO: ${{ github.repository }}
@@ -140,9 +179,24 @@ jobs:
           MERGE: ${{ inputs.merge_result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ANNOTATIONS: ${{ steps.ann.outputs.annotations }}
+          PR_STATE: ${{ steps.pr.outputs.state }}
           ACTIONS_BUNDLE_REF: ${{ inputs.actions_bundle_ref }}
         run: |
           set -euo pipefail
+          if [ -f .notify-cooldown-ts ]; then
+            COOLDOWN_SENT_AT="$(tr -d ' \n\r' < .notify-cooldown-ts)"
+            export COOLDOWN_SENT_AT
+          else
+            export COOLDOWN_SENT_AT=""
+          fi
+
+          NOTIFY_STEP=".ww-gha/tools/release-pr-blocked-notify-step.mjs"
+          if [ -f "${NOTIFY_STEP}" ]; then
+            node "${NOTIFY_STEP}"
+            exit 0
+          fi
+
+          echo "::warning::notify-step 未在 ref=${ACTIONS_BUNDLE_REF} 中发布；回退旧版 bash 原因 + 邮件构建（无 PR 状态/冷却降噪）"
           reasons=()
           if [ "$VERIFY" = "failure" ]; then
             reasons+=("verify 失败：检查 dev_* push / 测试 / SDK 依赖")
@@ -169,16 +223,16 @@ jobs:
           if [ "${#reasons[@]}" -eq 0 ]; then
             reasons+=("未能 auto-merge（verify=${VERIFY} qodana=${QODANA} ocr=${OCR} merge=${MERGE}）")
           fi
-
-          # 将 reasons 用换行传给邮件构建脚本（避免 bash 内嵌复杂 HTML）
           REASONS="$(printf '%s\n' "${reasons[@]}")"
           export REASONS
+          echo "send_notify=true" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=" >> "$GITHUB_OUTPUT"
+          echo "reason_class=legacy" >> "$GITHUB_OUTPUT"
           MAIL_HELPER=".ww-gha/tools/build-release-pr-blocked-email.mjs"
           if [ -f "${MAIL_HELPER}" ]; then
             node "${MAIL_HELPER}"
           else
             echo "::warning::邮件 HTML 构建脚本未在 ref=${ACTIONS_BUNDLE_REF:-} 中发布；仅发纯文本（notify-worker 仍会 auto-linkify URL）"
-            # body 含 ANNOTATIONS 原文（可能带任意错误消息/代码片段），须用随机定界符防 heredoc 截断注入
             BODY_DELIM="body_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
             {
               echo "subject=[Release PR] ${REPO} #${PR_NUMBER} 需人工处理"
@@ -211,8 +265,18 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Log notify skip
+        if: steps.meta.outputs.send_notify != 'true'
+        env:
+          SKIP_REASON: ${{ steps.meta.outputs.skip_reason }}
+          REASON_CLASS: ${{ steps.meta.outputs.reason_class }}
+        run: |
+          set -euo pipefail
+          echo "::notice::跳过 Release PR 阻断邮件（reason=${SKIP_REASON:-unknown} class=${REASON_CLASS:-})"
+
       # vars 无 required；空 URL + fail-on-error:false 会让发信静默跳过。配置缺失必须显式失败。
       - name: Guard notify channel config
+        if: steps.meta.outputs.send_notify == 'true'
         env:
           NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
           NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
@@ -234,13 +298,14 @@ jobs:
 
       - name: Send notify email
         id: notify
+        if: steps.meta.outputs.send_notify == 'true'
         # Pin full commit（tag v1 / v1.1.0 → 259fd263…；核验：git ls-remote workers-world/action-notify-email）
-        uses: workers-world/action-notify-email@259fd263f33db718aaccf2b2f161a351d22a6dd4 # v1.1.0
+        uses: workers-world/action-notify-email@37f6acc3404fd99b7710174b083116752192dccc # v1.1.3
         with:
           subject: ${{ steps.meta.outputs.subject }}
           body: ${{ steps.meta.outputs.body }}
           html: ${{ steps.meta.outputs.html }}
-          dedup-key: release-pr-blocked-${{ github.repository }}-${{ inputs.pr_number }}-${{ github.run_id }}
+          dedup-key: release-pr-blocked-${{ github.repository }}-${{ inputs.pr_number }}-${{ steps.meta.outputs.reason_class }}
           fail-on-error: "false"
         env:
           NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
@@ -249,7 +314,7 @@ jobs:
       # fail-on-error:false 吞掉瞬时失败；此处对 ok!=true 显式失败，避免无效配置/通道故障静默
       # 契约已核实：workers-world/action-notify-email@259fd263 输出 ok / skipped / error
       - name: Fail if notify send unsuccessful
-        if: steps.notify.outputs.ok != 'true' && steps.notify.outputs.skipped != 'true'
+        if: steps.meta.outputs.send_notify == 'true' && steps.notify.outputs.ok != 'true' && steps.notify.outputs.skipped != 'true'
         env:
           NOTIFY_ERROR: ${{ steps.notify.outputs.error }}
           NOTIFY_SKIPPED: ${{ steps.notify.outputs.skipped }}
@@ -259,3 +324,16 @@ jobs:
           SAFE_ERR="$(printf '%s' "${NOTIFY_ERROR:-unknown}" | tr '\r\n' '  ' | sed 's/^::/ ::/')"
           echo "::error::notify-worker send failed (ok!=true skipped=${NOTIFY_SKIPPED:-} error=${SAFE_ERR})；请检查 NOTIFY_WORKER_URL / NOTIFY_GHA_TOKEN 与 notify-worker 可达性"
           exit 1
+
+      - name: Write cooldown timestamp for cache
+        if: steps.meta.outputs.send_notify == 'true' && steps.notify.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          date +%s000 > .notify-cooldown-ts
+
+      - name: Save notify cooldown cache
+        if: steps.meta.outputs.send_notify == 'true' && steps.notify.outputs.ok == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .notify-cooldown-ts
+          key: notify-${{ github.repository }}-${{ inputs.pr_number }}-${{ steps.meta.outputs.reason_class }}

@@ -8,7 +8,7 @@ name: Worker ensure release PR
 # Caller（push job）：
 #   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.30
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.31
 #   secrets: inherit   # 或显式映射 workflow_call.secrets（GHA_TOKEN、RELEASE_BOT_*）
 #   with:
 #     release_branch: ${{ github.ref_name }}
@@ -110,11 +110,24 @@ jobs:
           fi
 
       - name: Checkout release branch
-        uses: actions/checkout@v7
+        uses: $/.github/actions/checkout-with-transient-retry
         with:
           fetch-depth: 0
           ref: ${{ inputs.release_branch }}
           token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+
+      - name: Require package-lock in sync before release PR
+        uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.31
+        id: lock_gate
+        with:
+          skip_dry_run: "true"
+
+      - name: Fail when lock still out of sync after push sync-lock
+        if: steps.lock_gate.outputs.skip != 'true' && steps.lock_gate.outputs.in_sync != 'true'
+        run: |
+          echo "::error::dev 分支 package-lock 与 package.json 仍不同步；ensure-release-pr 拒绝开/维护 Release PR。"
+          echo "请确认 push 侧 sync-lock 已成功 push lock（bump 可仅含 package.json；勿要求本地刷新 lock）。见 docs/release-pr-ci.md。"
+          exit 1
 
       - name: Sync master into release branch before release PR
         id: sync-master

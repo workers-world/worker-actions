@@ -1,0 +1,5 @@
+[verify] ERROR
+The self-hosted runner lost communication with the server.
+
+[release-auto-merge] ERROR
+The self-hosted runner lost communication with the server.
