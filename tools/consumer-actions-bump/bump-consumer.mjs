@@ -128,13 +128,15 @@ export async function bumpConsumerRepo(repo, tagName, options = {}) {
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "consumer-bump-"));
   try {
+    // Private consumers need an authenticated clone URL (public repos work either way).
+    const cloneUrl = `https://x-access-token:${ghToken}@github.com/${repo}.git`;
     run("git", [
       "clone",
       "--depth",
       "1",
       "--branch",
       defaultBranch,
-      `https://github.com/${repo}.git`,
+      cloneUrl,
       tmp,
     ]);
 
