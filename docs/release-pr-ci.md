@@ -121,9 +121,9 @@ Org 须已配置：
 
 **package-lock 与 sync-lock（WW-171 / PGREQ20261010000003；Release 竞态 #132 / PGREQ20261016000008）**：
 
-- **PR 硬门禁**（feature→`dev_*` 与 Release→`master`）：`lock-precheck`（含 `npm ci --dry-run`）与 verify 内 **干净 `npm ci`** 必须绿；lock 漂移或装不上 → **fail**，不得 auto-merge / 合入。
-- **依赖变更**：同一 PR 内必须提交更新后的 `package-lock.json`（feature→`dev_*` **不能**只改 `package.json` 指望过关）。
-- **Release PR（`dev_*`→`master`）**：在 `lock-precheck` 之前会跑 **sync-lock heal**（与 push 相同刷新逻辑）；仅 bump `package.json` 时 bot 可先提交 lock，再跑硬门禁。
+- **PR 硬门禁**（feature→`dev_*` 与 Release→`master`）：`lock-precheck`（含 `npm ci --dry-run`）与 verify 内 **干净 `npm ci`** 必须绿；heal 后仍不同步或装不上 → **fail**，不得 auto-merge / 合入。
+- **Bump 契约（#132）**：提交 **可以只改 `package.json`**（含 SDK 版本）；**不要**求开发者在本地 `npm install` 或同 commit 附带 `package-lock.json`（本地网络常无法读 GitHub Packages）。lock 由 CI **`sync-lock`**（`GHA_TOKEN` / Packages 鉴权）刷新并 bot push。
+- **同仓 `pull_request`**：verify 在 `lock-precheck` 之前跑 **sync-lock heal**（与 push `dev_*` 相同逻辑），再硬门禁。
 - **push `dev_*`**：`sync_packages_lock: true` 时 bot 可按 `package.json` 做 `npm install` 刷新 lock 并提交，**不在 push 上强制干净 `npm ci`**（自托管/网络）；Cloudflare Builds 级校验留在 PR。
 - **ensure-release-pr**：`worker-ci` 在 push 上 **等待** `verify`（含 sync-lock）成功后再开/维护 Release PR；开 PR 前另做 lock 同步检查，避免与 heal 竞态。
 - **Node**：verify / sync-lock / lock 校验路径在 workflow **代码里写死 `node-version: "24"`**（与 CF Builds 默认大版本对齐；不用 Org/repo Actions variable，不做 Node matrix）。
@@ -137,7 +137,7 @@ Org 须已配置：
 |-----|----------|
 | workflow-lint | 仅 Release PR（非 bot） |
 | verify（npm ci/check/test） | 仅 PR（或 `verify_on_push: true`） |
-| sync-lock | push `dev_*` + 非 bot；Release PR 上 pull_request（`dev_*`→`master`） heal |
+| sync-lock | push `dev_*` + 非 bot；同仓 PR 上 pull_request heal（bump 可不含 lock） |
 | ensure-release-pr | push + 非 bot；**在 sync-lock 完成后** |
 | qodana | Org `QODANA_ENABLED` / `WORKERS_WORLD_QODANA_ENABLED` 为 true **且** PR；否则 **skipped**（auto-merge 接受 skipped） |
 | ocr | `skip_ocr: false` 且 PR；否则 **不调用** workflow |

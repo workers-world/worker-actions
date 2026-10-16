@@ -186,7 +186,7 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：sync-lock（push `dev_*` 与 Release PR `pull_request`，可 `npm install` heal lock，**不**跑干净 `npm ci`）→ lock-precheck（**PR 硬门禁**：未同步或 `npm ci --dry-run` 失败则 **fail job**）→ checkout（PR **head SHA**）→ setup-node **Node 24**（字面量，与 Cloudflare Builds 对齐）→ 物化 SDK（可选）→ **`npm ci`** → `npm run check` → `npm test`（可选）。feature→`dev_*` bump **须同 PR** 提交 `package-lock.json`；Release PR 可先 heal 再硬门禁。
+verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock，**不**跑干净 `npm ci`；bump 可仅 `package.json`）→ lock-precheck（**PR 硬门禁**）→ checkout（PR **head SHA**）→ setup-node **Node 24** → 物化 SDK（可选）→ **`npm ci`** → `npm run check` → `npm test`（可选）。
 
 | 事件 | npm ci / lock 门禁 |
 |------|-------------------|
@@ -195,7 +195,7 @@ verify 步骤摘要：sync-lock（push `dev_*` 与 Release PR `pull_request`，�
 
 | Job | 条件 |
 |-----|------|
-| sync-lock | `sync_packages_lock` +（push `dev_*` **或** Release PR `pull_request`）→ 调 `worker-sync-packages-lock` |
+| sync-lock | `sync_packages_lock` +（push `dev_*` **或** 同仓 `pull_request`）→ 调 `worker-sync-packages-lock` |
 | verify | sync-lock success 或 skipped |
 | promote | `promote: true` + push `dev_*` → 调 `worker-promote`（日常 Release PR 仓须 `false`） |
 

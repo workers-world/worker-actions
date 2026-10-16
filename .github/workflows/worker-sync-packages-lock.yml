@@ -9,8 +9,8 @@ name: update package-lock.json file
 # 3) npm ci --dry-run 通过（传递依赖/lock 完整性；**push 路径 skip_dry_run**，完整校验仅在 PR 门禁）
 # 仅 SDK + 根依赖字符串匹配会漏掉无效 lock；PR verify 的 lock-precheck + npm ci 硬拦合入。
 #
-# 由 worker-verify 在 lock-precheck 前调用（push dev_* 与 Release PR pull_request）；也可单独 workflow_call。
-# pull_request 时 checkout/push 目标为 PR head 分支（dev_*），非 merge ref。
+# 由 worker-verify 在 lock-precheck 前调用（push dev_* 与同仓 pull_request）；也可单独 workflow_call。
+# pull_request 时 checkout/push 目标为 PR head 分支，非 merge ref。bump 可仅改 package.json。
 # 需刷新时：全量 npm install（非仅改 SDK 版本字段）；**不在 push 上跑 npm ci**（自托管/网络；PR 门禁校验）。
 # npm install/ci 仅当 caller .npmrc 或 npm_config_legacy_peer_deps 启用时才加 --legacy-peer-deps
 # （与 package-lock-in-sync / lock-matches-package-json.mjs dry-run 一致；否则 peer deps 须写入 lock）。
