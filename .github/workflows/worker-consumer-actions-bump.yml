@@ -1,21 +1,21 @@
 name: Consumer actions pin bump
 
-# WW-150 / worker-actions#101 — Phase 1: open PR on pilot consumer (mok1) when a new
-# annotated actions/v* tag is created. Does NOT listen to release published.
+# WW-150 org fanout: open/update bump PRs on upgradable consumers when a new annotated
+# actions/v* tag is created. Consumer list from deploy-tracker GET /v1/consumers (WW-151).
 # See docs/consumer-actions-bump.md
 on:
   create:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing actions/vX.Y.Z to bump to (pilot / manual)"
+        description: "Existing actions/vX.Y.Z to bump to"
         required: true
         type: string
       consumer_repo:
-        description: "Pilot consumer (default workers-world/mok1)"
+        description: "Optional single consumer (owner/name). Empty = API fanout."
         required: false
         type: string
-        default: "workers-world/mok1"
+        default: ""
       dry_run:
         description: "Rewrite only; do not push or open PR"
         required: false
@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  bump:
+  prepare:
     runs-on: ubuntu-latest
     if: >
       vars.ACTIONS_AUTO_BUMP != 'false' &&
@@ -43,19 +43,33 @@ jobs:
       )
     permissions:
       contents: read
+    outputs:
+      skip: ${{ steps.require-annotated-tag.outputs.skip }}
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      target_tag: ${{ steps.validate-tag.outputs.target_tag }}
+      dry_run: ${{ steps.env.outputs.dry_run }}
     env:
       RELEASE_BOT_APP_ID_EFFECTIVE: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
-      CONSUMER_REPO: ${{ github.event_name == 'workflow_dispatch' && inputs.consumer_repo || 'workers-world/mok1' }}
       TARGET_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+      CONSUMER_REPO: ${{ github.event_name == 'workflow_dispatch' && inputs.consumer_repo || vars.CONSUMER_REPO || '' }}
+      CONSUMERS_API_BASE: ${{ vars.CONSUMERS_API_BASE || 'https://deploy.mailworld.uk' }}
+      CONSUMERS_DEP: ${{ vars.CONSUMERS_DEP || 'worker-actions' }}
+      CONSUMERS_STATUS: ${{ vars.CONSUMERS_STATUS || 'upgradable' }}
     steps:
       - name: Validate tag name
+        id: validate-tag
         run: |
           set -euo pipefail
           if ! [[ "${TARGET_TAG}" =~ ^actions/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::TARGET_TAG must be actions/vX.Y.Z, got: ${TARGET_TAG}"
             exit 1
           fi
+          echo "target_tag=${TARGET_TAG}" >> "$GITHUB_OUTPUT"
+
+      - id: env
+        run: |
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
@@ -66,35 +80,20 @@ jobs:
 
       - uses: ./.github/actions/ensure-gh-cli
 
-      - name: Resolve pilot consumer
-        id: consumer
-        env:
-          CONSUMER_REPO: ${{ env.CONSUMER_REPO }}
-        run: |
-          set -euo pipefail
-          case "${CONSUMER_REPO}" in
-            workers-world/mok1)
-              echo "short_name=mok1" >> "$GITHUB_OUTPUT"
-              ;;
-            workers-world/tal1)
-              echo "short_name=tal1" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::error::Phase 1 pilot only: workers-world/mok1 (tal1 backup). Got: ${CONSUMER_REPO}"
-              exit 1
-              ;;
-          esac
-
       - name: Require annotated tag (create event only)
         id: require-annotated-tag
-        if: github.event_name == 'create'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_TAG: ${{ env.TARGET_TAG }}
           REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           echo "skip=false" >> "$GITHUB_OUTPUT"
+          if [ "${EVENT_NAME}" != "create" ]; then
+            echo "Non-create event: skip annotated-tag gate"
+            exit 0
+          fi
           obj_type="$(gh api "repos/${REPO}/git/ref/tags/${TARGET_TAG}" --jq '.object.type')"
           if [ "${obj_type}" != "tag" ]; then
             echo "::notice::Skip consumer bump: ref ${TARGET_TAG} is not an annotated tag (object.type=${obj_type})"
@@ -103,25 +102,58 @@ jobs:
           fi
           echo "Annotated tag ${TARGET_TAG} confirmed"
 
+      - name: Resolve consumer matrix
+        id: resolve
+        if: steps.require-annotated-tag.outputs.skip != 'true'
+        env:
+          CONSUMER_REPO: ${{ env.CONSUMER_REPO }}
+          CONSUMERS_API_BASE: ${{ env.CONSUMERS_API_BASE }}
+          CONSUMERS_DEP: ${{ env.CONSUMERS_DEP }}
+          CONSUMERS_STATUS: ${{ env.CONSUMERS_STATUS }}
+          RULES_ADMIN_TOKEN: ${{ secrets.RULES_ADMIN_TOKEN }}
+        run: node tools/consumer-actions-bump/fetch-consumers.mjs
+
+  bump:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true' && needs.prepare.outputs.matrix != ''
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    permissions:
+      contents: read
+    env:
+      RELEASE_BOT_APP_ID_EFFECTIVE: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+      TARGET_TAG: ${{ needs.prepare.outputs.target_tag }}
+      DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+      CONSUMER_REPO: ${{ matrix.repo }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            tools/consumer-actions-bump
+            .github/actions/ensure-gh-cli
+          persist-credentials: false
+
+      - uses: ./.github/actions/ensure-gh-cli
+
       - name: Mint GitHub App token (consumer repo)
         id: bot-token
-        if: >-
-          env.RELEASE_BOT_APP_ID_EFFECTIVE != '' &&
-          steps.require-annotated-tag.outputs.skip != 'true'
+        if: env.RELEASE_BOT_APP_ID_EFFECTIVE != ''
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ env.RELEASE_BOT_APP_ID_EFFECTIVE }}
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
           owner: workers-world
-          repositories: ${{ steps.consumer.outputs.short_name }}
+          repositories: ${{ matrix.short_name }}
           permission-contents: write
           permission-pull-requests: write
           permission-workflows: write
 
       - name: Validate write credentials
-        if: >-
-          env.DRY_RUN != 'true' &&
-          steps.require-annotated-tag.outputs.skip != 'true'
+        if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: |
@@ -134,7 +166,6 @@ jobs:
           fi
 
       - name: Bump consumer workflow pins
-        if: steps.require-annotated-tag.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           CONSUMER_REPO: ${{ env.CONSUMER_REPO }}

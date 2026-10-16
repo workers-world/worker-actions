@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pilot consumer pin bump (workers-world/mok1). Invoked from worker-consumer-actions-bump.yml.
+ * Consumer pin bump (org fanout via worker-consumer-actions-bump.yml matrix).
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -228,7 +228,7 @@ ${msg}`,
     ]);
 
     const prTitle = `${PR_TITLE_PREFIX}${tagName}`;
-    const prBody = `## Worker-actions pin bump (pilot)
+    const prBody = `## Worker-actions pin bump
 
 - **Tag**: \`${tagName}\`
 - **Scope**: \`.github/workflows/**\` outer \`workers-world/worker-actions/...@actions/v*\` only
@@ -237,7 +237,7 @@ ${msg}`,
 
 Lockfile / \`package.json\` 不在范围；合入后走现有 sync-lock。
 
-> Opened by [\`worker-consumer-actions-bump\`](https://github.com/workers-world/worker-actions) (WW-150 / #101). **Phase 1: no auto-merge.**
+> Opened by [\`worker-consumer-actions-bump\`](https://github.com/workers-world/worker-actions) (WW-150 org fanout / #101). **No auto-merge.**
 `;
 
     let prNumber = ourPr?.number;
@@ -313,7 +313,11 @@ Force-updated head \`${headBranch}\` to \`${tagName}\` (${totalReplacements} pin
 }
 
 async function main() {
-  const repo = process.env.CONSUMER_REPO || "workers-world/mok1";
+  const repo = process.env.CONSUMER_REPO;
+  if (!repo) {
+    console.error("CONSUMER_REPO env required (set per matrix job)");
+    process.exit(1);
+  }
   const tagName = process.env.TARGET_TAG;
   const dryRun = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
 
