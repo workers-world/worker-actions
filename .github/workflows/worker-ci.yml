@@ -186,11 +186,13 @@ jobs:
       bot: ${{ inputs.bot }}
 
   ensure-release-pr:
-    needs: [workflow-lint]
+    needs: [workflow-lint, verify]
+    # push 上须等 verify 内 sync-lock 完成再开 Release PR，避免 lock-precheck 与 heal 竞态（#132）。
     # push 上 lint 常 skipped；bot（lock）不建/不刷 PR
     if: |
       always() &&
       (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
+      (needs.verify.result == 'success' || needs.verify.result == 'skipped') &&
       github.actor != 'github-actions[bot]' &&
       github.event_name == 'push' &&
       startsWith(github.ref_name, 'dev_') &&

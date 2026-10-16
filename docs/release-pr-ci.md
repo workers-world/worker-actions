@@ -119,13 +119,17 @@ Org 须已配置：
 
 **Secret 传递**：入口层 `secrets: inherit`（推荐），或显式映射 `worker-ci` `workflow_call.secrets` 全集；`worker-ci` 内部对每个 leaf **显式映射最小集**。
 
-**package-lock 与 sync-lock（WW-171 / PGREQ20261010000003）**：
+**package-lock 与 sync-lock（WW-171 / PGREQ20261010000003；Release 竞态 #132 / PGREQ20261016000008）**：
 
 - **PR 硬门禁**（feature→`dev_*` 与 Release→`master`）：`lock-precheck`（含 `npm ci --dry-run`）与 verify 内 **干净 `npm ci`** 必须绿；lock 漂移或装不上 → **fail**，不得 auto-merge / 合入。
-- **依赖变更**：同一 PR 内必须提交更新后的 `package-lock.json`（不要只改 `package.json` 指望 push sync-lock 替 PR 过关）。
+- **依赖变更**：同一 PR 内必须提交更新后的 `package-lock.json`（feature→`dev_*` **不能**只改 `package.json` 指望过关）。
+- **Release PR（`dev_*`→`master`）**：在 `lock-precheck` 之前会跑 **sync-lock heal**（与 push 相同刷新逻辑）；仅 bump `package.json` 时 bot 可先提交 lock，再跑硬门禁。
 - **push `dev_*`**：`sync_packages_lock: true` 时 bot 可按 `package.json` 做 `npm install` 刷新 lock 并提交，**不在 push 上强制干净 `npm ci`**（自托管/网络）；Cloudflare Builds 级校验留在 PR。
+- **ensure-release-pr**：`worker-ci` 在 push 上 **等待** `verify`（含 sync-lock）成功后再开/维护 Release PR；开 PR 前另做 lock 同步检查，避免与 heal 竞态。
 - **Node**：verify / sync-lock / lock 校验路径在 workflow **代码里写死 `node-version: "24"`**（与 CF Builds 默认大版本对齐；不用 Org/repo Actions variable，不做 Node matrix）。
 - bot lock push 仍会 synchronize PR 并重跑 verify；bot push **不**跑 push 侧 lint/ensure/sync-default。
+
+**Transient runner / checkout 重试（#132）**：`checkout-with-transient-retry` composite 对 `actions/checkout` **失败时自动再试一次**（常见于 self-hosted *lost communication*、GnuTLS/网络 flake）。用于 verify / sync-lock / ensure-release-pr / workflow-lint / qodana 等 job；**不**放宽 lock-precheck 或测试失败。
 
 ## 成本与空转 job（`v0.2.0`）
 
@@ -133,8 +137,8 @@ Org 须已配置：
 |-----|----------|
 | workflow-lint | 仅 Release PR（非 bot） |
 | verify（npm ci/check/test） | 仅 PR（或 `verify_on_push: true`） |
-| sync-lock | push + 非 bot |
-| ensure-release-pr | push + 非 bot |
+| sync-lock | push `dev_*` + 非 bot；Release PR 上 pull_request（`dev_*`→`master`） heal |
+| ensure-release-pr | push + 非 bot；**在 sync-lock 完成后** |
 | qodana | Org `QODANA_ENABLED` / `WORKERS_WORLD_QODANA_ENABLED` 为 true **且** PR；否则 **skipped**（auto-merge 接受 skipped） |
 | ocr | `skip_ocr: false` 且 PR；否则 **不调用** workflow |
 | sync-default | 默认分支 ≠ 当前 ref，且非 bot |

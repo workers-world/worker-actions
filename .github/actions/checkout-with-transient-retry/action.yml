@@ -1,0 +1,70 @@
+name: Checkout with transient retry
+description: >-
+  Wraps actions/checkout@v7 with one automatic retry when the first checkout fails
+  (self-hosted runner lost communication, GnuTLS / network flakes). Permanent failures
+  still fail after two attempts.
+
+inputs:
+  repository:
+    description: Repository owner/name
+    required: false
+    default: ${{ github.repository }}
+  ref:
+    description: Branch, tag, or SHA to checkout
+    required: false
+    default: ""
+  fetch-depth:
+    description: Git fetch depth
+    required: false
+    default: "1"
+  path:
+    description: Optional subdirectory under workspace
+    required: false
+    default: ""
+  token:
+    description: PAT for checkout (empty = default GITHUB_TOKEN)
+    required: false
+    default: ""
+  fetch-tags:
+    description: Whether to fetch all tags
+    required: false
+    default: "false"
+  persist-credentials:
+    description: Whether checkout persists git credentials
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+      id: checkout_first
+      continue-on-error: true
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+        fetch-depth: ${{ inputs.fetch-depth }}
+        fetch-tags: ${{ inputs.fetch-tags == 'true' }}
+        persist-credentials: ${{ inputs.persist-credentials == 'true' }}
+        path: ${{ inputs.path }}
+        token: ${{ inputs.token != '' && inputs.token || github.token }}
+
+    - name: Retry checkout once (transient runner/network)
+      if: steps.checkout_first.outcome == 'failure'
+      uses: actions/checkout@v7
+      id: checkout_retry
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+        fetch-depth: ${{ inputs.fetch-depth }}
+        fetch-tags: ${{ inputs.fetch-tags == 'true' }}
+        persist-credentials: ${{ inputs.persist-credentials == 'true' }}
+        path: ${{ inputs.path }}
+        token: ${{ inputs.token != '' && inputs.token || github.token }}
+
+    - name: Fail if checkout failed twice
+      if: steps.checkout_first.outcome == 'failure' && steps.checkout_retry.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "::error::checkout 连续两次失败（可能为 runner 失联或网络 flake；已自动重试一次）。"
+        exit 1
