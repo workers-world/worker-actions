@@ -129,7 +129,7 @@ Org 须已配置：
 - **Node**：verify / sync-lock / lock 校验路径在 workflow **代码里写死 `node-version: "24"`**（与 CF Builds 默认大版本对齐；不用 Org/repo Actions variable，不做 Node matrix）。
 - bot lock push 仍会 synchronize PR 并重跑 verify；bot push **不**跑 push 侧 lint/ensure/sync-default。
 
-**Transient runner / checkout 重试（#132）**：`checkout-with-transient-retry` composite 对 `actions/checkout` **失败时自动再试一次**（常见于 self-hosted *lost communication*、GnuTLS/网络 flake）。用于 verify / sync-lock / ensure-release-pr / workflow-lint / qodana 等 job；**不**放宽 lock-precheck 或测试失败。
+**Transient runner / checkout 重试（#132）**：`checkout-with-transient-retry` composite 对 `actions/checkout` **失败时自动再试一次**（常见于 self-hosted *lost communication*、GnuTLS/网络 flake）。用于 verify / sync-lock / ensure-release-pr / workflow-lint / qodana 等 job；**不**放宽 lock-precheck 或测试失败。Bundle 源码内用 `$/` 同仓引用；业务仓 pin 新 tag 后可用 `workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/vX.Y.Z`（由 `release-actions-bundle` 与 nested pin 对齐）。
 
 ## 成本与空转 job（`v0.2.0`）
 
