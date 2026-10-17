@@ -14,15 +14,38 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const HEAD_BRANCH = "chore/bump-worker-actions-pins";
 export const PR_TITLE_PREFIX = "chore: bump worker-actions pins to ";
 
+/** @param {string} repo owner/name */
+export function buildAuthenticatedRepoUrl(repo, ghToken) {
+  return `https://x-access-token:${ghToken}@github.com/${repo}.git`;
+}
+
+/** @param {string} text @param {string[]} secrets */
+function redactSecrets(text, secrets) {
+  let out = text;
+  for (const secret of secrets) {
+    if (secret && out.includes(secret)) {
+      out = out.split(secret).join("***");
+    }
+  }
+  return out;
+}
+
+function formatCmdFailure(cmd, args, status, err, secretsToRedact = []) {
+  const cmdLine = redactSecrets([cmd, ...args].join(" "), secretsToRedact);
+  const errText = redactSecrets((err || "").trim(), secretsToRedact);
+  return `${cmdLine} failed (${status}): ${errText}`;
+}
+
 function run(cmd, args, opts = {}) {
+  const { secretsToRedact = [], ...spawnOpts } = opts;
   const r = spawnSync(cmd, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    ...opts,
+    ...spawnOpts,
   });
   if (r.status !== 0) {
     const err = (r.stderr || r.stdout || "").trim();
-    throw new Error(`${cmd} ${args.join(" ")} failed (${r.status}): ${err}`);
+    throw new Error(formatCmdFailure(cmd, args, r.status, err, secretsToRedact));
   }
   return (r.stdout || "").trim();
 }
@@ -38,14 +61,15 @@ function gh(args, env) {
 
 /** @returns {string | null} first line stdout, or null if empty / missing ref */
 function runOptional(cmd, args, opts = {}) {
+  const { secretsToRedact = [], ...spawnOpts } = opts;
   const r = spawnSync(cmd, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    ...opts,
+    ...spawnOpts,
   });
   if (r.status !== 0) {
     const err = (r.stderr || r.stdout || "").trim();
-    throw new Error(`${cmd} ${args.join(" ")} failed (${r.status}): ${err}`);
+    throw new Error(formatCmdFailure(cmd, args, r.status, err, secretsToRedact));
   }
   const out = (r.stdout || "").trim();
   return out || null;
@@ -59,8 +83,12 @@ function runOptional(cmd, args, opts = {}) {
  * @param {string} headBranch bot-owned head only
  * @returns {string | null} remote tip SHA, or null if branch absent
  */
-export function resolveRemoteHeadSha(pushUrl, headBranch) {
-  const out = runOptional("git", ["ls-remote", pushUrl, `refs/heads/${headBranch}`]);
+export function resolveRemoteHeadSha(pushUrl, headBranch, secretsToRedact = []) {
+  const out = runOptional(
+    "git",
+    ["ls-remote", pushUrl, `refs/heads/${headBranch}`],
+    { secretsToRedact },
+  );
   if (!out) return null;
   const line = out.split("\n").find((l) => l.trim())?.trim();
   if (!line) return null;
@@ -129,16 +157,13 @@ export async function bumpConsumerRepo(repo, tagName, options = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "consumer-bump-"));
   try {
     // Private consumers need an authenticated clone URL (public repos work either way).
-    const cloneUrl = `https://x-access-token:${ghToken}@github.com/${repo}.git`;
-    run("git", [
-      "clone",
-      "--depth",
-      "1",
-      "--branch",
-      defaultBranch,
-      cloneUrl,
-      tmp,
-    ]);
+    const authUrl = buildAuthenticatedRepoUrl(repo, ghToken);
+    const gitSecrets = [ghToken];
+    run(
+      "git",
+      ["clone", "--depth", "1", "--branch", defaultBranch, authUrl, tmp],
+      { secretsToRedact: gitSecrets },
+    );
 
     const workflowsDir = path.join(tmp, ".github", "workflows");
     const { files, totalReplacements } = rewriteWorkflowPinTree(workflowsDir, tagName);
@@ -217,17 +242,14 @@ ${msg}`,
     // Prefer x-access-token URL (same as release-actions-bundle Phase B).
     // Plain https + http.extraHeader bearer failed on ubuntu-latest with:
     //   fatal: could not read Username for 'https://github.com'
-    const pushUrl = `https://x-access-token:${ghToken}@github.com/${repo}.git`;
-    const remoteHeadSha = resolveRemoteHeadSha(pushUrl, headBranch);
+    const pushUrl = buildAuthenticatedRepoUrl(repo, ghToken);
+    const remoteHeadSha = resolveRemoteHeadSha(pushUrl, headBranch, gitSecrets);
     const pushLeaseFlags = buildBotHeadPushLeaseFlags(headBranch, remoteHeadSha);
-    run("git", [
-      "-C",
-      tmp,
-      "push",
-      ...pushLeaseFlags,
-      pushUrl,
-      `${headBranch}:${headBranch}`,
-    ]);
+    run(
+      "git",
+      ["-C", tmp, "push", ...pushLeaseFlags, pushUrl, `${headBranch}:${headBranch}`],
+      { secretsToRedact: gitSecrets },
+    );
 
     const prTitle = `${PR_TITLE_PREFIX}${tagName}`;
     const prBody = `## Worker-actions pin bump
