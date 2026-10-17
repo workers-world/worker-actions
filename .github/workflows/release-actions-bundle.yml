@@ -136,27 +136,7 @@ jobs:
 
           # Tag 树须含 workflow/action/template 全部 nested @actions/v* 对齐，否则 caller pin 新 tag 仍解析到旧 leaf。
           # 含 .github/workflows 的 commit/tag push 须 release-bot App（workflows:write），禁止仅 GHA_TOKEN。
-          BUNDLE_PIN_GLOBS=(.github/actions .github/workflows templates docs/templates)
-
-          rewrite_nested_pins() {
-            local target_tag="$1"
-            shift
-            local globs=("$@")
-            local changed=0
-            while IFS= read -r -d '' f; do
-              if grep -qE '@actions/v[0-9]+\.[0-9]+\.[0-9]+' "$f"; then
-                sed -i -E "s|@actions/v[0-9]+\.[0-9]+\.[0-9]+|@${target_tag}|g" "$f"
-                changed=1
-              fi
-            done < <(
-              find "${globs[@]}" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 2>/dev/null || true
-            )
-            if [ "$changed" = 1 ]; then
-              echo "Rewrote nested @actions/v* pins → @${target_tag} under: ${globs[*]}"
-            else
-              echo "No @actions/v* pins to rewrite under: ${globs[*]}"
-            fi
-          }
+          source tools/actions-bundle/nested-pins-lib.sh
 
           git_push_tag() {
             if [ -z "${WORKFLOW_PUSH_GH_TOKEN}" ]; then

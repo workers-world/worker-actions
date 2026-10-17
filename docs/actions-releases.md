@@ -108,6 +108,8 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 | **push** 到 `dev_*` | `workflow-lint`（无 secrets；Release PR 人工开） |
 | **PR → master**（含 fork） | `workflow-lint` |
 
+**Destin 内层 pin 落后**：若 destin 上 nested `@actions/v*` 落后于最新已发布 tag（workflow-lint 同规则：仅允许 **latest** 或 **patch+1**），[`worker-destin-pin-align.yml`](../.github/workflows/worker-destin-pin-align.yml) 会定时 / 新 tag / push destin 后自动开或更新 **→ destin** 的对齐 PR（不合 master）。见 WW-303 / #144。
+
 因此：**把 master 合进正在发版的 `dev_*`（无论本地 merge 再 push，还是另开 PR base=`dev_*`）都会再跑一轮流水线**，用 PR 合并不省 OCR。
 
 | 场景 | 是否把 master 合进当前 `dev_*` |

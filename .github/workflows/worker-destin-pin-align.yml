@@ -1,0 +1,102 @@
+name: Destin actions pin align
+
+# WW-303 / #144: when destin (default dev_*) inner @actions/v* pins lag the latest published tag,
+# open or update a PR into destin (not master). Same allow-list as workflow-lint: latest tag or patch+1.
+# See docs/actions-releases.md
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  push:
+    branches:
+      - "dev_*"
+  create:
+  workflow_dispatch:
+    inputs:
+      destin_branch:
+        description: "Destin branch (empty = repo default branch)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Rewrite only; do not push or open PR"
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: destin-pin-align
+  cancel-in-progress: false
+
+jobs:
+  align:
+    runs-on: ubuntu-latest
+    if: >
+      vars.DESTIN_PIN_AUTO_ALIGN != 'false' &&
+      (
+        github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'push' &&
+          startsWith(github.ref_name, 'dev_')
+        ) ||
+        (
+          github.event_name == 'create' &&
+          github.ref_type == 'tag' &&
+          startsWith(github.ref_name, 'actions/v')
+        )
+      )
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      RELEASE_BOT_APP_ID_EFFECTIVE: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+      DESTIN_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.destin_branch || '' }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Mint GitHub App token
+        id: bot-token
+        if: env.DRY_RUN != 'true' && env.RELEASE_BOT_APP_ID_EFFECTIVE != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ env.RELEASE_BOT_APP_ID_EFFECTIVE }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/ensure-gh-cli
+
+      - name: Resolve destin branch
+        id: destin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DESTIN_BRANCH_INPUT: ${{ env.DESTIN_BRANCH_INPUT }}
+          REPO: ${{ env.REPO }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DESTIN_BRANCH_INPUT}" ]; then
+            branch="${DESTIN_BRANCH_INPUT}"
+          else
+            branch="$(gh repo view "$REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+          fi
+          if ! [[ "$branch" =~ ^dev_ ]]; then
+            echo "::warning::Default branch ${branch} is not dev_*; still attempting align"
+          fi
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+          echo "Destin branch: ${branch}"
+
+      - name: Align nested pins on destin
+        env:
+          REPO: ${{ env.REPO }}
+          DESTIN_BRANCH: ${{ steps.destin.outputs.branch }}
+          DRY_RUN: ${{ env.DRY_RUN }}
+          WORKFLOW_PUSH_GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: bash tools/actions-bundle/align-destin-pins.sh
