@@ -63,6 +63,8 @@ API 返回 **0** 个仓时 workflow **失败**，并提示检查 Phase 2 `dep=wo
 - `repositories: <repo short name>`
 - `permission-contents: write`、`permission-pull-requests: write`、`permission-workflows: write`
 
+消费者仓 **clone / push / ls-remote** 使用同一 release-bot token 的 `https://x-access-token:…@github.com/owner/repo.git` URL（与 `release-actions-bundle` Phase B 一致）。未鉴权的 `https://github.com/…` 在私有仓会失败：`fatal: could not read Username for 'https://github.com'`（见 [run 38872965691](https://github.com/workers-world/worker-actions/actions/runs/38872965691)）。git 命令失败日志中会脱敏 token。
+
 **Ops 清单**
 
 - [ ] App 已安装到 **所有** 需自动 bump 的消费者仓，且具备 Contents + Pull requests + **Workflows** 写
