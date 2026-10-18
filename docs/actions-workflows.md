@@ -443,6 +443,7 @@ flowchart TB
 | `worker-release-auto-merge.yml` | `workflow_call` | Leaf | worker-ci / ci | — |
 | `worker-notify-release-pr-blocked.yml` | `workflow_call` | Leaf | worker-ci / ci | action-notify-email |
 | `worker-sync-default-dev-branch.yml` | `workflow_call` | Leaf | 业务仓独立 workflow | — |
+| `planning-release.yml` | `workflow_call` | Leaf | 业务仓 `planning-release`（dispatch） | prepare → publish（Wrangler versions）；见 [planning-release.md](./planning-release.md) |
 | `worker-promote.yml` | `workflow_call` | Leaf / legacy | worker-verify, promote-gated | — |
 | `worker-promote-gated.yml` | `workflow_call` | Leaf / legacy | 遗留 caller | worker-promote |
 | `release-actions-bundle.yml` | push `master`（paths）；dispatch | 本仓发版 | — | tag + manifest PR |

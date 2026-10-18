@@ -1,0 +1,242 @@
+name: Planning Release
+
+# prepare / publish 族 Planning 发版（mok1 / deploy-tracker-worker / counter-worker 形态）。
+# sch1 的 resolve/install/release-upload/release-deploy/summary 链不在此 workflow 内。
+#
+# Caller（业务仓 .github/workflows/planning-release.yml）典型用法：
+#   on: workflow_dispatch: …（与 deploy-tracker Sequence 字段兼容）
+#   permissions: { contents: read }
+#   concurrency: { group: planning-release-${{ github.repository }}, cancel-in-progress: false }
+#   jobs:
+#     release:
+#       uses: workers-world/worker-actions/.github/workflows/planning-release.yml@actions/v0.2.33
+#       secrets: inherit
+#       with:
+#         mode: ${{ inputs.mode }}
+#         git_ref: ${{ inputs.git_ref }}
+#         …
+#
+# mok1：resolve_from_platform=true（默认），run_build_on_upload=false
+# deploy-tracker-worker：resolve_from_platform=false，run_build_on_upload=true，git_ref 必填
+#
+# 跨仓 nested reusable 内勿用 $/ 或 ./（见 docs/actions-releases.md）。
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: upload 或 deploy
+        type: string
+        required: true
+      git_ref:
+        description: resolve_from_platform=false 时的 checkout ref；true 时兼容旧 dispatch（deploy 时被 resolve 覆盖）
+        type: string
+        default: ""
+      version_tag:
+        description: 已弃用（不信任）；保留兼容 Sequence / 旧 dispatch
+        type: string
+        default: ""
+      cf_version_id:
+        description: resolve_from_platform=false 且 mode=deploy 时使用；true 时以 resolve 为准
+        type: string
+        default: ""
+      planning_step_id:
+        description: 规划 step id（摘要 / 追踪）
+        type: string
+        default: ""
+      planning_version_id:
+        description: resolve_from_platform=true 时必填（平台 resolve）
+        type: string
+        default: ""
+      planning_repo_key:
+        description: 迭代内 repo_key（resolve 时默认 ${GITHUB_REPOSITORY##*/}）
+        type: string
+        default: ""
+      resolve_from_platform:
+        description: true 时经 deploy-tracker DEPLOY_ADMIN_TOKEN resolve；false 时直接用 git_ref
+        type: boolean
+        default: true
+      run_build_on_upload:
+        description: mode=upload 时在 prepare 内额外 npm run build（deploy-tracker-worker）
+        type: boolean
+        default: false
+      artifact_name:
+        description: prepare → publish 的 artifact 名；空则 <repo>-workspace
+        type: string
+        default: ""
+      deploy_tracker_base:
+        description: resolve API 基址
+        type: string
+        default: "https://deploy.mailworld.uk"
+      node_version:
+        description: prepare 内 setup-node 版本（mok1 历史为 22；可与 Cloudflare Builds 对齐时传 24）
+        type: string
+        default: "22"
+      summary_label:
+        description: Step summary 标题后缀；空则仓库名
+        type: string
+        default: ""
+      wrangler_upload_tag:
+        description: versions upload --tag 的值；空则 publish job 的 github.sha
+        type: string
+        default: ""
+    secrets:
+      DEPLOY_ADMIN_TOKEN:
+        description: resolve_from_platform=true 时必填（Org Secret）
+        required: false
+      CLOUDFLARE_API_TOKEN:
+        description: Wrangler versions upload/deploy
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        description: Wrangler account id
+        required: true
+
+permissions: {}
+
+jobs:
+  prepare:
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    outputs:
+      checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+      cf_version_id: ${{ steps.resolve.outputs.cf_version_id }}
+      artifact_name: ${{ steps.artifact-name.outputs.name }}
+    steps:
+      - name: Resolve checkout ref
+        id: resolve
+        env:
+          RESOLVE_FROM_PLATFORM: ${{ inputs.resolve_from_platform }}
+          DEPLOY_ADMIN_TOKEN: ${{ secrets.DEPLOY_ADMIN_TOKEN }}
+          DEPLOY_TRACKER_BASE: ${{ inputs.deploy_tracker_base }}
+          MODE: ${{ inputs.mode }}
+          VERSION_ID: ${{ inputs.planning_version_id }}
+          REPO_KEY_INPUT: ${{ inputs.planning_repo_key }}
+          GIT_REF: ${{ inputs.git_ref }}
+          CF_VERSION_INPUT: ${{ inputs.cf_version_id }}
+          VERSION_TAG_INPUT: ${{ inputs.version_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$RESOLVE_FROM_PLATFORM" = "true" ]; then
+            REPO_KEY="$REPO_KEY_INPUT"
+            if [ -z "$REPO_KEY" ]; then
+              REPO_KEY="${GITHUB_REPOSITORY##*/}"
+            fi
+            if [ -z "${DEPLOY_ADMIN_TOKEN:-}" ]; then
+              echo "DEPLOY_ADMIN_TOKEN 未配置（resolve_from_platform=true 时必填）" >&2
+              exit 1
+            fi
+            if [ -z "$VERSION_ID" ]; then
+              echo "planning_version_id 必填（resolve_from_platform=true）" >&2
+              exit 1
+            fi
+            URL="${DEPLOY_TRACKER_BASE}/v1/planning/gha/resolve-release?version_id=$(printf %s "$VERSION_ID" | jq -sRr @uri)&repo_key=$(printf %s "$REPO_KEY" | jq -sRr @uri)&mode=$(printf %s "$MODE" | jq -sRr @uri)"
+            RESP=$(curl -fsS -H "Authorization: Bearer ${DEPLOY_ADMIN_TOKEN}" "$URL")
+            echo "$RESP" | jq .
+            echo "checkout_ref=$(echo "$RESP" | jq -r '.checkout_ref')" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$(echo "$RESP" | jq -r '.tag_name // empty')" >> "$GITHUB_OUTPUT"
+            echo "cf_version_id=$(echo "$RESP" | jq -r '.cf_version_id // empty')" >> "$GITHUB_OUTPUT"
+            echo "sha=$(echo "$RESP" | jq -r '.sha // empty')" >> "$GITHUB_OUTPUT"
+          else
+            if [ -z "$GIT_REF" ]; then
+              echo "git_ref 必填（resolve_from_platform=false）" >&2
+              exit 1
+            fi
+            if [ "$MODE" = "deploy" ] && [ -z "$CF_VERSION_INPUT" ]; then
+              echo "cf_version_id 必填（resolve_from_platform=false 且 mode=deploy）" >&2
+              exit 1
+            fi
+            echo "checkout_ref=$GIT_REF" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$VERSION_TAG_INPUT" >> "$GITHUB_OUTPUT"
+            echo "cf_version_id=$CF_VERSION_INPUT" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Artifact name
+        id: artifact-name
+        env:
+          ARTIFACT_INPUT: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ARTIFACT_INPUT" ]; then
+            echo "name=$ARTIFACT_INPUT" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REPOSITORY##*/}-workspace" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ steps.resolve.outputs.checkout_ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build (upload only)
+        if: inputs.run_build_on_upload && inputs.mode == 'upload'
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: |
+            .
+            !.git
+
+  publish:
+    needs: prepare
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.prepare.outputs.artifact_name }}
+
+      - name: Versions upload (test)
+        if: inputs.mode == 'upload'
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: versions upload --tag ${{ inputs.wrangler_upload_tag || github.sha }}
+
+      - name: Versions deploy (production)
+        if: inputs.mode == 'deploy'
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3.15.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: versions deploy ${{ needs.prepare.outputs.cf_version_id }}@100% -y
+
+      - name: Summary
+        env:
+          MODE: ${{ inputs.mode }}
+          CHECKOUT_REF: ${{ needs.prepare.outputs.checkout_ref }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+          CF_VERSION: ${{ needs.prepare.outputs.cf_version_id }}
+          PLANNING_STEP_ID: ${{ inputs.planning_step_id }}
+          PLANNING_VERSION_ID: ${{ inputs.planning_version_id }}
+          SUMMARY_LABEL: ${{ inputs.summary_label }}
+        run: |
+          set -euo pipefail
+          LABEL="${SUMMARY_LABEL:-${GITHUB_REPOSITORY##*/}}"
+          {
+            echo "### Planning Release (${LABEL})"
+            echo "- mode: ${MODE}"
+            echo "- checkout: ${CHECKOUT_REF}"
+            echo "- tag: ${TAG_NAME}"
+            echo "- cf_version: ${CF_VERSION}"
+            echo "- step: ${PLANNING_STEP_ID}"
+            echo "- version: ${PLANNING_VERSION_ID}"
+            echo "- resolve_from_platform: ${{ inputs.resolve_from_platform }}"
+            echo "- run_build_on_upload: ${{ inputs.run_build_on_upload }}"
+          } >> "$GITHUB_STEP_SUMMARY"

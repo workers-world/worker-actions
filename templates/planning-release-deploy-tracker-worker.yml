@@ -1,0 +1,53 @@
+# 薄壳 caller：复制到 workers-world/deploy-tracker-worker/.github/workflows/planning-release.yml
+# 与 deploy-tracker Sequence dispatch 字段兼容。WW-48 / deploy-tracker-worker#73
+name: Planning Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: upload 或 deploy
+        required: true
+        type: choice
+        options:
+          - upload
+          - deploy
+      git_ref:
+        description: checkout ref（本仓 prepare 主路径）
+        required: true
+      version_tag:
+        description: 已弃用（不信任）；保留兼容
+        required: false
+      cf_version_id:
+        description: mode=deploy 时必填（无 platform resolve）
+        required: false
+      planning_step_id:
+        required: false
+      planning_version_id:
+        required: false
+      planning_repo_key:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: planning-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    permissions:
+      contents: read
+    uses: workers-world/worker-actions/.github/workflows/planning-release.yml@actions/v0.2.33
+    secrets: inherit
+    with:
+      mode: ${{ inputs.mode }}
+      git_ref: ${{ inputs.git_ref }}
+      version_tag: ${{ inputs.version_tag }}
+      cf_version_id: ${{ inputs.cf_version_id }}
+      planning_step_id: ${{ inputs.planning_step_id }}
+      planning_version_id: ${{ inputs.planning_version_id }}
+      planning_repo_key: ${{ inputs.planning_repo_key }}
+      resolve_from_platform: false
+      run_build_on_upload: true
+      summary_label: deploy-tracker-worker
