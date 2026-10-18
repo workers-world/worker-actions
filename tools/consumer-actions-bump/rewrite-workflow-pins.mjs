@@ -7,7 +7,7 @@ import path from "node:path";
 
 /** @type {RegExp} */
 export const WORKFLOW_OUTER_PIN_RE =
-  /(workers-world\/worker-actions\/[^\s'"#]+@)actions\/v\d+\.\d+\.\d+/g;
+  /(workers-world\/worker-actions\/[^\s'"#]+@)(?:actions\/v\d+\.\d+\.\d+|cursor\/planning-release-reusable-352a)/g;
 
 /**
  * @param {string} content
