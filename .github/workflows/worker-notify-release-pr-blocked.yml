@@ -161,7 +161,7 @@ jobs:
 
       - name: Restore notify cooldown cache
         id: cooldown
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .notify-cooldown-ts
           key: notify-${{ github.repository }}-${{ inputs.pr_number }}-${{ steps.preflight.outputs.reason_class }}
@@ -333,7 +333,7 @@ jobs:
 
       - name: Save notify cooldown cache
         if: steps.meta.outputs.send_notify == 'true' && steps.notify.outputs.ok == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .notify-cooldown-ts
           key: notify-${{ github.repository }}-${{ inputs.pr_number }}-${{ steps.meta.outputs.reason_class }}

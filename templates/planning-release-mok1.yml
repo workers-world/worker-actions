@@ -1,0 +1,54 @@
+# 薄壳 caller：复制到 workers-world/mok1/.github/workflows/planning-release.yml
+# 合入 bundle tag（actions/vX.Y.Z）存在后再 bump pin。WW-48 / PGREQ20261001000005
+name: Planning Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: upload 或 deploy
+        required: true
+        type: choice
+        options:
+          - upload
+          - deploy
+      git_ref:
+        description: 兼容旧 dispatch；deploy 时被 resolve 的 tag 覆盖
+        required: true
+      version_tag:
+        description: 已弃用（不信任）；保留兼容
+        required: false
+      cf_version_id:
+        description: 兼容旧 dispatch；deploy 时以 resolve 为准
+        required: false
+      planning_step_id:
+        required: false
+      planning_version_id:
+        required: false
+      planning_repo_key:
+        description: 迭代内 repo_key（resolve 必填）
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: planning-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    permissions:
+      contents: read
+    uses: workers-world/worker-actions/.github/workflows/planning-release.yml@actions/v0.2.33
+    secrets: inherit
+    with:
+      mode: ${{ inputs.mode }}
+      git_ref: ${{ inputs.git_ref }}
+      version_tag: ${{ inputs.version_tag }}
+      cf_version_id: ${{ inputs.cf_version_id }}
+      planning_step_id: ${{ inputs.planning_step_id }}
+      planning_version_id: ${{ inputs.planning_version_id }}
+      planning_repo_key: ${{ inputs.planning_repo_key }}
+      resolve_from_platform: true
+      run_build_on_upload: false
+      summary_label: mok1
