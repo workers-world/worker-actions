@@ -7,6 +7,8 @@ on:
     branches: ["master", "dev_00_02_00"]
     paths:
       - ".github/workflows/worker-verify.yml"
+      - ".github/workflows/worker-verify-dogfood.yml"
+      - ".github/workflows/worker-sync-packages-lock-dogfood.yml"
       - ".github/workflows/ci-verify-dogfood.yml"
       - "tools/npm-ci-dogfood/**"
 
@@ -21,7 +23,7 @@ jobs:
       contents: write
       packages: read
       actions: write
-    uses: ./.github/workflows/worker-verify.yml
+    uses: ./.github/workflows/worker-verify-dogfood.yml
     with:
       materialize_sdk: false
       sync_packages_lock: false

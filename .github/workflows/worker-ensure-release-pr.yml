@@ -110,7 +110,7 @@ jobs:
           fi
 
       - name: Checkout release branch
-        uses: $/.github/actions/checkout-with-transient-retry
+        uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.37
         with:
           fetch-depth: 0
           ref: ${{ inputs.release_branch }}
