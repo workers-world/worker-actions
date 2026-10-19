@@ -101,8 +101,8 @@ function lockPassesNpmCiDryRun() {
 
 function main() {
   if (!fs.existsSync("package.json")) {
-    console.error("package.json 不存在");
-    process.exit(1);
+    console.error("无 package.json（非 Node 项目），跳过 lock 检查");
+    process.exit(2);
   }
   const pkg = readJson("package.json");
   if (
