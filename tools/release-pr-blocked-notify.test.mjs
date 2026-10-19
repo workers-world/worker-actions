@@ -9,6 +9,7 @@ import {
   COOLDOWN_MS,
   REASON_CLASS,
   buildBlockedReasons,
+  isPostMergeMergeRefGoneInAnnotations,
   isWithinNotifyCooldown,
   shouldSendBlockedNotify,
   shouldSkipNotifyForPrState,
@@ -34,6 +35,41 @@ test('merged PR skips notify', () => {
   });
   assert.equal(d.send, false);
   assert.equal(d.skipReason, 'pr_not_open');
+});
+
+test('detects post-merge merge ref gone in annotations', () => {
+  const ann =
+    "couldn't find remote ref refs/pull/181/merge\nfatal: git fetch failed";
+  assert.equal(isPostMergeMergeRefGoneInAnnotations(ann), true);
+});
+
+test('merged PR with merge-ref-only flake skips as post_merge_merge_ref_gone', () => {
+  const ann =
+    "[workflow-lint] ::error::couldn't find remote ref refs/pull/181/merge";
+  const d = shouldSendBlockedNotify({
+    prState: 'MERGED',
+    verify: 'success',
+    qodana: 'success',
+    ocr: 'success',
+    merge: 'skipped',
+    annotations: ann,
+  });
+  assert.equal(d.send, false);
+  assert.equal(d.skipReason, 'post_merge_merge_ref_gone');
+  assert.equal(d.reasonClass, REASON_CLASS.POST_MERGE_MERGE_REF_GONE);
+});
+
+test('open PR with merge ref checkout failure still sends', () => {
+  const ann = "couldn't find remote ref refs/pull/42/merge";
+  const d = shouldSendBlockedNotify({
+    prState: 'OPEN',
+    verify: 'success',
+    qodana: 'success',
+    ocr: 'success',
+    merge: 'skipped',
+    annotations: ann,
+  });
+  assert.equal(d.send, true);
 });
 
 test('closed PR skips notify', () => {

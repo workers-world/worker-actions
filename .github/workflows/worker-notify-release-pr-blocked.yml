@@ -196,7 +196,14 @@ jobs:
             exit 0
           fi
 
-          echo "::warning::notify-step 未在 ref=${ACTIONS_BUNDLE_REF} 中发布；回退旧版 bash 原因 + 邮件构建（无 PR 状态/冷却降噪）"
+          echo "::warning::notify-step 未在 ref=${ACTIONS_BUNDLE_REF} 中发布；回退旧版 bash 原因 + 邮件构建（无冷却降噪；仍尊重 PR 状态）"
+          PR_STATE_N="$(printf '%s' "${PR_STATE:-}" | tr '[:lower:]' '[:upper:]')"
+          if [ "$PR_STATE_N" = "MERGED" ] || [ "$PR_STATE_N" = "CLOSED" ]; then
+            echo "send_notify=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=pr_not_open" >> "$GITHUB_OUTPUT"
+            echo "reason_class=legacy" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           reasons=()
           if [ "$VERIFY" = "failure" ]; then
             reasons+=("verify 失败：检查 dev_* push / 测试 / SDK 依赖")
