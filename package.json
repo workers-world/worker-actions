@@ -4,7 +4,7 @@
   "private": true,
   "description": "workers-world GitHub Actions bundle (tools unit tests at repo root for npm ci / box tests)",
   "scripts": {
-    "test": "node --test tools/release-pr-blocked-notify.test.mjs tools/lock-matches-package-json.test.mjs tools/npm-ci-legacy-peer-deps.test.mjs tools/release-pipeline-benchmark/lib/stats.test.mjs tools/consumer-actions-bump/bump-consumer.test.mjs tools/consumer-actions-bump/fetch-consumers.test.mjs tools/consumer-actions-bump/rewrite-workflow-pins.test.mjs",
+    "test": "node --test tools/release-pr-blocked-notify.test.mjs tools/lock-matches-package-json.test.mjs tools/npm-ci-legacy-peer-deps.test.mjs tools/lib/package-manifest-conflict-allowlist.test.mjs tools/release-pipeline-benchmark/lib/stats.test.mjs tools/consumer-actions-bump/bump-consumer.test.mjs tools/consumer-actions-bump/fetch-consumers.test.mjs tools/consumer-actions-bump/rewrite-workflow-pins.test.mjs",
     "check": "npm test"
   },
   "license": "MIT"
