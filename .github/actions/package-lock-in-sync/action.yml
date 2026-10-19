@@ -56,7 +56,7 @@ runs:
           if [ "$code" -eq 2 ]; then
             echo "in_sync=true" >> "$GITHUB_OUTPUT"
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "package.json 无 framework_sdk_worker，跳过"
+            echo "无 Node lock 门禁（无 package.json 或无 framework_sdk_worker），跳过"
             exit 0
           fi
           echo "in_sync=false" >> "$GITHUB_OUTPUT"
