@@ -117,7 +117,8 @@ jobs:
           token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
 
       - name: Require package-lock in sync before release PR
-        uses: ./.github/actions/package-lock-in-sync
+        # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓；见 docs/actions-releases.md
+        uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.35
         id: lock_gate
         with:
           skip_dry_run: "true"

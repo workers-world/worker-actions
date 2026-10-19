@@ -129,7 +129,8 @@ jobs:
         if: needs.sync-lock.result == 'success'
         run: git pull --ff-only origin "${SYNC_LOCK_BRANCH}"
 
-      - uses: ./.github/actions/package-lock-in-sync
+      # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓（非 worker-actions）→ action.yml 404
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.35
         id: lock_check
         with:
           working-directory: ${{ inputs.working_directory }}
