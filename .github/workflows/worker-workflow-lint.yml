@@ -70,7 +70,8 @@ jobs:
       # actions/cache save（actionlint / zizmor venv）
       actions: write
     steps:
-      - uses: ./.github/actions/checkout-with-transient-retry
+      # workflow_call 内 ./ composite 解析到 caller 仓；dogfood 用本 PR commit SHA（tag 未打出前）
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@751b29e405401bf63ebfa6bed9c170594f9ce959
         with:
           fetch-depth: 0  # manifest tag 一致性需要 git tag
           fetch-tags: "true"  # 内层 pin 一致性读 actions/v* tag，避免 step 内 git fetch --tags
