@@ -171,7 +171,8 @@ jobs:
       contents: write
       packages: read
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.35
+    # 临时 pin 本 PR commit（含 #155 no-op + 全路径 lock-precheck）；v0.2.36 tag 仍含 ./ action 回归。发 actions/v0.2.37 后可改 @actions/v0.2.37
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@5ab7047742fe2c6225e544ca3de6802438fcac85
     # 最小 secret 集：GHA_TOKEN 读 Packages；RELEASE_BOT_* 仅 bot=app 时由 sync-lock 消费
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
