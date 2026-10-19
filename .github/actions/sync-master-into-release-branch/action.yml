@@ -1,0 +1,54 @@
+name: Sync master into release branch (ensure-release-pr)
+description: >-
+  Merge master into dev_* before Release PR. Auto-resolves package.json / lock-only conflicts
+  keeping destin (ours). Realigns package-lock with destin package.json when needed.
+
+inputs:
+  release_branch:
+    description: Current dev_* branch
+    required: true
+  master_branch:
+    description: Release target branch (master)
+    required: false
+    default: master
+  repo:
+    description: owner/repo
+    required: true
+  gh_token:
+    description: PAT or App token for gh API and git push
+    required: true
+  node_auth_token:
+    description: Token for npm GitHub Packages when realigning lock after auto-resolve
+    required: false
+    default: ""
+
+outputs:
+  skipped:
+    description: "'true' when sync was not needed or release_branch not dev_*"
+    value: ${{ steps.sync.outputs.skipped }}
+  auto_resolved_package_lock:
+    description: "'true' when package/lock-only conflicts were resolved with --ours"
+    value: ${{ steps.sync.outputs.auto_resolved_package_lock }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      if: inputs.node_auth_token != ''
+      with:
+        node-version: "24"
+        registry-url: https://npm.pkg.github.com
+        scope: "@workers-world"
+
+    - id: sync
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.gh_token }}
+        NODE_AUTH_TOKEN: ${{ inputs.node_auth_token }}
+        RELEASE_BRANCH: ${{ inputs.release_branch }}
+        MASTER_BRANCH: ${{ inputs.master_branch }}
+        REPO: ${{ inputs.repo }}
+      run: |
+        set -euo pipefail
+        action_dir="${{ github.action_path }}"
+        bash "${action_dir}/sync.sh" "$action_dir"
