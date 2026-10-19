@@ -129,7 +129,7 @@ jobs:
         if: needs.sync-lock.result == 'success'
         run: git pull --ff-only origin "${SYNC_LOCK_BRANCH}"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.35
+      - uses: ./.github/actions/package-lock-in-sync
         id: lock_check
         with:
           working-directory: ${{ inputs.working_directory }}
@@ -181,7 +181,27 @@ jobs:
         if: needs.sync-lock.result == 'success'
         run: git pull --ff-only origin "${SYNC_LOCK_BRANCH}"
 
+      - name: Detect npm verify scope
+        id: npm_scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg="package.json"
+          lock="package-lock.json"
+          if [ ! -f "$pkg" ]; then
+            echo "::notice::无 package.json，跳过 npm verify（container / 纯 Python 等仓）"
+            echo "run_npm=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f "$lock" ] && [ "${{ inputs.materialize_sdk }}" != "true" ]; then
+            echo "::notice::无 package-lock.json 且 materialize_sdk=false，跳过 npm verify"
+            echo "run_npm=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run_npm=true" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@v7
+        if: steps.npm_scope.outputs.run_npm == 'true'
         with:
           node-version: "24"
           registry-url: https://npm.pkg.github.com
@@ -190,6 +210,7 @@ jobs:
           cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
 
       - name: Restore node_modules cache
+        if: steps.npm_scope.outputs.run_npm == 'true'
         uses: actions/cache/restore@v6
         id: node_modules_cache
         with:
@@ -197,7 +218,7 @@ jobs:
           key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
 
       - name: Materialize SDK from GitHub Packages
-        if: inputs.materialize_sdk
+        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.materialize_sdk
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           HAS_GHA_TOKEN: ${{ secrets.GHA_TOKEN != '' }}
@@ -248,6 +269,7 @@ jobs:
       # node_modules 缓存命中时用 npm ci --prefer-offline（仍校验 lock，不跳过 dry-run 级完整性）；
       # lock 变更时 cache key 变，自动全量 npm ci。不替代 lock-precheck 的 npm ci --dry-run。
       - name: Run npm ci
+        if: steps.npm_scope.outputs.run_npm == 'true'
         run: |
           set -euo pipefail
           common=(--no-fund --no-audit)
@@ -260,16 +282,18 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Save node_modules cache
-        if: steps.node_modules_cache.outputs.cache-hit != 'true'
+        if: steps.npm_scope.outputs.run_npm == 'true' && steps.node_modules_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
           key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
-      - run: npm run check
+      - name: npm run check
+        if: steps.npm_scope.outputs.run_npm == 'true'
+        run: npm run check
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
       - name: npm test
-        if: inputs.run_tests
+        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.run_tests
         run: npm test
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
