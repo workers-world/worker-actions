@@ -39,7 +39,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
           permission-contents: write
 
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@751b29e405401bf63ebfa6bed9c170594f9ce959
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
@@ -51,7 +51,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@751b29e405401bf63ebfa6bed9c170594f9ce959
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
         id: lock_check
         with:
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}

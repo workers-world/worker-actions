@@ -94,7 +94,7 @@ jobs:
           github.event.pull_request.head.repo.full_name == github.repository
         )
       )
-    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock-dogfood.yml@751b29e405401bf63ebfa6bed9c170594f9ce959
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock-dogfood.yml@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
     with:
       bot: ${{ inputs.bot }}
     secrets:
@@ -120,7 +120,7 @@ jobs:
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@751b29e405401bf63ebfa6bed9c170594f9ce959
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
@@ -130,7 +130,7 @@ jobs:
         run: git pull --ff-only origin "${SYNC_LOCK_BRANCH}"
 
       # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓（非 worker-actions）→ action.yml 404
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@751b29e405401bf63ebfa6bed9c170594f9ce959
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
         id: lock_check
         with:
           working-directory: ${{ inputs.working_directory }}
@@ -173,7 +173,7 @@ jobs:
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@751b29e405401bf63ebfa6bed9c170594f9ce959
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
@@ -310,7 +310,7 @@ jobs:
     # （bot=app 试点期 promote 嵌套链暂走 PAT：与 SDK 物化的 packages 读共用 GHA_TOKEN，
     #   全量切 App 需先完成包「Manage Actions access」授权，见 docs/github-app-token-migration.md §4）
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@751b29e405401bf63ebfa6bed9c170594f9ce959
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:

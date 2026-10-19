@@ -23,7 +23,7 @@ jobs:
       contents: write
       packages: read
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-verify-dogfood.yml@751b29e405401bf63ebfa6bed9c170594f9ce959
+    uses: workers-world/worker-actions/.github/workflows/worker-verify-dogfood.yml@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
     with:
       materialize_sdk: false
       sync_packages_lock: false
