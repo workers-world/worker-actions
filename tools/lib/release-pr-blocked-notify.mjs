@@ -11,10 +11,12 @@ export const REASON_CLASS = {
   OCR: 'ocr_failure',
   MERGE: 'merge_failure',
   MERGE_SKIPPED: 'merge_skipped',
+  POST_MERGE_MERGE_REF_GONE: 'post_merge_merge_ref_gone',
   OTHER: 'other',
 };
 
 const RUNNER_LOST_RE = /self-hosted runner lost communication/i;
+const MERGE_REF_GONE_RE = /couldn't find remote ref refs\/pull\/\d+\/merge/i;
 
 export function hasRunnerLostCommunication(annotations) {
   return RUNNER_LOST_RE.test(String(annotations ?? ''));
@@ -30,6 +32,30 @@ export function countRunnerLostInAnnotations(annotations) {
 export function shouldSkipNotifyForPrState(state) {
   const s = String(state ?? '').trim().toUpperCase();
   return s === 'MERGED' || s === 'CLOSED';
+}
+
+/** workflow-lint checkout 在 PR 合入后仍引用已删除的 refs/pull/N/merge 时的典型 annotation。 */
+export function isPostMergeMergeRefGoneInAnnotations(annotations) {
+  return MERGE_REF_GONE_RE.test(String(annotations ?? ''));
+}
+
+/**
+ * PR 已 merged/closed，且失败形态仅为 merge ref 消失、其它门禁未 failure → 降噪（#150 / WW-328）。
+ */
+export function shouldSuppressPostMergeMergeRefGoneNotify({
+  prState,
+  verify,
+  qodana,
+  ocr,
+  merge,
+  annotations,
+}) {
+  if (!shouldSkipNotifyForPrState(prState)) return false;
+  if (!isPostMergeMergeRefGoneInAnnotations(annotations)) return false;
+  if (verify === 'failure' || qodana === 'failure' || ocr === 'failure' || merge === 'failure') {
+    return false;
+  }
+  return true;
 }
 
 export function isWithinNotifyCooldown(lastSentAtMs, nowMs = Date.now()) {
@@ -185,6 +211,22 @@ export function shouldSendBlockedNotify({
   lastCooldownSentAtMs,
   nowMs = Date.now(),
 }) {
+  if (shouldSuppressPostMergeMergeRefGoneNotify({
+    prState,
+    verify,
+    qodana,
+    ocr,
+    merge,
+    annotations,
+  })) {
+    return {
+      send: false,
+      skipReason: 'post_merge_merge_ref_gone',
+      reasonClass: REASON_CLASS.POST_MERGE_MERGE_REF_GONE,
+      reasons: [],
+    };
+  }
+
   if (shouldSkipNotifyForPrState(prState)) {
     return { send: false, skipReason: 'pr_not_open', reasonClass: REASON_CLASS.OTHER, reasons: [] };
   }
