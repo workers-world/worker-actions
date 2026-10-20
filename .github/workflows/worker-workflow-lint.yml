@@ -14,6 +14,7 @@ name: Worker workflow lint
 #   7. manifest 格式：current 须为 actions/vX.Y.Z（不校验 tag 是否已 push；发版 PR 中 manifest 常领先 tag）
 #   8. 卫生检查：CRLF / 尾随空白 / 合并冲突标记 <<<<<<<
 #   9. 凭据泄露扫描：ghp_ / sk- / cf- / -----BEGIN ... PRIVATE KEY-----
+#  10. workflow_call 内禁止 uses: ./ 或 $/ 引用 .github/actions（跨仓解析到 caller）
 #
 # templates/ 与 manifest current 的 pin 不对齐是常态（manifest 由 release-actions-bundle 异步回填），不在此校验。
 #
@@ -342,6 +343,24 @@ jobs:
               echo "ok: manifest/actions-bundle.yaml"
             fi
           fi
+          exit $fail
+
+      - name: workflow_call 禁止相对 composite uses（./ 或 $/ .github/actions）
+        run: |
+          set -euo pipefail
+          fail=0
+          rel_re='uses:[[:space:]]*(\./|\$/)\\.github/actions/'
+          for f in .github/workflows/*.yml; do
+            [ -f "$f" ] || continue
+            if ! grep -q 'workflow_call:' "$f"; then
+              continue
+            fi
+            while IFS= read -r hit; do
+              [ -n "$hit" ] || continue
+              echo "::error::${hit}：workflow_call 内 uses: ./ 或 $/ .github/actions/ 会解析到 caller 业务仓；须 workers-world/worker-actions/.github/actions/…@actions/vX.Y.Z"
+              fail=1
+            done < <(grep -nE "$rel_re" "$f" || true)
+          done
           exit $fail
 
       - name: Pin 检查（禁止 @master/@main/@HEAD）
