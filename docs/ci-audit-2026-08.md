@@ -6,6 +6,8 @@
 
 ## TL;DR
 
+> **2026-10**：alibaba OCR（`open-code-review`）已废弃并自本 bundle 移除；见 [ai-review/README.md](./ai-review/README.md) 与 cloudflare_work#19。
+
 整体设计成熟度显著高于常见的自研 Actions bundle：job 级最小权限 + PAT/GITHUB_TOKEN 写读分离、actionlint+shellcheck 前置门禁、Qodana 限频 gate、OCR session cache、`add-mask`/HTML 转义/`::` 注入防护、fail-open vs fail-closed 的显式取舍都有清晰思考。本轮审计发现 **1 个链路级竞态缺陷（P1）、1 类可触发的输出注入（P1）、1 个实际不可用的第三方 action 引用（P1）、一批与 zizmor/官方基准的差距项（P2）**，均已修复；遗留 P3 以工程优化为主。
 
 ---

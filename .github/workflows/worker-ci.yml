@@ -3,14 +3,14 @@ name: Worker CI
 # =============================================================================
 # 业务仓 CI 门面（唯一入口）— Worker 仓请只 uses 本文件，勿直接拼 leaf workflow。
 # =============================================================================
-# 内嵌：verify / ensure-release-pr / qodana / OCR / release-auto-merge / notify-blocked
+# 内嵌：verify / ensure-release-pr / qodana / AI review（可选）/ release-auto-merge / notify-blocked
 #
 # 成本策略（actions/v0.2.7+）：
 #   - Release PR 默认创建即 ready；门禁全绿 + require_non_draft_pr 后 auto-merge → Cloudflare Builds
 #   - workflow_call.secrets 须声明（与 actions/v0.2.6 同集）；actions/v0.2.7 tag 误删该块会导致 caller 显式 secrets: 映射 startup_failure — 合 master 后预期 actions/v0.2.8 patch；caller 可用 secrets: inherit 或显式映射下列 secrets
 #   - push 默认不跑 verify / workflow-lint；verify 仅在 pull_request（门禁）；push 仍跑 sync-lock，ensure 等其完成（#132）
-#   - skip_ocr / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
-#   - github-actions[bot]（lock-bot）跳过 lint/verify/qodana/ocr/ensure
+#   - skip_ai_review / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
+#   - github-actions[bot]（lock-bot）跳过 lint/verify/qodana/ai-review/ensure
 #
 # Caller（业务仓 .github/workflows/ci.yml）典型用法：
 #   permissions:
@@ -18,7 +18,7 @@ name: Worker CI
 #     packages: read
 #     pull-requests: write
 #     issues: write
-#     actions: write   # nested qodana（PR 限频 cache）/ ocr（cache）
+#     actions: write   # nested qodana（PR 限频 cache）
 #     checks: read     # nested notify-blocked
 #   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.39
 #   secrets: inherit   # 或显式映射 workflow_call.secrets 全集（zizmor secrets-inherit / medium）
@@ -26,8 +26,7 @@ name: Worker CI
 #     sync_packages_lock: true
 #
 # SDK 版本由各仓 package.json 决定；无 SDK：materialize_sdk: false；无 test：run_tests: false。
-# OCR 默认 skip_ocr: true（临时：每次 PR OCR 过重；目标「一版本结尾 OCR 一次」待设计）。
-# 版本收尾/需要审查时 caller 显式 skip_ocr: false。
+# AI PR review 默认 skip_ai_review: true（非 merge 门禁；试点仓显式 false + AI_REVIEW_LLM_TOKEN）。
 # sync-default-branch 须用独立 workflow（templates/sync-default-branch.yml），勿并入本门面。
 #
 # 嵌套 reusable workflow 须全路径 @actions/vX.Y.Z（跨仓时 $/ 会被解析成 caller 的 ./，见 docs/actions-releases.md）。composite action 仍可用 $/
@@ -54,12 +53,12 @@ on:
         description: verify 内是否 FF master（Release PR 仓须 false）
         type: boolean
         default: false
-      ocr_rule:
-        description: 仓内 OCR 规则 JSON 路径
+      ai_review_config:
+        description: 仓内 AI review 配置 JSON 路径
         type: string
-        default: ".opencodereview/rule.json"
-      skip_ocr:
-        description: "true 跳过 OCR（默认 true：临时控成本；版本收尾可传 false）"
+        default: ".ai-review/config.json"
+      skip_ai_review:
+        description: "true 跳过自建 AI PR review（默认 true；非 merge 门禁）"
         type: boolean
         default: true
       skip_branch_deleted_check:
@@ -99,20 +98,17 @@ on:
       QODANA_TOKEN:
         description: JetBrains Qodana token（Org 未配置时为空，gate 会 skip 扫描）
         required: false
-      OCR_LLM_TOKEN:
-        description: LLM API Key（当前 provider；skip_ocr=true 时可不传）
+      AI_REVIEW_LLM_TOKEN:
+        description: 自建 AI PR review LLM API Key（skip_ai_review=true 时可不传）
         required: false
-      DEEPSEEK_API_KEY:
-        description: 旧名兼容（OCR_LLM_TOKEN 为空时回退）；新配置请用 OCR_LLM_TOKEN
+      AI_REVIEW_LLM_URL:
+        description: LLM endpoint URL（推荐 Org Variable；Secret 兼容）
         required: false
-      OCR_LLM_URL:
-        description: LLM endpoint URL（推荐用 Org Variable；此处声明以兼容 Secret 配置）
+      AI_REVIEW_LLM_MODEL:
+        description: LLM model（推荐 Org Variable；Secret 兼容）
         required: false
-      OCR_LLM_MODEL:
-        description: LLM model 名（推荐用 Org Variable；此处声明以兼容 Secret 配置）
-        required: false
-      OCR_LLM_EXTRA_HEADERS:
-        description: 额外请求头（推荐用 Org Variable；此处声明以兼容 Secret 配置）
+      AI_REVIEW_LLM_EXTRA_HEADERS:
+        description: 额外 LLM 请求头（推荐 Org Variable；Secret 兼容）
         required: false
       NOTIFY_GHA_TOKEN:
         description: 与 notify-worker NOTIFY_GHA_TOKEN 同值（Org Secret）；未配置时 notify-blocked Guard 报错
@@ -129,9 +125,9 @@ jobs:
   # Release PR 公共过滤（GHA 不支持 YAML anchor 跨 job if，以下须保持一致）：
   #   event_name==pull_request && action in opened|synchronize|reopened|ready_for_review
   #   && base_ref==master && head_ref startsWith dev_ && same-repo
-  # 调整触发范围时请同步改：qodana / ocr / release-auto-merge / notify-blocked / ci-summary
+  # 调整触发范围时请同步改：qodana / ai-pr-review / release-auto-merge / notify-blocked / ci-summary
   #
-  # workflow-lint：仅 PR（OCR 前置）；push 不跑。拿不到路径时 PR 上跑一次（避免 paths-filter 再花 1 分钟）。
+  # workflow-lint：仅 PR；push 不跑。拿不到路径时 PR 上跑一次（避免 paths-filter 再花 1 分钟）。
   workflow-lint:
     if: |
       github.actor != 'github-actions[bot]' &&
@@ -240,12 +236,11 @@ jobs:
       base_ref: ${{ github.base_ref }}
       head_sha: ${{ github.event.pull_request.head.sha }}
 
-  ocr:
+  ai-pr-review:
     needs: [workflow-lint]
-    # skip_ocr 时整段不调 open-code-review（无 skip-ack runner）
     if: |
       always() &&
-      inputs.skip_ocr != true &&
+      inputs.skip_ai_review != true &&
       (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
       github.actor != 'github-actions[bot]' &&
       github.event_name == 'pull_request' &&
@@ -256,24 +251,20 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      # nested open-code-review 需 actions: write（actions/cache session save）
-      actions: write
-    uses: workers-world/worker-actions/.github/workflows/open-code-review.yml@actions/v0.2.39
-    # 最小 secret 集（open-code-review 声明的全集）；旧名 DEEPSEEK_API_KEY 兼容保留
+    uses: workers-world/worker-actions/.github/workflows/ai-pr-review.yml@actions/v0.2.39
     secrets:
-      OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-      OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
-      OCR_LLM_MODEL: ${{ secrets.OCR_LLM_MODEL }}
-      OCR_LLM_EXTRA_HEADERS: ${{ secrets.OCR_LLM_EXTRA_HEADERS }}
+      AI_REVIEW_LLM_TOKEN: ${{ secrets.AI_REVIEW_LLM_TOKEN }}
+      AI_REVIEW_LLM_URL: ${{ secrets.AI_REVIEW_LLM_URL }}
+      AI_REVIEW_LLM_MODEL: ${{ secrets.AI_REVIEW_LLM_MODEL }}
+      AI_REVIEW_LLM_EXTRA_HEADERS: ${{ secrets.AI_REVIEW_LLM_EXTRA_HEADERS }}
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
-      rule: ${{ inputs.ocr_rule }}
       skip: false
-      actions_bundle_ref: actions/v0.2.34
+      config_path: ${{ inputs.ai_review_config }}
+      actions_bundle_ref: actions/v0.2.39
 
   release-auto-merge:
-    needs: [workflow-lint, verify, qodana, ocr]
+    needs: [workflow-lint, verify, qodana]
     if: |
       always() &&
       (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
@@ -284,8 +275,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       (inputs.require_non_draft_pr != true || github.event.pull_request.draft == false) &&
       needs.verify.result == 'success' &&
-      (needs.qodana.result == 'success' || needs.qodana.result == 'skipped') &&
-      (needs.ocr.result == 'success' || needs.ocr.result == 'skipped')
+      (needs.qodana.result == 'success' || needs.qodana.result == 'skipped')
     # merge 凭证走 PAT（GHA_TOKEN）或 App（bot=app）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
     uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.2.39
@@ -300,7 +290,7 @@ jobs:
       bot: ${{ inputs.bot }}
 
   ci-failure-comment:
-    needs: [workflow-lint, verify, qodana, ocr]
+    needs: [workflow-lint, verify, qodana]
     if: |
       always() &&
       github.event_name == 'pull_request' &&
@@ -311,8 +301,7 @@ jobs:
       (
         needs.workflow-lint.result == 'failure' ||
         needs.verify.result == 'failure' ||
-        needs.qodana.result == 'failure' ||
-        needs.ocr.result == 'failure'
+        needs.qodana.result == 'failure'
       )
     permissions:
       pull-requests: write
@@ -323,10 +312,9 @@ jobs:
       workflow_lint_result: ${{ needs.workflow-lint.result }}
       verify_result: ${{ needs.verify.result }}
       qodana_result: ${{ needs.qodana.result }}
-      ocr_result: ${{ needs.ocr.result }}
 
   notify-blocked:
-    needs: [workflow-lint, verify, qodana, ocr, release-auto-merge]
+    needs: [workflow-lint, verify, qodana, release-auto-merge]
     # reusable workflow 的 job 权限不能超过 caller；被调 notify 需要 actions/checks: read 拉 annotations
     permissions:
       actions: read
@@ -344,20 +332,17 @@ jobs:
       needs.release-auto-merge.result != 'cancelled' &&
       needs.verify.result != 'cancelled' &&
       needs.qodana.result != 'cancelled' &&
-      needs.ocr.result != 'cancelled' &&
       needs.workflow-lint.result != 'cancelled' &&
       (
         needs.workflow-lint.result == 'failure' ||
         needs.verify.result == 'failure' ||
         needs.qodana.result == 'failure' ||
-        needs.ocr.result == 'failure' ||
         needs.release-auto-merge.result == 'failure' ||
         (
           needs.release-auto-merge.result == 'skipped' &&
           (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
           needs.verify.result == 'success' &&
-          (needs.qodana.result == 'success' || needs.qodana.result == 'skipped') &&
-          (needs.ocr.result == 'success' || needs.ocr.result == 'skipped')
+          (needs.qodana.result == 'success' || needs.qodana.result == 'skipped')
         )
       )
     uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.39
@@ -371,13 +356,12 @@ jobs:
       pr_url: ${{ github.event.pull_request.html_url }}
       verify_result: ${{ needs.verify.result }}
       qodana_result: ${{ needs.qodana.result }}
-      ocr_result: ${{ needs.ocr.result }}
       merge_result: ${{ needs.release-auto-merge.result }}
       actions_bundle_ref: actions/v0.2.34
 
   # 仪器：进来多少 job、哪些 skipped、估算 hosted 分钟下界（文章「Claude 的眼睛」）
   ci-summary:
-    needs: [workflow-lint, verify, ensure-release-pr, qodana, ocr, release-auto-merge]
+    needs: [workflow-lint, verify, ensure-release-pr, qodana, ai-pr-review, release-auto-merge]
     if: always()
     runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 2
@@ -390,14 +374,14 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           HEAD_REF: ${{ github.head_ref }}
           IS_DRAFT: ${{ github.event.pull_request.draft }}
-          SKIP_OCR: ${{ inputs.skip_ocr }}
+          SKIP_AI_REVIEW: ${{ inputs.skip_ai_review }}
           VERIFY_ON_PUSH: ${{ inputs.verify_on_push }}
           CREATE_DRAFT: ${{ inputs.create_draft_release_pr }}
           LINT_R: ${{ needs.workflow-lint.result }}
           VERIFY_R: ${{ needs.verify.result }}
           ENSURE_R: ${{ needs.ensure-release-pr.result }}
           QODANA_R: ${{ needs.qodana.result }}
-          OCR_R: ${{ needs.ocr.result }}
+          AI_REVIEW_R: ${{ needs.ai-pr-review.result }}
           MERGE_R: ${{ needs.release-auto-merge.result }}
           QODANA_VAR: ${{ vars.QODANA_ENABLED }}
           QODANA_VAR_WW: ${{ vars.WORKERS_WORLD_QODANA_ENABLED }}
@@ -405,7 +389,7 @@ jobs:
           set -euo pipefail
           # skipped / cancelled 不占 hosted 分钟；其余约 ≥1 计费分钟/job
           ran=0
-          for r in "$LINT_R" "$VERIFY_R" "$ENSURE_R" "$QODANA_R" "$OCR_R" "$MERGE_R"; do
+          for r in "$LINT_R" "$VERIFY_R" "$ENSURE_R" "$QODANA_R" "$AI_REVIEW_R" "$MERGE_R"; do
             case "$r" in
               success|failure) ran=$((ran + 1)) ;;
             esac
@@ -421,7 +405,7 @@ jobs:
             echo "| actor | \`${ACTOR}\` |"
             echo "| ref | \`${REF_NAME}\` / head \`${HEAD_REF}\` |"
             echo "| draft | \`${IS_DRAFT}\` |"
-            echo "| skip_ocr | \`${SKIP_OCR}\` |"
+            echo "| skip_ai_review | \`${SKIP_AI_REVIEW}\` |"
             echo "| verify_on_push | \`${VERIFY_ON_PUSH}\` |"
             echo "| create_draft_release_pr | \`${CREATE_DRAFT}\` |"
             echo "| QODANA_ENABLED | \`${QODANA_VAR:-}\` / WW \`${QODANA_VAR_WW:-}\` |"
@@ -432,10 +416,10 @@ jobs:
             echo "| verify | \`${VERIFY_R}\` |"
             echo "| ensure-release-pr | \`${ENSURE_R}\` |"
             echo "| qodana | \`${QODANA_R}\` |"
-            echo "| ocr | \`${OCR_R}\` |"
+            echo "| ai-pr-review | \`${AI_REVIEW_R}\` |"
             echo "| release-auto-merge | \`${MERGE_R}\` |"
             echo ""
             echo "**估算启动过的 hosted job 数（含本 summary）≈ ${ran}**（≈ GitHub Linux 计费分钟下界；短 job 按 1 分钟取整）。"
             echo ""
-            echo "skip 含义：lint/push 默认不上；qodana 需 Org Variable；ocr 需 \`skip_ocr: false\`；bot push 整段跳过；draft 不 merge。"
+            echo "skip 含义：lint/push 默认不上；qodana 需 Org Variable；ai-pr-review 需 \`skip_ai_review: false\` + LLM token；bot push 整段跳过；draft 不 merge。AI review 失败不阻断 merge。"
           } >> "$GITHUB_STEP_SUMMARY"

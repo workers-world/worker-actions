@@ -24,7 +24,7 @@ updates:
   - package-ecosystem: "github-actions"
     directories:
       - "/.github/actions/ensure-gh-cli"
-      - "/.github/actions/ocr-pr-review"
+      - "/.github/actions/ai-pr-review"
       - "/.github/actions/package-lock-in-sync"
       - "/.github/actions/package-lock-wait-for-sync"
       - "/.github/actions/checkout-with-transient-retry"

@@ -53,7 +53,7 @@ flowchart TB
   WCI --> WV[worker-verify]
   WCI --> ERP[worker-ensure-release-pr]
   WCI --> QOD[worker-qodana-scan]
-  WCI --> OCR[open-code-review]
+  WCI --> AIR[ai-pr-review]
   WCI --> RAM[worker-release-auto-merge]
   WCI --> NTF[worker-notify-release-pr-blocked]
 
@@ -88,7 +88,7 @@ flowchart TB
     prLint[workflow-lint]
     prVerify[verify]
     qodana[qodana]
-    ocr[ocr]
+    aiReview[ai-pr-review]
     merge[release-auto-merge]
     notify[notify-blocked]
   end
@@ -97,10 +97,9 @@ flowchart TB
   ensurePR --> releasePR[Release_PR_open]
   releasePR -.->|synchronize| prEvent
 
-  prLint --> ocr
+  prLint --> aiReview
   prVerify --> merge
   qodana --> merge
-  ocr --> merge
   prLint --> merge
   merge -->|failure_or_skipped| notify
 ```
@@ -108,7 +107,7 @@ flowchart TB
 | 事件 | 运行的 job |
 |------|------------|
 | `push` → `dev_*` | verify（含 sync-lock）→ ensure-release-pr；另有独立 Sync default branch |
-| `pull_request` → `master`（head=`dev_*`） | workflow-lint、verify、qodana、ocr → release-auto-merge；失败/绿门未合时 notify-blocked |
+| `pull_request` → `master`（head=`dev_*`） | workflow-lint、verify、qodana、可选 ai-pr-review → release-auto-merge；失败/绿门未合时 notify-blocked |
 
 文字说明见 [release-pr-ci.md](./release-pr-ci.md)。
 
@@ -126,20 +125,18 @@ flowchart TB
   verify[verify]
   ensure[ensure-release-pr]
   qodana[qodana]
-  ocr[ocr]
+  aiReview[ai-pr-review]
   merge[release-auto-merge]
   notify[notify-blocked]
 
   lint -->|push_dev_and_success| ensure
-  lint -->|PR_and_success| ocr
+  lint -->|PR_and_success| aiReview
   lint --> merge
   verify --> merge
   qodana --> merge
-  ocr --> merge
   lint --> notify
   verify --> notify
   qodana --> notify
-  ocr --> notify
   merge --> notify
 ```
 
@@ -149,9 +146,9 @@ flowchart TB
 | verify | — | 始终（由 nested worker-verify 按事件细分） |
 | ensure-release-pr | workflow-lint | push `dev_*` 且 lint success；跳过 deleted |
 | qodana | — | 同仓 Release PR（`dev_*` → `master`） |
-| ocr | workflow-lint | 同上 + lint success；默认 `skip_ocr: true` |
-| release-auto-merge | lint, verify, qodana, ocr | 四门全 success；可选非 draft |
-| notify-blocked | 全部 | PR 且 merge 非 success（含四门绿但 merge skipped） |
+| ai-pr-review | workflow-lint | 同上 + lint success；默认 `skip_ai_review: true`；非 merge 门禁 |
+| release-auto-merge | lint, verify, qodana | 三门全 success/skipped；可选非 draft |
+| notify-blocked | lint, verify, qodana, merge | PR 且 merge 非 success |
 
 来源：[`worker-ci.yml`](../.github/workflows/worker-ci.yml)。
 
@@ -247,20 +244,20 @@ flowchart LR
 
 来源：[`worker-qodana-scan.yml`](../.github/workflows/worker-qodana-scan.yml)；说明见 [qodana-ci.md](./qodana-ci.md)。
 
-#### `open-code-review.yml`
+#### `ai-pr-review.yml`
 
 ```mermaid
 flowchart TB
-  start[workflow_call] --> skipCheck{skip}
-  skipCheck -->|true| skipAck[skip-ack_success]
-  skipCheck -->|false| review[review]
+  start[workflow_call] --> skipCheck{skip_or_no_token}
+  skipCheck -->|skip| done[workflow_success]
+  skipCheck -->|run| review[review_continue_on_error]
   review --> preflight[LLM_preflight]
   preflight --> checkoutBundle[checkout_actions_bundle]
-  checkoutBundle --> ocrComposite[ocr-pr-review_composite]
-  ocrComposite --> blockCheck[block_on_high_severity]
+  checkoutBundle --> composite[ai-pr-review_composite]
+  composite --> comment[sticky_PR_comment]
 ```
 
-来源：[`open-code-review.yml`](../.github/workflows/open-code-review.yml)；说明见 [open-code-review.md](./open-code-review.md)。
+来源：[`ai-pr-review.yml`](../.github/workflows/ai-pr-review.yml)；说明见 [ai-review/README.md](./ai-review/README.md)。（OCR 已移除。）
 
 ### 5.3 Release PR 操作
 
@@ -309,7 +306,7 @@ flowchart LR
 
 ### 5.5 遗留 promote
 
-日常业务仓走 `worker-ci`，勿与 OCR 门禁抢跑。
+日常业务仓走 `worker-ci`，勿与 release 门禁抢跑。
 
 #### `worker-promote.yml`
 
@@ -403,12 +400,12 @@ destin（默认 `dev_*`）内层 nested pin 落后于最新 `actions/v*` 时，�
 flowchart TB
   subgraph composites [composite_actions]
     ghCli[ensure-gh-cli]
-    ocrAct[ocr-pr-review]
+    aiAct[ai-pr-review]
     qodParse[qodana-parse]
   end
 
   REL[release-actions-bundle] --> ghCli
-  OCR[open-code-review] --> ocrAct
+  AIR[ai-pr-review] --> aiAct
   QOD[worker-qodana-scan] --> qodParse
 ```
 
@@ -417,7 +414,7 @@ flowchart TB
 | `ensure-gh-cli` | `release-actions-bundle`（部分 leaf 内联安装 gh，未必走此 action） |
 | `ghcr-docker-login` | 业务仓容器 deploy workflow（caller；见 [container-worker-deploy-auth.md](./container-worker-deploy-auth.md)） |
 | `npm-ci-github-packages` | 业务仓容器 deploy workflow（caller；见 [container-worker-deploy-auth.md](./container-worker-deploy-auth.md)） |
-| `ocr-pr-review` | `open-code-review` |
+| `ai-pr-review` | `ai-pr-review.yml` |
 | `qodana-parse` | `worker-qodana-scan` |
 | `qodana-scan-gate` | `worker-qodana-scan` |
 
@@ -430,13 +427,13 @@ flowchart TB
 | Workflow | 触发 | 类型 | 上游 | 下游 |
 |----------|------|------|------|------|
 | `ci.yml` | push `dev_*`；PR → `master`（含 fork） | 本仓入口 | — | workflow-lint（无 secrets；fork-safe） |
-| `worker-ci.yml` | `workflow_call` | 业务仓门面 | 业务仓 `ci.yml` | lint, verify, ensure-pr, qodana, OCR, ci-failure-comment, auto-merge, notify |
+| `worker-ci.yml` | `workflow_call` | 业务仓门面 | 业务仓 `ci.yml` | lint, verify, ensure-pr, qodana, ai-pr-review, ci-failure-comment, auto-merge, notify |
 | `worker-workflow-lint.yml` | `workflow_call` | Leaf | worker-ci / ci | —（actionlint / manifest 格式 / 卫生 / 凭据扫描） |
 | `worker-verify.yml` | `workflow_call` | Leaf | worker-ci | sync-packages-lock, promote |
 | `worker-sync-packages-lock.yml` | `workflow_call` | Leaf | worker-verify | — |
 | `worker-ensure-release-pr.yml` | `workflow_call` | Leaf | worker-ci / ci | — |
 | `worker-qodana-scan.yml` | `workflow_call` | Leaf | worker-ci | composite `qodana-parse`, `qodana-scan-gate` |
-| `open-code-review.yml` | `workflow_call` | Leaf | worker-ci / ci | composite `ocr-pr-review`；`review_mode` log\|comment |
+| `ai-pr-review.yml` | `workflow_call` | Leaf | worker-ci / caller | composite `ai-pr-review`；非 merge 门禁 |
 | `worker-ci-failure-comment.yml` | `workflow_call` | Leaf | worker-ci | PR 门禁失败摘要评论 |
 | `worker-outdated-pr-check.yml` | `workflow_call` | Leaf | 业务仓自建 trigger | Outdated PR Check status（72h） |
 | `worker-outdated-pr-refresh.yml` | `workflow_call` | Leaf | 业务仓自建 cron | 刷新 outdated status |
@@ -459,7 +456,7 @@ flowchart TB
 - [release-pr-ci.md](./release-pr-ci.md) — Release PR 模型与前置 Secret
 - [actions-releases.md](./actions-releases.md) — Bundle tag / bump 消费者
 - [gh-release.md](./gh-release.md) — GitHub Release 页面（跨仓 `create-gh-release`）
-- [open-code-review.md](./open-code-review.md) — OCR
+- [ai-review/README.md](./ai-review/README.md) — AI PR review（OCR 已废弃）
 - [qodana-ci.md](./qodana-ci.md) — Qodana
 - [container-worker-deploy-auth.md](./container-worker-deploy-auth.md) — 容器 Worker GHCR + npm Packages 鉴权 composite（WW-167）
 - Java Maven CI：独立仓 [workers-world/java-actions](https://github.com/workers-world/java-actions)

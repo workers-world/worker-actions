@@ -28,11 +28,6 @@ on:
       qodana_result:
         type: string
         required: true
-      ocr_result:
-        description: OCR result（可 skipped）
-        type: string
-        required: false
-        default: "skipped"
 
 permissions:
   pull-requests: write
@@ -53,7 +48,6 @@ jobs:
           LINT: ${{ inputs.workflow_lint_result }}
           VERIFY: ${{ inputs.verify_result }}
           QODANA: ${{ inputs.qodana_result }}
-          OCR: ${{ inputs.ocr_result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO: ${{ github.repository }}
         run: |
@@ -62,7 +56,6 @@ jobs:
           [ "$LINT" = "failure" ] && FAILED="${FAILED}- workflow-lint: **failure**\n"
           [ "$VERIFY" = "failure" ] && FAILED="${FAILED}- verify: **failure**\n"
           [ "$QODANA" = "failure" ] && FAILED="${FAILED}- qodana: **failure**\n"
-          [ "$OCR" = "failure" ] && FAILED="${FAILED}- ocr: **failure**\n"
           if [ -z "$FAILED" ]; then
             echo "No failure results — skip comment"
             exit 0

@@ -1,0 +1,16 @@
+{
+  "language": "Chinese",
+  "model": "deepseek-chat",
+  "experts": [
+    {
+      "id": "security",
+      "label": "Security",
+      "rulesFile": "docs/ai-review/experts/security.md"
+    },
+    {
+      "id": "code-quality",
+      "label": "Code quality",
+      "rulesFile": "docs/ai-review/experts/code-quality.md"
+    }
+  ]
+}

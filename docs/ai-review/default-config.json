@@ -1,0 +1,18 @@
+{
+  "language": "Chinese",
+  "model": "",
+  "experts": [
+    {
+      "id": "security",
+      "label": "Security",
+      "rulesFile": "docs/ai-review/experts/security.md",
+      "temperature": 0.15
+    },
+    {
+      "id": "code-quality",
+      "label": "Code quality",
+      "rulesFile": "docs/ai-review/experts/code-quality.md",
+      "temperature": 0.2
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # workers-world/worker-actions
 
-Cloudflare Worker 仓可复用的 GitHub Actions bundle（verify、Release PR、Qodana、OCR、auto-merge）。
+Cloudflare Worker 仓可复用的 GitHub Actions bundle（verify、Release PR、Qodana、可选 AI PR review、auto-merge）。
 
 **不要** `@master`，pin `actions/vX.Y.Z`。
 
@@ -38,13 +38,13 @@ uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/
 | 名称 | 类型 | 用途 |
 |------|------|------|
 | `GHA_TOKEN` | Secret | classic PAT：`read:packages`（建议加 `repo` 以便 promote / 建 PR） |
-| `OCR_LLM_TOKEN` | Secret | OCR 用的 LLM API Key（可选；`skip_ocr: true` 时不需要） |
+| `AI_REVIEW_LLM_TOKEN` | Secret | 自建 AI PR review（可选；`skip_ai_review: true` 默认跳过） |
 | `QODANA_TOKEN` | Secret | JetBrains Qodana（可选；未开 Org Variable 则 skip） |
 | `NOTIFY_GHA_TOKEN` | Secret | 阻断邮件（可选） |
 | `RELEASE_BOT_PRIVATE_KEY` | Secret | release-bot App 私钥（caller 传 `bot: app` 时需要；可选，见 docs/github-app-token-migration.md） |
 | `RELEASE_BOT_APP_ID` | Variable | release-bot App ID（`bot: app` 时需要；可选） |
 | `DEFAULT_BRANCH_BOT_PRIVATE_KEY` / `DEFAULT_BRANCH_BOT_APP_ID` | Secret / Variable | 独立 default-branch-bot App（`bot: app` 时需要；可选） |
-| `OCR_LLM_URL` / `OCR_LLM_MODEL` | Variable | 默认 DeepSeek chat completions |
+| `AI_REVIEW_LLM_URL` / `AI_REVIEW_LLM_MODEL` | Variable | AI review LLM（OpenAI-compatible） |
 | `QODANA_ENABLED` | Variable | `true`/`1`/`yes` 才跑 Qodana Docker |
 | `GHA_RUNNER` | Variable | **私有** caller 且非空 → self-hosted label；否则 `ubuntu-latest`（公开仓始终 hosted） |
 | `NOTIFY_WORKER_URL` | Variable | 通知 HTTP 根 URL（可选） |
