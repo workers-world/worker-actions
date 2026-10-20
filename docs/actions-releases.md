@@ -42,7 +42,7 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 | 层 | 谁写 | 例子 | 作用 |
 |----|------|------|------|
 | **外层** | 业务仓 / templates | `worker-ci.yml@actions/v0.4.8` | 选定整份 bundle 入口 |
-| **内层** | bundle 内 workflow | `worker-ci` → `open-code-review.yml@actions/v0.4.8` | 叶子 workflow / composite 实际版本 |
+| **内层** | bundle 内 workflow | `worker-ci` → `ai-pr-review.yml@actions/vX.Y.Z`（可选） | 叶子 workflow / composite 实际版本 |
 
 **外层升了、内层没升 = 仍跑旧叶子。**  
 例如 tag `actions/v0.4.4` 内容里嵌套仍写 `@actions/v0.4.3` 时，业务仓即便 pin `v0.4.4`，OCR/notify 等仍解析到 `v0.4.3`。
@@ -134,7 +134,7 @@ manifest 自动 bump 合进 master 后：给**下一档分支**用，不是给**
 2. `gh pr merge --merge`；若被 required checks 阻挡则 `--auto` 并轮询至 MERGED
 
 适用：`action-notify-email` / `framework_sdk_worker` 等尚未完全迁到 `worker-ci` 门禁的仓，以及手动 `workflow_dispatch`。  
-**日常 Worker 仍用 `worker-ci`**（ensure-release-pr → OCR → release-auto-merge），不要再开独立 promote 与 OCR 门禁抢跑。
+**日常 Worker 仍用 `worker-ci`**（ensure-release-pr → verify/qodana → release-auto-merge；可选 ai-pr-review 非门禁），不要再开独立 promote 抢跑。
 
 Caller：`permissions: {}` + `secrets: inherit`（须 `GHA_TOKEN`）。
 

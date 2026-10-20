@@ -1,6 +1,6 @@
 name: Worker workflow lint
 
-# 廉价前置门禁（不调 LLM，不产生 cost）：在 OCR 之前 fast-fail。
+# 廉价前置门禁（不调 LLM，不产生 cost）：在可选 AI review 之前 fast-fail。
 # 检查项：
 #   1. actionlint：YAML/GHA 语法、表达式类型、shell 注入、reusable workflow（composite 经引用校验）
 #   2. shellcheck（actionlint 集成）：run: 块 shell 脚本

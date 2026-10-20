@@ -29,7 +29,6 @@ test('merged PR skips notify', () => {
     prState: 'MERGED',
     verify: 'failure',
     qodana: 'success',
-    ocr: 'success',
     merge: 'failure',
     annotations: '',
   });
@@ -50,7 +49,6 @@ test('merged PR with merge-ref-only flake skips as post_merge_merge_ref_gone', (
     prState: 'MERGED',
     verify: 'success',
     qodana: 'success',
-    ocr: 'success',
     merge: 'skipped',
     annotations: ann,
   });
@@ -65,7 +63,6 @@ test('open PR with merge ref checkout failure still sends', () => {
     prState: 'OPEN',
     verify: 'success',
     qodana: 'success',
-    ocr: 'success',
     merge: 'skipped',
     annotations: ann,
   });
@@ -81,7 +78,6 @@ test('runner-lost wording does not mention SDK 依赖', () => {
   const { reasons, reasonClass } = buildBlockedReasons({
     verify: 'failure',
     qodana: 'success',
-    ocr: 'success',
     merge: 'failure',
     annotations: ann,
   });
@@ -97,7 +93,6 @@ test('open PR with real verify failure still sends', () => {
     prState: 'OPEN',
     verify: 'failure',
     qodana: 'success',
-    ocr: 'success',
     merge: 'failure',
     annotations: '[verify] ERROR\nnpm test failed: assertion error\n',
   });
@@ -115,7 +110,6 @@ test('6h cooldown suppresses repeat same class', () => {
     prState: 'OPEN',
     verify: 'failure',
     qodana: 'success',
-    ocr: 'success',
     merge: 'skipped',
     annotations: 'unit test failed',
     lastCooldownSentAtMs: sentAt,
@@ -132,7 +126,6 @@ test('cooldown expired allows send again', () => {
     prState: 'OPEN',
     verify: 'failure',
     qodana: 'success',
-    ocr: 'success',
     merge: 'skipped',
     annotations: 'unit test failed',
     lastCooldownSentAtMs: sentAt,
@@ -147,7 +140,6 @@ test('runner-lost twice on open PR still sends', () => {
     prState: 'OPEN',
     verify: 'failure',
     qodana: 'success',
-    ocr: 'success',
     merge: 'failure',
     annotations: ann,
   });
@@ -163,7 +155,6 @@ test('buildReleasePrBlockedEmail includes reasons in body', () => {
     prUrl: 'https://github.com/w/e/pull/42',
     verify: 'failure',
     qodana: 'success',
-    ocr: 'success',
     merge: 'skipped',
     runUrl: 'https://github.com/w/e/actions/runs/1',
     reasons: ['verify 失败：检查 dev_* push / 测试 / SDK 依赖'],

@@ -1,0 +1,76 @@
+name: AI PR Review (self-hosted MVP)
+description: >-
+  workers-world 自建 AI PR 审查：读 diff + 仓内规则，结构化 PR 评论；失败不阻断 merge。
+author: workers-world
+branding:
+  icon: comment-discussion
+  color: purple
+
+inputs:
+  pr_number:
+    description: PR number
+    required: true
+  base_ref:
+    description: PR base branch
+    required: true
+  head_ref:
+    description: PR head branch
+    required: true
+  config_path:
+    description: 仓内配置 JSON（默认 .ai-review/config.json，缺失则用 docs/ai-review/default-config.json）
+    required: false
+    default: .ai-review/config.json
+  github_token:
+    description: 发布 PR 评论的 token
+    required: false
+    default: ${{ github.token }}
+  llm_url:
+    description: OpenAI-compatible chat completions URL
+    required: true
+  llm_token:
+    description: LLM API token
+    required: true
+  llm_model:
+    description: LLM model id
+    required: true
+  llm_extra_headers:
+    description: 额外 HTTP 头（JSON 或 key=value 逗号分隔）
+    required: false
+    default: ""
+  node_version:
+    description: Node.js 版本
+    required: false
+    default: "24"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Ensure gh CLI
+      uses: workers-world/worker-actions/.github/actions/ensure-gh-cli@actions/v0.2.39
+
+    - name: Run AI PR review
+      shell: bash
+      env:
+        PR_NUMBER: ${{ inputs.pr_number }}
+        BASE_REF: ${{ inputs.base_ref }}
+        HEAD_REF: ${{ inputs.head_ref }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        AI_REVIEW_LLM_URL: ${{ inputs.llm_url }}
+        AI_REVIEW_LLM_TOKEN: ${{ inputs.llm_token }}
+        AI_REVIEW_LLM_MODEL: ${{ inputs.llm_model }}
+        AI_REVIEW_LLM_EXTRA_HEADERS: ${{ inputs.llm_extra_headers }}
+        AI_REVIEW_CONFIG: ${{ inputs.config_path }}
+        REVIEW_WORKDIR: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        node "${{ github.action_path }}/review.mjs"

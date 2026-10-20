@@ -1,0 +1,124 @@
+name: AI PR Review
+
+# workers-world 自建 AI PR 审查（替代已废弃的 alibaba/open-code-review）。
+# 非 merge 门禁：job 默认 continue-on-error；无 high-severity 阻断。
+#
+# Org 配置（推荐）：
+#   Secret  AI_REVIEW_LLM_TOKEN
+#   Variable AI_REVIEW_LLM_URL（OpenAI-compatible /chat/completions）
+#   Variable AI_REVIEW_LLM_MODEL
+#   Variable AI_REVIEW_LLM_EXTRA_HEADERS（可选，如 cf-aig-gateway-id）
+#
+# Caller：
+#   permissions: { contents: read, pull-requests: write }
+#   uses: workers-world/worker-actions/.github/workflows/ai-pr-review.yml@actions/v0.2.39
+#   secrets: inherit
+#
+# 详见 docs/ai-review/README.md
+on:
+  workflow_call:
+    inputs:
+      skip:
+        description: true 时跳过审查（无 job → workflow success）
+        type: boolean
+        default: false
+      config_path:
+        description: 仓内 .ai-review/config.json 路径
+        type: string
+        default: .ai-review/config.json
+      language:
+        description: 评论语言提示（写入 default-config 覆盖时可忽略）
+        type: string
+        default: Chinese
+      actions_bundle_ref:
+        description: ai-pr-review composite 的 git ref（actions/vX.Y.Z 或 40 位 SHA）
+        type: string
+        default: actions/v0.2.39
+    secrets:
+      AI_REVIEW_LLM_TOKEN:
+        description: LLM API Key；skip=true 或未启用时可不传
+        required: false
+      AI_REVIEW_LLM_URL:
+        description: LLM URL（推荐 Org Variable；Secret 兼容）
+        required: false
+      AI_REVIEW_LLM_MODEL:
+        description: LLM model（推荐 Org Variable；Secret 兼容）
+        required: false
+      AI_REVIEW_LLM_EXTRA_HEADERS:
+        description: 额外请求头
+        required: false
+      GHA_TOKEN:
+        description: 跨仓拉取 worker-actions bundle（私有 caller 须传）
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ai-review-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: ${{ inputs.skip != true && github.event.pull_request.number != '' }}
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - name: Preflight LLM config
+        env:
+          AI_REVIEW_LLM_TOKEN: ${{ secrets.AI_REVIEW_LLM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AI_REVIEW_LLM_TOKEN:-}" ]; then
+            echo "::notice::未配置 AI_REVIEW_LLM_TOKEN，跳过 AI PR review（非错误）"
+            echo "SKIP_REVIEW=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "SKIP_REVIEW=false" >> "$GITHUB_ENV"
+
+      - name: Validate actions_bundle_ref
+        if: env.SKIP_REVIEW != 'true'
+        env:
+          ACTIONS_BUNDLE_REF: ${{ inputs.actions_bundle_ref }}
+        run: |
+          set -euo pipefail
+          if echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^actions/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            :
+          elif echo "${ACTIONS_BUNDLE_REF}" | grep -Eq '^[0-9a-f]{40}$'; then
+            :
+          else
+            echo "::error::actions_bundle_ref 须为 actions/vX.Y.Z 或 40 位 commit SHA"
+            exit 1
+          fi
+
+      - name: Checkout ai-pr-review action bundle
+        if: env.SKIP_REVIEW != 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: workers-world/worker-actions
+          ref: ${{ inputs.actions_bundle_ref }}
+          path: .gha-actions-bundle
+          fetch-depth: 1
+          token: ${{ (secrets.GHA_TOKEN != '' && secrets.GHA_TOKEN) || github.token }}
+          persist-credentials: false
+
+      - name: Verify ai-pr-review action
+        if: env.SKIP_REVIEW != 'true'
+        run: |
+          set -euo pipefail
+          test -f .gha-actions-bundle/.github/actions/ai-pr-review/action.yml
+
+      - uses: ./.gha-actions-bundle/.github/actions/ai-pr-review
+        if: env.SKIP_REVIEW != 'true'
+        with:
+          pr_number: ${{ format('{0}', github.event.pull_request.number) }}
+          base_ref: ${{ github.base_ref }}
+          head_ref: ${{ github.head_ref }}
+          config_path: ${{ inputs.config_path }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          llm_url: ${{ vars.AI_REVIEW_LLM_URL != '' && vars.AI_REVIEW_LLM_URL || secrets.AI_REVIEW_LLM_URL != '' && secrets.AI_REVIEW_LLM_URL || 'https://api.deepseek.com/v1/chat/completions' }}
+          llm_token: ${{ secrets.AI_REVIEW_LLM_TOKEN }}
+          llm_model: ${{ vars.AI_REVIEW_LLM_MODEL != '' && vars.AI_REVIEW_LLM_MODEL || secrets.AI_REVIEW_LLM_MODEL != '' && secrets.AI_REVIEW_LLM_MODEL || 'deepseek-chat' }}
+          llm_extra_headers: ${{ vars.AI_REVIEW_LLM_EXTRA_HEADERS != '' && vars.AI_REVIEW_LLM_EXTRA_HEADERS || secrets.AI_REVIEW_LLM_EXTRA_HEADERS != '' && secrets.AI_REVIEW_LLM_EXTRA_HEADERS || '' }}

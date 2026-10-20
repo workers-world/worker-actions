@@ -1,0 +1,17 @@
+# 独立 AI PR review caller 片段（非 merge 门禁）
+# 完整 Release PR 请用 templates/ci-release-pr.yml → worker-ci（skip_ai_review: false）
+#
+# Org: AI_REVIEW_LLM_TOKEN + Variables AI_REVIEW_LLM_URL / AI_REVIEW_LLM_MODEL
+#
+#   ai-review:
+#     if: |
+#       github.event_name == 'pull_request' &&
+#       github.base_ref == 'master' &&
+#       startsWith(github.head_ref, 'dev_')
+#     permissions:
+#       contents: read
+#       pull-requests: write
+#     uses: workers-world/worker-actions/.github/workflows/ai-pr-review.yml@actions/vX.Y.Z
+#     secrets: inherit
+#     with:
+#       skip: false
