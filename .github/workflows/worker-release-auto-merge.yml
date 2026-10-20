@@ -1,9 +1,9 @@
 name: Worker release auto-merge
 
-# Release PR（dev_* → master）在 verify + qodana + OCR 均成功后自动 merge。
+# Release PR（dev_* → master）在 verify + qodana 均成功（或 qodana skipped）后自动 merge。
 # 替代 push 上的 worker-promote-gated FF。
 #
-# Caller 须在同一 workflow 内 needs: [verify, qodana, ocr] 且仅在 pull_request → master 时调用。
+# Caller 须在同一 workflow 内 needs: [verify, qodana] 且仅在 pull_request → master 时调用。
 # Caller：permissions: {}（merge 走 PAT，勿 contents/pull-requests write）
 on:
   workflow_call:

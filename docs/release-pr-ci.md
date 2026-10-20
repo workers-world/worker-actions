@@ -13,7 +13,7 @@ flowchart LR
   push --> syncWf[Sync default branch 若需]
   ensure --> releasePR[standing Release PR]
   releasePR --> prCi[PR: verify 门禁]
-  releasePR --> gate[verify + 可选 qodana/OCR]
+  releasePR --> gate[verify + 可选 qodana/AI review]
   gate -->|全绿| merge[auto-merge]
   merge --> master[master → CF Builds]
 ```
@@ -22,11 +22,11 @@ flowchart LR
 |------|------------|
 | `push` → `dev_*`（非 bot） | `sync-lock`（若启用）；`ensure-release-pr`（默认 **ready**）；**Sync default branch**（仅当默认分支 ≠ 当前 ref） |
 | `push` → `dev_*`（`github-actions[bot]`） | **跳过** push 侧 job；lock 提交 **synchronize** Release PR 时会跑 **verify**（lock 已在 tip 同步） |
-| `pull_request` → `master`（head=`dev_*`，非 draft） | **verify**（唯一全量门禁）；`workflow-lint`；可选 qodana/OCR；**auto-merge**（门禁绿） |
+| `pull_request` → `master`（head=`dev_*`，非 draft） | **verify**（唯一全量门禁）；`workflow-lint`；可选 qodana / AI review（非门禁）；**auto-merge**（门禁绿） |
 | `pull_request`（仍 draft） | verify / lint / 可选扫描；**不** auto-merge（`require_non_draft_pr` 默认 true） |
 | `ready_for_review` | 非 draft 后与上相同 + **auto-merge**（门禁绿） |
 
-**不再**在每次 push 上跑 verify / workflow-lint / qodana / OCR（`verify_on_push: true` 可恢复旧快反馈）。
+**不再**在每次 push 上跑 verify / workflow-lint / qodana / AI review（`verify_on_push: true` 可恢复旧快反馈）。
 
 ### Runner 调度（self-hosted）
 
@@ -46,7 +46,7 @@ merge **有冲突** 时：
 - **仅** `package.json` / lockfile（`package-lock.json`、`npm-shrinkwrap.json`、`pnpm-lock.yaml`、`yarn.lock`，含子目录路径）冲突：自动 `git checkout --ours`（**destin / dev** 侧 pin）并完成 merge；若 lock 与 destin `package.json` 仍不一致，按与 **sync-lock** 相同的路径全量 `npm install` 刷新 lock（`legacy-peer-deps` 与 `package-lock-in-sync` 一致），再 push。workflow 输出 `::notice::` 说明已 auto-resolve。
 - **任一** 其它路径冲突：**fail-closed**（`merge --abort`）；若已有 open Release PR 则转为 draft 并留言冲突文件（文案说明 package/lock-only 已自动处理）；否则 **fail job** 且 **不** 创建带冲突的 Release PR。
 | [worker-release-auto-merge.yml](../.github/workflows/worker-release-auto-merge.yml) | 非 draft + 门禁通过后 merge PR |
-| [open-code-review.yml](../.github/workflows/open-code-review.yml) | OCR（DeepSeek）；`skip_ocr: true` 时门面 **不调用**（无空 runner） |
+| [ai-pr-review.yml](../.github/workflows/ai-pr-review.yml) | 自建 AI PR review；`skip_ai_review: true` 时门面 **不调用**；**非 merge 门禁** |
 | [worker-notify-release-pr-blocked.yml](../.github/workflows/worker-notify-release-pr-blocked.yml) | 未能 auto-merge 时邮件通知（仅非 draft） |
 | [worker-sync-default-dev-branch.yml](../.github/workflows/worker-sync-default-dev-branch.yml) | push 最高 `dev_*` 时将 GitHub 默认分支设为该 dev |
 
@@ -118,7 +118,7 @@ Org 须已配置：
 
 1. `pull_request.branches: [master]`；建议 `paths-ignore: ["**/*.md", "docs/**"]`；`concurrency` 取消旧 run
 2. 单一 job `release-pr`：permissions 取并集，`secrets: inherit`
-3. `with` 只传仓间差异；默认 `promote: false`、`create_draft_release_pr: false`、`verify_on_push: false`、`skip_ocr: true`
+3. `with` 只传仓间差异；默认 `promote: false`、`create_draft_release_pr: false`、`verify_on_push: false`、`skip_ai_review: true`
 4. 另复制 [templates/sync-default-branch.yml](../templates/sync-default-branch.yml) 为独立 workflow
 5. 门禁全绿后 auto-merge → Builds；需 draft 闸门时传 `create_draft_release_pr: true` 或手动 Convert to draft
 
@@ -145,7 +145,7 @@ Org 须已配置：
 | sync-lock | push `dev_*` + 非 bot；同仓 PR 上 pull_request heal（bump 可不含 lock） |
 | ensure-release-pr | push + 非 bot；**在 sync-lock 完成后** |
 | qodana | Org `QODANA_ENABLED` / `WORKERS_WORLD_QODANA_ENABLED` 为 true **且** PR；否则 **skipped**（auto-merge 接受 skipped） |
-| ocr | `skip_ocr: false` 且 PR；否则 **不调用** workflow |
+| ai-pr-review | `skip_ai_review: false` + `AI_REVIEW_LLM_TOKEN` 且 PR；否则 **不调用**；失败不阻断 merge |
 | sync-default | 默认分支 ≠ 当前 ref，且非 bot |
 | ci-summary | 每次 run（估算 hosted job 数） |
 
@@ -158,13 +158,13 @@ Org 须已配置：
 在 GitHub 仓库 **Settings → Branches → master**：
 
 - Require pull request before merging（可仅 bot merge）
-- 可选 Required checks：`verify`（qodana/ocr 常为 skipped，勿设为 required，除非 Org 已启用）
+- 可选 Required checks：`verify`（qodana / ai-pr-review 常为 skipped，勿设为 required，除非 Org 已启用）
 
-## 与 OCR
+## 与 AI PR review
 
-**默认**：`skip_ocr: true`，门面不调 `open-code-review`（无 skip-ack runner）。版本收尾传 `skip_ocr: false`。
+**默认**：`skip_ai_review: true`，门面不调 `ai-pr-review`。试点仓传 `skip_ai_review: false` 并配置 Org `AI_REVIEW_LLM_*`。
 
-OCR 启用时：`block_merge_on_comments: true` 时 high 意见 fail ocr → 不 merge。
+alibaba OCR（`open-code-review` / `OCR_LLM_*`）已于 2026-10 移除，见 [ai-review/README.md](./ai-review/README.md)。
 
 ## 与 Qodana（成本策略）
 
@@ -184,4 +184,4 @@ OCR 启用时：`block_merge_on_comments: true` 时 high 意见 fail ocr → 不
 - [actions-workflows.md](./actions-workflows.md)
 - [actions-releases.md](./actions-releases.md)
 - [qodana-ci.md](./qodana-ci.md)
-- [open-code-review.md](./open-code-review.md)
+- [ai-review/README.md](./ai-review/README.md)

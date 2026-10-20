@@ -8,7 +8,6 @@ export const REASON_CLASS = {
   RUNNER_LOST: 'runner_lost_communication',
   VERIFY: 'verify_failure',
   QODANA: 'qodana_failure',
-  OCR: 'ocr_failure',
   MERGE: 'merge_failure',
   MERGE_SKIPPED: 'merge_skipped',
   POST_MERGE_MERGE_REF_GONE: 'post_merge_merge_ref_gone',
@@ -46,13 +45,12 @@ export function shouldSuppressPostMergeMergeRefGoneNotify({
   prState,
   verify,
   qodana,
-  ocr,
   merge,
   annotations,
 }) {
   if (!shouldSkipNotifyForPrState(prState)) return false;
   if (!isPostMergeMergeRefGoneInAnnotations(annotations)) return false;
-  if (verify === 'failure' || qodana === 'failure' || ocr === 'failure' || merge === 'failure') {
+  if (verify === 'failure' || qodana === 'failure' || merge === 'failure') {
     return false;
   }
   return true;
@@ -86,7 +84,6 @@ export function parseCooldownTimestamp(raw) {
 export function buildBlockedReasons({
   verify,
   qodana,
-  ocr,
   merge,
   annotations = '',
 }) {
@@ -106,11 +103,6 @@ export function buildBlockedReasons({
   if (qodana === 'failure') {
     reasons.push('Qodana 未通过：查看 PR Checks / SARIF 评论');
   }
-  if (ocr === 'failure') {
-    reasons.push(
-      'OCR 有审查意见或 job 失败：PR 保持 OPEN，请在 dev_* 修复后 push，或 Apply suggestion',
-    );
-  }
   if (merge === 'failure') {
     if (runnerLost) {
       reasons.push(
@@ -121,7 +113,6 @@ export function buildBlockedReasons({
     }
   } else if (
     merge === 'skipped' &&
-    ocr === 'success' &&
     (verify === 'success' || verify === 'skipped') &&
     (qodana === 'success' || qodana === 'skipped')
   ) {
@@ -131,46 +122,41 @@ export function buildBlockedReasons({
       );
     } else {
       reasons.push(
-        `release-auto-merge 被跳过（merge=skipped；verify=${verify} qodana=${qodana} ocr=${ocr}）：门禁 job 可能未实际运行（skipped），请检查 job if / 路径过滤，勿仅按 draft 排查`,
+        `release-auto-merge 被跳过（merge=skipped；verify=${verify} qodana=${qodana}）：门禁 job 可能未实际运行（skipped），请检查 job if / 路径过滤，勿仅按 draft 排查`,
       );
     }
   } else if (
     verify === 'success' &&
     qodana === 'success' &&
-    ocr === 'success' &&
     merge !== 'success'
   ) {
     reasons.push(`门禁全绿但未 merge（merge=${merge}）：查看 release-auto-merge 日志`);
   }
 
   if (reasons.length === 0) {
-    reasons.push(
-      `未能 auto-merge（verify=${verify} qodana=${qodana} ocr=${ocr} merge=${merge}）`,
-    );
+    reasons.push(`未能 auto-merge（verify=${verify} qodana=${qodana} merge=${merge}）`);
   }
 
-  const reasonClass = deriveReasonClass({ verify, qodana, ocr, merge, runnerLost });
+  const reasonClass = deriveReasonClass({ verify, qodana, merge, runnerLost });
   const suppressNotify = shouldSuppressRunnerLostOnlyNotify({
     runnerLost,
     runnerLostCount,
     verify,
     qodana,
-    ocr,
     merge,
   });
 
   return { reasons, reasonClass, runnerLost, runnerLostCount, suppressNotify };
 }
 
-export function deriveReasonClass({ verify, qodana, ocr, merge, runnerLost }) {
+export function deriveReasonClass({ verify, qodana, merge, runnerLost }) {
   const infraVerifyOnly =
-    runnerLost && verify === 'failure' && qodana !== 'failure' && ocr !== 'failure';
+    runnerLost && verify === 'failure' && qodana !== 'failure';
   if (infraVerifyOnly) {
     return REASON_CLASS.RUNNER_LOST;
   }
   if (verify === 'failure') return REASON_CLASS.VERIFY;
   if (qodana === 'failure') return REASON_CLASS.QODANA;
-  if (ocr === 'failure') return REASON_CLASS.OCR;
   if (merge === 'failure') {
     return runnerLost ? REASON_CLASS.RUNNER_LOST : REASON_CLASS.MERGE;
   }
@@ -186,11 +172,10 @@ export function shouldSuppressRunnerLostOnlyNotify({
   runnerLostCount,
   verify,
   qodana,
-  ocr,
   merge,
 }) {
   if (!runnerLost) return false;
-  if (qodana === 'failure' || ocr === 'failure') return false;
+  if (qodana === 'failure') return false;
   if (runnerLostCount >= 2) return false;
 
   const verifyInfraOnly = verify === 'failure';
@@ -205,7 +190,6 @@ export function shouldSendBlockedNotify({
   prState,
   verify,
   qodana,
-  ocr,
   merge,
   annotations,
   lastCooldownSentAtMs,
@@ -215,7 +199,6 @@ export function shouldSendBlockedNotify({
     prState,
     verify,
     qodana,
-    ocr,
     merge,
     annotations,
   })) {
@@ -231,7 +214,7 @@ export function shouldSendBlockedNotify({
     return { send: false, skipReason: 'pr_not_open', reasonClass: REASON_CLASS.OTHER, reasons: [] };
   }
 
-  const built = buildBlockedReasons({ verify, qodana, ocr, merge, annotations });
+  const built = buildBlockedReasons({ verify, qodana, merge, annotations });
   if (built.suppressNotify) {
     return {
       send: false,

@@ -36,10 +36,6 @@ on:
         description: needs.qodana.result
         required: true
         type: string
-      ocr_result:
-        description: needs.ocr.result
-        required: true
-        type: string
       merge_result:
         description: needs.release-auto-merge.result
         required: true
@@ -145,7 +141,6 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
           VERIFY: ${{ inputs.verify_result }}
           QODANA: ${{ inputs.qodana_result }}
-          OCR: ${{ inputs.ocr_result }}
           MERGE: ${{ inputs.merge_result }}
           ANNOTATIONS: ${{ steps.ann.outputs.annotations }}
           REASON_CLASS_ONLY: "true"
@@ -175,7 +170,6 @@ jobs:
           PR_URL: ${{ inputs.pr_url }}
           VERIFY: ${{ inputs.verify_result }}
           QODANA: ${{ inputs.qodana_result }}
-          OCR: ${{ inputs.ocr_result }}
           MERGE: ${{ inputs.merge_result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ANNOTATIONS: ${{ steps.ann.outputs.annotations }}
@@ -211,24 +205,21 @@ jobs:
           if [ "$QODANA" = "failure" ]; then
             reasons+=("Qodana 未通过：查看 PR Checks / SARIF 评论")
           fi
-          if [ "$OCR" = "failure" ]; then
-            reasons+=("OCR 有审查意见或 job 失败：PR 保持 OPEN，请在 dev_* 修复后 push，或 Apply suggestion")
-          fi
           if [ "$MERGE" = "failure" ]; then
             reasons+=("release-auto-merge 失败：可能冲突或不可 merge，查看 merge job 日志")
-          elif [ "$MERGE" = "skipped" ] && [ "$OCR" = "success" ] && \
+          elif [ "$MERGE" = "skipped" ] && \
                { [ "$VERIFY" = "success" ] || [ "$VERIFY" = "skipped" ]; } && \
                { [ "$QODANA" = "success" ] || [ "$QODANA" = "skipped" ]; }; then
             if [ "$VERIFY" = "success" ] && [ "$QODANA" = "success" ]; then
               reasons+=("门禁已通过但 release-auto-merge 被跳过（merge=skipped）：常见原因是 PR 仍为 draft（require_non_draft_pr），或 merge job 的 if 未满足；请 Ready for review 后重跑")
             else
-              reasons+=("release-auto-merge 被跳过（merge=skipped；verify=${VERIFY} qodana=${QODANA} ocr=${OCR}）：门禁 job 可能未实际运行（skipped），请检查 job if / 路径过滤，勿仅按 draft 排查")
+              reasons+=("release-auto-merge 被跳过（merge=skipped；verify=${VERIFY} qodana=${QODANA}）：门禁 job 可能未实际运行（skipped），请检查 job if / 路径过滤，勿仅按 draft 排查")
             fi
-          elif [ "$VERIFY" = "success" ] && [ "$QODANA" = "success" ] && [ "$OCR" = "success" ] && [ "$MERGE" != "success" ]; then
+          elif [ "$VERIFY" = "success" ] && [ "$QODANA" = "success" ] && [ "$MERGE" != "success" ]; then
             reasons+=("门禁全绿但未 merge（merge=${MERGE}）：查看 release-auto-merge 日志")
           fi
           if [ "${#reasons[@]}" -eq 0 ]; then
-            reasons+=("未能 auto-merge（verify=${VERIFY} qodana=${QODANA} ocr=${OCR} merge=${MERGE}）")
+            reasons+=("未能 auto-merge（verify=${VERIFY} qodana=${QODANA} merge=${MERGE}）")
           fi
           REASONS="$(printf '%s\n' "${reasons[@]}")"
           export REASONS
@@ -251,7 +242,7 @@ jobs:
               echo "URL: ${PR_URL}"
               echo "Actions: ${RUN_URL}"
               echo ""
-              echo "Results: verify=${VERIFY} qodana=${QODANA} ocr=${OCR} merge=${MERGE}"
+              echo "Results: verify=${VERIFY} qodana=${QODANA} merge=${MERGE}"
               echo ""
               echo "原因："
               for r in "${reasons[@]}"; do

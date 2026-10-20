@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 构建 Release PR 阻断邮件的 subject / body / html（供 GHA 写入 GITHUB_OUTPUT）。
- * 环境变量：REPO, PR_NUMBER, HEAD_REF, PR_URL, VERIFY, QODANA, OCR, MERGE, RUN_URL, ANNOTATIONS, REASONS
+ * 环境变量：REPO, PR_NUMBER, HEAD_REF, PR_URL, VERIFY, QODANA, MERGE, RUN_URL, ANNOTATIONS, REASONS
  * REASONS：用 \n 分隔的原因列表（已由 workflow 算好；若为空则按 job 结果 + ANNOTATIONS 推导）。
  */
 import { appendFileSync } from 'node:fs';
@@ -38,7 +38,6 @@ export function buildReleasePrBlockedEmail({
   prUrl,
   verify,
   qodana,
-  ocr,
   merge,
   runUrl,
   reasons,
@@ -55,7 +54,7 @@ export function buildReleasePrBlockedEmail({
     `URL: ${prUrl}`,
     `Actions: ${runUrl}`,
     '',
-    `Results: verify=${verify} qodana=${qodana} ocr=${ocr} merge=${merge}`,
+    `Results: verify=${verify} qodana=${qodana} merge=${merge}`,
     '',
     '原因：',
     ...reasons.map((r) => `- ${r}`),
@@ -77,7 +76,7 @@ export function buildReleasePrBlockedEmail({
     `<li><strong>Repo:</strong> ${escapeHtml(repo)}</li>`,
     `<li><strong>PR:</strong> <a href="${escapeHtml(prUrl)}">#${escapeHtml(prNumber)} (${escapeHtml(headRef)} → master)</a></li>`,
     `<li><strong>Actions:</strong> <a href="${escapeHtml(runUrl)}">查看 workflow run</a></li>`,
-    `<li><strong>Results:</strong> verify=${escapeHtml(verify)} qodana=${escapeHtml(qodana)} ocr=${escapeHtml(ocr)} merge=${escapeHtml(merge)}</li>`,
+    `<li><strong>Results:</strong> verify=${escapeHtml(verify)} qodana=${escapeHtml(qodana)} merge=${escapeHtml(merge)}</li>`,
     '</ul>',
     '<p><strong>原因：</strong></p>',
     `<ul>\n${reasonHtml}\n</ul>`,
@@ -107,7 +106,6 @@ function main() {
   const prUrl = env('PR_URL');
   const verify = env('VERIFY');
   const qodana = env('QODANA');
-  const ocr = env('OCR');
   const merge = env('MERGE');
   const runUrl = env('RUN_URL');
   const annotations = process.env.ANNOTATIONS ?? '';
@@ -117,7 +115,7 @@ function main() {
     .map((r) => r.trim())
     .filter(Boolean);
   if (reasons.length === 0) {
-    reasons = buildBlockedReasons({ verify, qodana, ocr, merge, annotations }).reasons;
+    reasons = buildBlockedReasons({ verify, qodana, merge, annotations }).reasons;
   }
 
   const { subject, body, html } = buildReleasePrBlockedEmail({
@@ -127,7 +125,6 @@ function main() {
     prUrl,
     verify,
     qodana,
-    ocr,
     merge,
     runUrl,
     reasons,

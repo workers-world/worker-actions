@@ -4,4 +4,4 @@ current: actions/v0.2.39
 sha: "c15988a642a0c80575ee183f0d7705c49eee8a57"
 released_at: "2026-10-20"
 notes: |
-  Auto-released on push to master (actions paths changed).
+  Destin auto-align nested pins to published tag (WW-303).
