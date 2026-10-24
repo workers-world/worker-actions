@@ -78,7 +78,7 @@ jobs:
           fetch-tags: "true"  # 内层 pin 一致性读 actions/v* tag，避免 step 内 git fetch --tags
           persist-credentials: "false"  # 纯只读 lint，不留凭据
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "24"
 
