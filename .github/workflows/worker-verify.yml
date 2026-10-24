@@ -210,13 +210,13 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
 
-      - name: Restore node_modules cache
-        if: steps.npm_scope.outputs.run_npm == 'true'
-        uses: actions/cache/restore@v6
-        id: node_modules_cache
-        with:
-          path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
-          key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
+      # 不缓存整棵 node_modules（已去掉 actions/cache restore/save）。
+      # self-hosted 上大目录（rev1 本地 node_modules ~827MB / 数万文件）的
+      # Save node_modules cache 曾占约 10 分钟，期间 job lease 续约停滞，
+      # GitHub 判定 runner lost communication 并放弃 job；check 与测试其实已通过
+      # （rev1#70，https://github.com/workers-world/rev1/actions/runs/40065381950）。
+      # 提高 timeout-minutes 不能避免 lease 过期。依赖加速只保留上方 setup-node
+      # cache: npm（tarball）。门禁路径为 npm ci → check → test，不得再把 cache save 挡在前面。
 
       - name: Materialize SDK from GitHub Packages
         if: steps.npm_scope.outputs.run_npm == 'true' && inputs.materialize_sdk
@@ -267,27 +267,13 @@ jobs:
 
       # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
-      # node_modules 缓存命中时用 npm ci --prefer-offline（仍校验 lock，不跳过 dry-run 级完整性）；
-      # lock 变更时 cache key 变，自动全量 npm ci。不替代 lock-precheck 的 npm ci --dry-run。
+      # 始终全量 npm ci（配合 setup-node 的 npm tarball cache）。不替代 lock-precheck 的 npm ci --dry-run。
       - name: Run npm ci
         if: steps.npm_scope.outputs.run_npm == 'true'
-        run: |
-          set -euo pipefail
-          common=(--no-fund --no-audit)
-          if [ "${{ steps.node_modules_cache.outputs.cache-hit }}" = "true" ]; then
-            npm ci --prefer-offline "${common[@]}"
-          else
-            npm ci "${common[@]}"
-          fi
+        run: npm ci --no-fund --no-audit
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Save node_modules cache
-        if: steps.npm_scope.outputs.run_npm == 'true' && steps.node_modules_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
-          key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
       - name: npm run check
         if: steps.npm_scope.outputs.run_npm == 'true'
         run: npm run check
