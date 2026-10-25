@@ -37,7 +37,7 @@ Leaf workflow 的 `runs-on`：公开 caller 固定 `ubuntu-latest`；私有 call
 | Workflow | 作用 |
 |----------|------|
 | [worker-ci.yml](../.github/workflows/worker-ci.yml) | **业务仓 CI 门面**（唯一入口；`ci.yml` 只调这一次；内嵌下列 leaf） |
-| [worker-ensure-release-pr.yml](../.github/workflows/worker-ensure-release-pr.yml) | push dev 时创建 Release PR（`create_draft_release_pr` 默认 **false**，创建即 ready） |
+| [worker-ensure-release-pr.yml](../.github/workflows/worker-ensure-release-pr.yml) | push **纯 destin** 时创建 Release PR（`create_draft_release_pr` 默认 **false**，创建即 ready）；`worker-ci` 内 `pure-destin-gate` job 统一判定 `release_track` |
 
 **开 PR 前的 master 同步（`worker-ensure-release-pr`）**：若 compare 显示当前 `dev_*` **已包含** `master`（`behind_by = 0`），跳过，不产生额外 commit/push，随后按原逻辑创建或复用 open Release PR。若 dev **落后** `master`，workflow 会先把 `master` merge 进 dev 并 push（经 bundle 内 `sync-master-into-release-branch` composite，**须**全路径 pin `@actions/v*`，勿 `uses: ./.github/actions/…`，见 [actions-releases.md](./actions-releases.md)）；merge **无冲突** 时继续开/维护 Release PR（push 触发的下一次 run 因已包含 master 而不再 merge，避免循环）。
 
