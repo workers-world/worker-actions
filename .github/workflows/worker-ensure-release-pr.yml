@@ -1,13 +1,13 @@
 name: Worker ensure release PR
 
-# push 到 dev_* 时确保存在一条 dev → master 的 Release PR。
+# push 到纯 destin dev_X_Y_Z（^dev_[0-9]+_[0-9]+_[0-9]+$）时确保存在一条 dev → master 的 Release PR。
 # 开 PR 前若 dev 未包含 master，先 merge master 入 dev 并 push（干净则继续；见 docs/release-pr-ci.md）。
 # 若 merge 冲突且**仅** package.json / lockfile，自动保留 destin（--ours）并完成 merge + lock 对齐；其它冲突 fail-closed。
 # 默认创建即 ready；门禁全绿后 worker-ci 的 require_non_draft_pr + auto-merge 合入 master。
 # create_draft_release_pr: true 可恢复 draft 闸门（控 Cloudflare Builds 频率）。
 #
 # Caller（push job）：
-#   if: github.event_name == 'push' && startsWith(github.ref_name, 'dev_')
+#   if: worker-ci pure-destin-gate release_track + push（勿仅用 startsWith dev_）
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
 #   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.41
 #   secrets: inherit   # 或显式映射 workflow_call.secrets（GHA_TOKEN、RELEASE_BOT_*）
@@ -158,8 +158,8 @@ jobs:
             echo "::error::缺少写凭证（bot=${BOT}）。bot=pat 请在 Org Secrets 配置 GHA_TOKEN（classic PAT: repo）；bot=app 请配 Org Variable RELEASE_BOT_APP_ID + Org Secret RELEASE_BOT_PRIVATE_KEY，见 docs/github-app-token-migration.md。"
             exit 1
           fi
-          if ! [[ "$RELEASE_BRANCH" =~ ^dev_ ]]; then
-            echo "Skip: release_branch must match dev_*"
+          if ! [[ "$RELEASE_BRANCH" =~ ^dev_[0-9]+_[0-9]+_[0-9]+$ ]]; then
+            echo "Skip: release_branch must be pure destin dev_X_Y_Z (numeric segments only)"
             echo "pr_number=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
