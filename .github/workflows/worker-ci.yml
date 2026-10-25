@@ -123,18 +123,40 @@ concurrency:
 
 jobs:
   # Release PR 公共过滤（GHA 不支持 YAML anchor 跨 job if，以下须保持一致）：
-  #   event_name==pull_request && action in opened|synchronize|reopened|ready_for_review
-  #   && base_ref==master && head_ref startsWith dev_ && same-repo
+  #   needs.pure-destin-gate.outputs.release_track == 'true'（^dev_[0-9]+_[0-9]+_[0-9]+$，排除 *_pgreq*_verify 等后缀轨）
+  #   && event_name==pull_request && action in opened|synchronize|reopened|ready_for_review
+  #   && base_ref==master && same-repo
   # 调整触发范围时请同步改：qodana / ai-pr-review / release-auto-merge / notify-blocked / ci-summary
-  #
+  # push 上 ensure-release-pr 使用相同 release_track；push verify/sync-lock 仍接受任意 dev_* 前缀。
+  pure-destin-gate:
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 1
+    permissions: {}
+    outputs:
+      release_track: ${{ steps.check.outputs.release_track }}
+    steps:
+      - name: Classify branch as pure destin release track
+        id: check
+        env:
+          BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Keep in sync with tools/lib/pure-destin-branch.mjs (actionlint 尚无 matches()).
+          if [[ "${BRANCH}" =~ ^dev_[0-9]+_[0-9]+_[0-9]+$ ]]; then
+            echo "release_track=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_track=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # workflow-lint：仅 PR；push 不跑。拿不到路径时 PR 上跑一次（避免 paths-filter 再花 1 分钟）。
   workflow-lint:
+    needs: [pure-destin-gate]
     if: |
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
       github.actor != 'github-actions[bot]' &&
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
-      startsWith(github.head_ref, 'dev_') &&
       github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
@@ -182,16 +204,16 @@ jobs:
       bot: ${{ inputs.bot }}
 
   ensure-release-pr:
-    needs: [workflow-lint, verify]
+    needs: [pure-destin-gate, workflow-lint, verify]
     # push 上须等 verify 内 sync-lock 完成再开 Release PR，避免 lock-precheck 与 heal 竞态（#132）。
     # push 上 lint 常 skipped；bot（lock）不建/不刷 PR
     if: |
       always() &&
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
       (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
       (needs.verify.result == 'success' || needs.verify.result == 'skipped') &&
       github.actor != 'github-actions[bot]' &&
       github.event_name == 'push' &&
-      startsWith(github.ref_name, 'dev_') &&
       github.event.deleted != true
     # PAT 建 PR（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
@@ -206,8 +228,10 @@ jobs:
       bot: ${{ inputs.bot }}
 
   qodana:
+    needs: [pure-destin-gate]
     # Org 未启用则 job 级不启动（勿 checkout 后 gate skip）；auto-merge 将 skipped 当通过
     if: |
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
       github.actor != 'github-actions[bot]' &&
       (
         contains(fromJSON('["true","1","yes","True","TRUE","Yes","YES"]'), vars.QODANA_ENABLED) ||
@@ -216,7 +240,6 @@ jobs:
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
-      startsWith(github.head_ref, 'dev_') &&
       github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
@@ -237,16 +260,16 @@ jobs:
       head_sha: ${{ github.event.pull_request.head.sha }}
 
   ai-pr-review:
-    needs: [workflow-lint]
+    needs: [pure-destin-gate, workflow-lint]
     if: |
       always() &&
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
       inputs.skip_ai_review != true &&
       (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
       github.actor != 'github-actions[bot]' &&
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
-      startsWith(github.head_ref, 'dev_') &&
       github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
@@ -264,14 +287,14 @@ jobs:
       actions_bundle_ref: actions/v0.2.39
 
   release-auto-merge:
-    needs: [workflow-lint, verify, qodana]
+    needs: [pure-destin-gate, workflow-lint, verify, qodana]
     if: |
       always() &&
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
       (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
-      startsWith(github.head_ref, 'dev_') &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       (inputs.require_non_draft_pr != true || github.event.pull_request.draft == false) &&
       needs.verify.result == 'success' &&
@@ -290,13 +313,13 @@ jobs:
       bot: ${{ inputs.bot }}
 
   ci-failure-comment:
-    needs: [workflow-lint, verify, qodana]
+    needs: [pure-destin-gate, workflow-lint, verify, qodana]
     if: |
       always() &&
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
-      startsWith(github.head_ref, 'dev_') &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
         needs.workflow-lint.result == 'failure' ||
@@ -314,7 +337,7 @@ jobs:
       qodana_result: ${{ needs.qodana.result }}
 
   notify-blocked:
-    needs: [workflow-lint, verify, qodana, release-auto-merge]
+    needs: [pure-destin-gate, workflow-lint, verify, qodana, release-auto-merge]
     # reusable workflow 的 job 权限不能超过 caller；被调 notify 需要 actions/checks: read 拉 annotations
     permissions:
       actions: read
@@ -322,10 +345,10 @@ jobs:
       pull-requests: read
     if: |
       always() &&
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
       github.event_name == 'pull_request' &&
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
-      startsWith(github.head_ref, 'dev_') &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == false &&
       needs.release-auto-merge.result != 'success' &&
@@ -361,7 +384,7 @@ jobs:
 
   # 仪器：进来多少 job、哪些 skipped、估算 hosted 分钟下界（文章「Claude 的眼睛」）
   ci-summary:
-    needs: [workflow-lint, verify, ensure-release-pr, qodana, ai-pr-review, release-auto-merge]
+    needs: [pure-destin-gate, workflow-lint, verify, ensure-release-pr, qodana, ai-pr-review, release-auto-merge]
     if: always()
     runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 2

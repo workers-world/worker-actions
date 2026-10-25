@@ -6,8 +6,8 @@ RELEASE_BRANCH="${RELEASE_BRANCH:?}"
 MASTER_BRANCH="${MASTER_BRANCH:?}"
 REPO="${REPO:?}"
 
-if ! [[ "$RELEASE_BRANCH" =~ ^dev_ ]]; then
-  echo "Skip sync: release_branch must match dev_*"
+if ! [[ "$RELEASE_BRANCH" =~ ^dev_[0-9]+_[0-9]+_[0-9]+$ ]]; then
+  echo "Skip sync: release_branch must be pure destin dev_X_Y_Z (numeric segments only)"
   echo "skipped=true" >> "$GITHUB_OUTPUT"
   exit 0
 fi

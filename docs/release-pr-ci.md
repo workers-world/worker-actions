@@ -1,6 +1,6 @@
 # Release PR 发布模型（dev_* → master）
 
-日常 push 到 `dev_*`，由 bot 维护 **ready** Release PR；门禁全绿后 **自动 merge** 到 `master`（触发 Cloudflare Builds）。需要延后合入时可 **Convert to draft** 或 caller 传 `create_draft_release_pr: true`。
+日常 push 到**纯 destin** 分支 `dev_X_Y_Z`（仅数字三段，正则 `^dev_[0-9]+_[0-9]+_[0-9]+$`），由 bot 维护 **ready** Release PR；门禁全绿后 **自动 merge** 到 `master`（触发 Cloudflare Builds）。带后缀的 `dev_*` 轨（如 `dev_00_17_00_pgreq251_verify`、`*_touch_id`）**不会**触发 `ensure-release-pr`，也不会走 Release→`master` 的 PR 门禁 / auto-merge。需要延后合入时可 **Convert to draft** 或 caller 传 `create_draft_release_pr: true`。
 
 完整流程图（含 `worker-ci` job 依赖、leaf 步骤、全局调用关系）见 [actions-workflows.md](./actions-workflows.md)（尤其 §3 / §4）。
 
@@ -20,9 +20,9 @@ flowchart LR
 
 | 事件 | 运行的 job |
 |------|------------|
-| `push` → `dev_*`（非 bot） | `sync-lock`（若启用）；`ensure-release-pr`（默认 **ready**）；**Sync default branch**（仅当默认分支 ≠ 当前 ref） |
+| `push` → `dev_*`（非 bot） | `sync-lock`（若启用，任意 `dev_*` 前缀）；**纯 destin** push 另跑 `ensure-release-pr`（默认 **ready**）；**Sync default branch**（仅当默认分支 ≠ 当前 ref） |
 | `push` → `dev_*`（`github-actions[bot]`） | **跳过** push 侧 job；lock 提交 **synchronize** Release PR 时会跑 **verify**（lock 已在 tip 同步） |
-| `pull_request` → `master`（head=`dev_*`，非 draft） | **verify**（唯一全量门禁）；`workflow-lint`；可选 qodana / AI review（非门禁）；**auto-merge**（门禁绿） |
+| `pull_request` → `master`（head=纯 destin `dev_X_Y_Z`，非 draft） | **verify**（唯一全量门禁）；`workflow-lint`；可选 qodana / AI review（非门禁）；**auto-merge**（门禁绿） |
 | `pull_request`（仍 draft） | verify / lint / 可选扫描；**不** auto-merge（`require_non_draft_pr` 默认 true） |
 | `ready_for_review` | 非 draft 后与上相同 + **auto-merge**（门禁绿） |
 
@@ -37,7 +37,7 @@ Leaf workflow 的 `runs-on`：公开 caller 固定 `ubuntu-latest`；私有 call
 | Workflow | 作用 |
 |----------|------|
 | [worker-ci.yml](../.github/workflows/worker-ci.yml) | **业务仓 CI 门面**（唯一入口；`ci.yml` 只调这一次；内嵌下列 leaf） |
-| [worker-ensure-release-pr.yml](../.github/workflows/worker-ensure-release-pr.yml) | push dev 时创建 Release PR（`create_draft_release_pr` 默认 **false**，创建即 ready） |
+| [worker-ensure-release-pr.yml](../.github/workflows/worker-ensure-release-pr.yml) | push **纯 destin** 时创建 Release PR（`create_draft_release_pr` 默认 **false**，创建即 ready）；`worker-ci` 内 `pure-destin-gate` job 统一判定 `release_track` |
 
 **开 PR 前的 master 同步（`worker-ensure-release-pr`）**：若 compare 显示当前 `dev_*` **已包含** `master`（`behind_by = 0`），跳过，不产生额外 commit/push，随后按原逻辑创建或复用 open Release PR。若 dev **落后** `master`，workflow 会先把 `master` merge 进 dev 并 push（经 bundle 内 `sync-master-into-release-branch` composite，**须**全路径 pin `@actions/v*`，勿 `uses: ./.github/actions/…`，见 [actions-releases.md](./actions-releases.md)）；merge **无冲突** 时继续开/维护 Release PR（push 触发的下一次 run 因已包含 master 而不再 merge，避免循环）。
 
@@ -143,7 +143,7 @@ Org 须已配置：
 | workflow-lint | 仅 Release PR（非 bot） |
 | verify（npm ci/check/test） | 仅 PR（或 `verify_on_push: true`） |
 | sync-lock | push `dev_*` + 非 bot；同仓 PR 上 pull_request heal（bump 可不含 lock） |
-| ensure-release-pr | push + 非 bot；**在 sync-lock 完成后** |
+| ensure-release-pr | push + 非 bot + **纯 destin** `dev_X_Y_Z`；**在 sync-lock 完成后** |
 | qodana | Org `QODANA_ENABLED` / `WORKERS_WORLD_QODANA_ENABLED` 为 true **且** PR；否则 **skipped**（auto-merge 接受 skipped） |
 | ai-pr-review | `skip_ai_review: false` + `AI_REVIEW_LLM_TOKEN` 且 PR；否则 **不调用**；失败不阻断 merge |
 | sync-default | 默认分支 ≠ 当前 ref，且非 bot |

@@ -96,8 +96,8 @@ jobs:
             echo "::error::缺少写凭证（bot=${BOT}）。bot=pat 请配 GHA_TOKEN；bot=app 请配 RELEASE_BOT_*（App ID + 私钥），见 docs/github-app-token-migration.md。"
             exit 1
           fi
-          if ! [[ "$HEAD_REF" =~ ^dev_ ]]; then
-            echo "::error::Refusing to auto-merge: head must be dev_* (got ${HEAD_REF})"
+          if ! [[ "$HEAD_REF" =~ ^dev_[0-9]+_[0-9]+_[0-9]+$ ]]; then
+            echo "::error::Refusing to auto-merge: head must be pure destin dev_X_Y_Z (got ${HEAD_REF})"
             exit 1
           fi
           state="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,mergeable,baseRefName --jq '.state')"
