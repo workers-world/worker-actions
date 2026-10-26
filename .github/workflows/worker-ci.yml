@@ -141,7 +141,8 @@ jobs:
           BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
-          # Keep in sync with tools/lib/pure-destin-branch.mjs (actionlint 尚无 matches()).
+          # Keep in sync with tools/lib/pure-destin-branch.mjs.
+          # GHA expressions have no matches(); bash =~ is the supported pure-destin gate.
           if [[ "${BRANCH}" =~ ^dev_[0-9]+_[0-9]+_[0-9]+$ ]]; then
             echo "release_track=true" >> "$GITHUB_OUTPUT"
           else
