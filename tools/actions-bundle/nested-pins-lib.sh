@@ -94,5 +94,34 @@ update_manifest_for_tag() {
     echo "notes: |"
     echo "  Destin auto-align nested pins to published tag (WW-303)."
   } > "$manifest"
-  echo "Updated ${manifest} → current=${tag}"
+  echo "Updated ${manifest} → current=${tag} sha=${ref}"
+}
+
+# When tag exists locally: manifest sha must equal peel (rev-list -n 1).
+# Exit 0 if no manifest / no sha / tag missing (dev PR may lead tag). Exit 1 on mismatch.
+check_manifest_sha_matches_tag() {
+  local manifest="${1:-manifest/actions-bundle.yaml}"
+  if [ ! -f "$manifest" ]; then
+    echo "skip: no ${manifest}"
+    return 0
+  fi
+  local cur sha
+  cur="$(grep -E '^current:' "$manifest" | head -1 | awk '{print $2}' || true)"
+  sha="$(grep -E '^sha:' "$manifest" | head -1 | sed -E 's/^sha:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/' || true)"
+  if [ -z "$cur" ] || [ -z "$sha" ]; then
+    echo "skip: manifest missing current/sha"
+    return 0
+  fi
+  if ! git rev-parse "$cur" >/dev/null 2>&1; then
+    echo "skip: tag ${cur} not present locally（发版前 manifest 可领先 tag）"
+    return 0
+  fi
+  local peel
+  peel="$(git rev-list -n 1 "$cur")"
+  if [ "$sha" != "$peel" ]; then
+    echo "::error::manifest sha=${sha} 与 ${cur} peel=${peel} 不一致（见 worker-actions#205）"
+    return 1
+  fi
+  echo "ok: manifest sha matches ${cur} peel ${peel}"
+  return 0
 }
