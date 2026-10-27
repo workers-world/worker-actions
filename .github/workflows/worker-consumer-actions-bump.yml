@@ -71,7 +71,7 @@ jobs:
         run: |
           echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           sparse-checkout: |
             tools/consumer-actions-bump
@@ -81,7 +81,7 @@ jobs:
       - uses: ./.github/actions/ensure-gh-cli
 
       - name: Gate P1 — checkout tag tree for nested pin scan
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           ref: refs/tags/${{ env.TARGET_TAG }}
           path: tag-tree
@@ -148,7 +148,7 @@ jobs:
       DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
       CONSUMER_REPO: ${{ matrix.repo }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           sparse-checkout: |
             tools/consumer-actions-bump
