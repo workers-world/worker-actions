@@ -7,7 +7,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  buildDispositionCommentBody,
+  buildPhase2PrBody,
+  compareActionsTags,
+  FLEET_LABEL_READY,
+  FLEET_LABEL_SUPERSEDED,
+  maxOuterWorkflowPinTag,
+  parseBumpTitleTag,
+} from "./fleet-pin-gate.mjs";
 import { rewriteWorkflowPinTree } from "./rewrite-workflow-pins.mjs";
+
+const WORKER_ACTIONS_REPO =
+  process.env.WORKER_ACTIONS_REPO || "workers-world/worker-actions";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -57,6 +69,123 @@ function ghJson(args) {
 
 function gh(args, env) {
   return run("gh", args, { env: { ...process.env, ...env } });
+}
+
+/** @returns {string | null} latest actions/v* tag on worker-actions */
+export function fetchLatestPublishedActionsTag() {
+  /** @type {{ name: string }[]} */
+  const tags = [];
+  let page = 1;
+  for (;;) {
+    const batch = ghJson([
+      `repos/${WORKER_ACTIONS_REPO}/tags`,
+      "-f",
+      `per_page=100`,
+      "-f",
+      `page=${page}`,
+    ]);
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    for (const t of batch) {
+      if (t?.name?.startsWith("actions/v")) tags.push(t);
+    }
+    if (batch.length < 100) break;
+    page += 1;
+    if (page > 20) break;
+  }
+  if (tags.length === 0) return null;
+  tags.sort((a, b) => compareActionsTags(a.name, b.name));
+  return tags[tags.length - 1].name;
+}
+
+/**
+ * @param {string} repo
+ * @param {string} name
+ * @param {string} color
+ * @param {string} description
+ */
+function ensureRepoLabel(repo, name, color, description) {
+  const listed = JSON.parse(
+    gh(["label", "list", "--repo", repo, "--limit", "100", "--json", "name"]),
+  );
+  if (listed.some((l) => l.name === name)) return;
+  gh([
+    "label",
+    "create",
+    name,
+    "--repo",
+    repo,
+    "--color",
+    color,
+    "--description",
+    description,
+  ]);
+}
+
+/**
+ * @param {string} repo
+ * @param {number} prNumber
+ * @param {string} body
+ */
+function closeBumpPrWithDisposition(repo, prNumber, body) {
+  ensureRepoLabel(
+    repo,
+    FLEET_LABEL_SUPERSEDED,
+    "ededed",
+    "Fleet pin bump superseded or obsolete (Gate P2)",
+  );
+  gh([
+    "pr",
+    "comment",
+    prNumber.toString(),
+    "--repo",
+    repo,
+    "--body",
+    body,
+  ]);
+  gh([
+    "pr",
+    "edit",
+    prNumber.toString(),
+    "--repo",
+    repo,
+    "--add-label",
+    FLEET_LABEL_SUPERSEDED,
+  ]);
+  gh(["pr", "close", prNumber.toString(), "--repo", repo]);
+}
+
+/**
+ * @param {string} repo
+ * @param {number} prNumber
+ * @param {string} body
+ */
+function applyFleetReadyAutoMerge(repo, prNumber, body) {
+  ensureRepoLabel(
+    repo,
+    FLEET_LABEL_READY,
+    "0e8a16",
+    "Fleet pin bump ready for auto-merge when checks green (Gate P2)",
+  );
+  gh([
+    "pr",
+    "edit",
+    prNumber.toString(),
+    "--repo",
+    repo,
+    "--body",
+    body,
+    "--add-label",
+    FLEET_LABEL_READY,
+  ]);
+  gh([
+    "pr",
+    "merge",
+    prNumber.toString(),
+    "--repo",
+    repo,
+    "--auto",
+    "--squash",
+  ]);
 }
 
 /** @returns {string | null} first line stdout, or null if empty / missing ref */
@@ -166,9 +295,84 @@ export async function bumpConsumerRepo(repo, tagName, options = {}) {
     );
 
     const workflowsDir = path.join(tmp, ".github", "workflows");
+    const maxDestinPin = maxOuterWorkflowPinTag(workflowsDir);
+
+    const listOpenBumpPrs = () =>
+      JSON.parse(
+        gh([
+          "pr",
+          "list",
+          "--repo",
+          repo,
+          "--base",
+          defaultBranch,
+          "--state",
+          "open",
+          "--json",
+          "number,title,headRefName",
+        ]),
+      ).filter((p) => (p.title || "").startsWith(PR_TITLE_PREFIX.trim()));
+
+    /** @param {typeof bumpPrs} bumpPrs */
+    const closeForeignHeadBumpPrs = (bumpPrs) => {
+      for (const pr of bumpPrs) {
+        if (pr.headRefName === headBranch) continue;
+        const body = buildDispositionCommentBody({
+          disposition: "foreign_head",
+          targetTag: tagName,
+          headBranch,
+        });
+        closeBumpPrWithDisposition(repo, pr.number, body);
+        notice(`Closed foreign-head bump PR #${pr.number} on ${repo}`);
+      }
+    };
+
+    /** @param {typeof bumpPrs} bumpPrs */
+    const closeSupersededCanonicalBumpPrs = (bumpPrs) => {
+      for (const pr of bumpPrs) {
+        if (pr.headRefName !== headBranch) continue;
+        const prTag = parseBumpTitleTag(pr.title);
+        if (prTag && compareActionsTags(prTag, tagName) < 0) {
+          const body = buildDispositionCommentBody({
+            disposition: "superseded",
+            targetTag: tagName,
+            prTitleTag: prTag,
+          });
+          closeBumpPrWithDisposition(repo, pr.number, body);
+          notice(`Closed superseded bump PR #${pr.number} (${prTag} < ${tagName})`);
+        }
+      }
+    };
+
+    if (maxDestinPin && compareActionsTags(tagName, maxDestinPin) < 0) {
+      const bumpPrs = listOpenBumpPrs();
+      for (const pr of bumpPrs) {
+        const prTag = parseBumpTitleTag(pr.title);
+        const body = buildDispositionCommentBody({
+          disposition: "obsolete_downgrade",
+          targetTag: tagName,
+          prTitleTag: prTag || undefined,
+          maxDestinPin,
+        });
+        closeBumpPrWithDisposition(repo, pr.number, body);
+      }
+      const msg = `Skip ${repo}: fanout target ${tagName} is below destin max outer pin ${maxDestinPin} (would downgrade)`;
+      warning(msg);
+      appendSummary([`### Skip: ${repo}`, "", msg]);
+      return {
+        status: "skipped",
+        reason: "would_downgrade_destin",
+        maxDestinPin,
+        defaultBranch,
+      };
+    }
+
     const { files, totalReplacements } = rewriteWorkflowPinTree(workflowsDir, tagName);
 
     if (totalReplacements === 0) {
+      const bumpPrs = listOpenBumpPrs();
+      closeForeignHeadBumpPrs(bumpPrs);
+      closeSupersededCanonicalBumpPrs(listOpenBumpPrs());
       const msg = `No worker-actions @actions/v* pins under .github/workflows in ${repo}`;
       notice(msg);
       appendSummary([`### ${repo}`, "", msg]);
@@ -187,44 +391,20 @@ export async function bumpConsumerRepo(repo, tagName, options = {}) {
       return { status: "dry_run", files, totalReplacements, defaultBranch };
     }
 
-    const openPrs = JSON.parse(
-      gh([
-        "pr",
-        "list",
-        "--repo",
-        repo,
-        "--base",
-        defaultBranch,
-        "--state",
-        "open",
-        "--json",
-        "number,title,headRefName",
-      ]),
-    );
+    closeForeignHeadBumpPrs(listOpenBumpPrs());
+    const ourPr = listOpenBumpPrs().find((p) => p.headRefName === headBranch);
 
-    const bumpPrs = openPrs.filter((p) =>
-      (p.title || "").startsWith(PR_TITLE_PREFIX.trim()),
-    );
-    const ourPr = bumpPrs.find((p) => p.headRefName === headBranch);
-    const foreignBumpPr = bumpPrs.find((p) => p.headRefName !== headBranch);
-
-    if (foreignBumpPr && !ourPr) {
-      const msg = `Skip ${repo}: open bump PR #${foreignBumpPr.number} uses head \`${foreignBumpPr.headRefName}\` (not \`${headBranch}\`). Not force-updating foreign head (WW-150).`;
+    const latestPublished = fetchLatestPublishedActionsTag();
+    if (latestPublished && compareActionsTags(tagName, latestPublished) < 0) {
+      const msg = `Skip ${repo}: TARGET_TAG ${tagName} is older than latest published ${latestPublished}`;
       warning(msg);
-      gh([
-        "pr",
-        "comment",
-        foreignBumpPr.number.toString(),
-        "--repo",
-        repo,
-        "--body",
-        `<!-- consumer-actions-bump bot -->
-**Auto bump skipped** for tag \`${tagName}\`: this open PR uses head branch \`${foreignBumpPr.headRefName}\`, while the bot only force-updates \`${headBranch}\`. Close or merge this PR, or move commits to \`${headBranch}\`, then re-run **worker-consumer-actions-bump** (or push a new \`actions/v*\` tag).
-
-${msg}`,
-      ]);
       appendSummary([`### Skip: ${repo}`, "", msg]);
-      return { status: "skipped", reason: "foreign_bump_pr", pr: foreignBumpPr.number };
+      return {
+        status: "skipped",
+        reason: "target_older_than_latest_tag",
+        latestPublished,
+        defaultBranch,
+      };
     }
 
     run("git", ["-C", tmp, "config", "user.name", "github-actions[bot]"]);
@@ -252,17 +432,12 @@ ${msg}`,
     );
 
     const prTitle = `${PR_TITLE_PREFIX}${tagName}`;
-    const prBody = `## Worker-actions pin bump
-
-- **Tag**: \`${tagName}\`
-- **Scope**: \`.github/workflows/**\` outer \`workers-world/worker-actions/...@actions/v*\` only
-- **Files**: ${files.map((f) => `\`${path.relative(tmp, f)}\``).join(", ")}
-- **Replacements**: ${totalReplacements}
-
-Lockfile / \`package.json\` 不在范围；合入后走现有 sync-lock。
-
-> Opened by [\`worker-consumer-actions-bump\`](https://github.com/workers-world/worker-actions) (WW-150 org fanout / #101). **No auto-merge.**
-`;
+    const fileRelPaths = files.map((f) => path.relative(tmp, f));
+    const prBody = buildPhase2PrBody({
+      tagName,
+      fileRelPaths,
+      totalReplacements,
+    });
 
     let prNumber = ourPr?.number;
     if (prNumber) {
@@ -313,6 +488,9 @@ Force-updated head \`${headBranch}\` to \`${tagName}\` (${totalReplacements} pin
         ]),
       );
     }
+
+    applyFleetReadyAutoMerge(repo, prNumber, prBody);
+    notice(`Gate P2: enabled auto-merge (squash) + ${FLEET_LABEL_READY} on PR #${prNumber}`);
 
     appendSummary([
       `### ${repo}`,
