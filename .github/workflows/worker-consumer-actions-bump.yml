@@ -80,6 +80,24 @@ jobs:
 
       - uses: ./.github/actions/ensure-gh-cli
 
+      - name: Gate P1 — checkout tag tree for nested pin scan
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TARGET_TAG }}
+          path: tag-tree
+          sparse-checkout: |
+            .github/actions
+            .github/workflows
+            templates
+            docs/templates
+          persist-credentials: false
+
+      - name: Gate P1 — tag nested @actions/v* integrity
+        env:
+          TAG_TREE_ROOT: tag-tree
+          TARGET_TAG: ${{ env.TARGET_TAG }}
+        run: node tools/consumer-actions-bump/verify-tag-nested-pins.mjs
+
       - name: Require annotated tag (create event only)
         id: require-annotated-tag
         env:
