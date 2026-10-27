@@ -312,10 +312,11 @@ jobs:
             -ignore 'specifying action "\$/.*'
             -ignore 'reusable workflow call "\$/.*'
           )
-          # style/info 不阻断：SC2129 多行重定向、SC2016 单引号字面量
+          # style/info 不阻断：SC2129 多行重定向、SC2016 单引号字面量、SC2119 函数 "$@"
           IGNORE_STYLE=(
             -ignore 'shellcheck reported issue in this script: SC2129:'
             -ignore 'shellcheck reported issue in this script: SC2016:'
+            -ignore 'shellcheck reported issue in this script: SC2119:'
           )
           actionlint -color "${IGNORE_DOLLAR[@]}" "${IGNORE_STYLE[@]}"
           # 勿对 .github/actions/**/action.yml 直接跑 actionlint：会按 workflow 解析而误报缺 on/jobs。
