@@ -11,7 +11,7 @@ name: Worker workflow lint
 #   4. JSON / YAML 解析：.opencodereview/rule.json、manifest/actions-bundle.yaml
 #   5. Pin 检查：uses: 禁止 @master / @main / @HEAD
 #   6. 内层 pin 一致性：@actions/vX.Y.Z 全仓同版本，且须为最新 tag 或 patch+1 待发 tag
-#   7. manifest 格式：current 须为 actions/vX.Y.Z（不校验 tag 是否已 push；发版 PR 中 manifest 常领先 tag）
+#   7. manifest 格式：current 须为 actions/vX.Y.Z；若 tag 已存在则 sha 须等于 peel（#205；tag 未 push 时 skip）
 #   8. 卫生检查：CRLF / 尾随空白 / 合并冲突标记 <<<<<<<
 #   9. 凭据泄露扫描：ghp_ / sk- / cf- / -----BEGIN ... PRIVATE KEY-----
 #  10. workflow_call 内禁止 uses: ./ 或 $/ 引用 .github/actions（跨仓解析到 caller）
@@ -224,7 +224,7 @@ jobs:
           echo "ok: zizmor baseline ${baseline_repo}@${ref} (${ref_source}; github.workflow_ref=${wf_ref})"
 
       - name: Checkout zizmor baseline
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ steps.zizmor_baseline_ref.outputs.repository }}
           ref: ${{ steps.zizmor_baseline_ref.outputs.ref }}
@@ -312,10 +312,11 @@ jobs:
             -ignore 'specifying action "\$/.*'
             -ignore 'reusable workflow call "\$/.*'
           )
-          # style/info 不阻断：SC2129 多行重定向、SC2016 单引号字面量
+          # style/info 不阻断：SC2129 多行重定向、SC2016 单引号字面量、SC2119 函数 "$@"
           IGNORE_STYLE=(
             -ignore 'shellcheck reported issue in this script: SC2129:'
             -ignore 'shellcheck reported issue in this script: SC2016:'
+            -ignore 'shellcheck reported issue in this script: SC2119:'
           )
           actionlint -color "${IGNORE_DOLLAR[@]}" "${IGNORE_STYLE[@]}"
           # 勿对 .github/actions/**/action.yml 直接跑 actionlint：会按 workflow 解析而误报缺 on/jobs。
@@ -434,6 +435,15 @@ jobs:
             exit 1
           fi
           echo "ok: manifest current=$cur（tag 是否已发布由 release-actions-bundle 负责，此处不校验）"
+          # tag 已存在时：sha 须等于 peel（#205）；tag 未 push 时 skip
+          # shellcheck source=tools/actions-bundle/nested-pins-lib.sh
+          if [ -f tools/actions-bundle/nested-pins-lib.sh ]; then
+            # 本仓 / dogfood 有 scripts；跨仓 caller 无此文件则跳过
+            source tools/actions-bundle/nested-pins-lib.sh
+            check_manifest_sha_matches_tag
+          else
+            echo "skip: manifest sha↔tag peel（caller 无 nested-pins-lib）"
+          fi
 
       - name: 卫生检查（CRLF / 尾随空白 / 合并冲突标记）
         run: |

@@ -81,7 +81,7 @@ jobs:
           permission-pull-requests: write
           permission-workflows: write
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
@@ -235,8 +235,19 @@ jobs:
           fi
 
           # --- Phase A: align all bundle nested pins (incl. workflows) before tagging ---
+          # sha 语义：manifest.sha = annotated tag 的 peel（git rev-list -n 1 TAG）。
+          # 单次 commit 无法嵌入自身 object id；旧逻辑用 amend 回写 sha，会把
+          # 中间（常未 push、已悬空）SHA 写进 tag 树（见 #195 / WW-451）。
+          # 做法：新 tag 时先写 provisional sha → 打 tag → **新 commit** 校正为 peel
+          #（不 retag）；tag 已存在时直接写 peel。
           rewrite_nested_pins "${TAG}" "${BUNDLE_PIN_GLOBS[@]}"
-          git add "${BUNDLE_PIN_GLOBS[@]}"
+          if [ "$NEED_TAG" = 1 ]; then
+            write_manifest "$(git rev-parse HEAD)"
+          else
+            REF="$(git rev-list -n 1 "$TAG" 2>/dev/null || git rev-parse HEAD)"
+            write_manifest "$REF"
+          fi
+          git add "${BUNDLE_PIN_GLOBS[@]}" "$MANIFEST"
           PHASE_A_STAGED=0
           if ! git diff --cached --quiet; then
             PHASE_A_STAGED=1
@@ -245,36 +256,18 @@ jobs:
 
           if [ "$NEED_TAG" = 1 ]; then
             REF="$(git rev-parse HEAD)"
-            write_manifest "$REF"
-            git add "$MANIFEST"
-            if [ "$PHASE_A_STAGED" = 1 ]; then
-              git commit --amend --no-edit
-            else
-              git commit -m "${COMMIT_MSG}"
-            fi
-            REF="$(git rev-parse HEAD)"
-            write_manifest "$REF"
-            git add "$MANIFEST"
-            if ! git diff --cached --quiet; then
-              git commit --amend --no-edit
-            fi
-            REF="$(git rev-parse HEAD)"
             git tag -a "$TAG" -m "Actions bundle ${TAG}"
             git_push_tag origin "$TAG"
             TAG_CREATED=1
             echo "Created ${TAG} at ${REF} (tag tree includes workflow + action/template nested pins)"
-          else
-            REF="$(git rev-list -n 1 "$TAG" 2>/dev/null || git rev-parse HEAD)"
             write_manifest "$REF"
             git add "$MANIFEST"
-            if git diff --cached --quiet && [ "$PHASE_A_STAGED" = 0 ]; then
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: record ${TAG} peel sha in manifest [skip actions-release]"
+            fi
+          else
+            if [ "$PHASE_A_STAGED" = 0 ]; then
               echo "Backfill branch manifest/pins already aligned for ${TAG}"
-            else
-              if [ "$PHASE_A_STAGED" = 1 ]; then
-                git commit --amend -m "${COMMIT_MSG}" 2>/dev/null || git commit -m "${COMMIT_MSG}"
-              else
-                git commit -m "chore: bump actions bundle manifest to ${TAG} [skip actions-release]"
-              fi
             fi
           fi
 
