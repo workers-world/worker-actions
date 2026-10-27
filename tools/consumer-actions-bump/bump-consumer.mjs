@@ -77,12 +77,10 @@ export function fetchLatestPublishedActionsTag() {
   const tags = [];
   let page = 1;
   for (;;) {
+    // IMPORTANT: do not use `gh api -f` here — fields force POST, and
+    // POST /repos/.../tags returns 404. Query string keeps GET list semantics.
     const batch = ghJson([
-      `repos/${WORKER_ACTIONS_REPO}/tags`,
-      "-f",
-      `per_page=100`,
-      "-f",
-      `page=${page}`,
+      `repos/${WORKER_ACTIONS_REPO}/tags?per_page=100&page=${page}`,
     ]);
     if (!Array.isArray(batch) || batch.length === 0) break;
     for (const t of batch) {
