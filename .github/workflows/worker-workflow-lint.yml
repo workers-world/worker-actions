@@ -316,7 +316,7 @@ jobs:
           IGNORE_STYLE=(
             -ignore 'shellcheck reported issue in this script: SC2129:'
             -ignore 'shellcheck reported issue in this script: SC2016:'
-          -ignore 'shellcheck reported issue in this script: SC2119:'
+            -ignore 'shellcheck reported issue in this script: SC2119:'
           )
           actionlint -color "${IGNORE_DOLLAR[@]}" "${IGNORE_STYLE[@]}"
           # 勿对 .github/actions/**/action.yml 直接跑 actionlint：会按 workflow 解析而误报缺 on/jobs。
