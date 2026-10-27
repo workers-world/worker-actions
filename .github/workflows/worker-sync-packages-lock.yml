@@ -55,7 +55,7 @@ jobs:
           # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
           permission-contents: write
 
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.45
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.46
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
@@ -67,7 +67,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.45
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.46
         id: lock_check
         with:
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
