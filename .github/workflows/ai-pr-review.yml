@@ -95,7 +95,7 @@ jobs:
 
       - name: Checkout ai-pr-review action bundle
         if: env.SKIP_REVIEW != 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           repository: workers-world/worker-actions
           ref: ${{ inputs.actions_bundle_ref }}

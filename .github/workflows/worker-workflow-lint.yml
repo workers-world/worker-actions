@@ -224,7 +224,7 @@ jobs:
           echo "ok: zizmor baseline ${baseline_repo}@${ref} (${ref_source}; github.workflow_ref=${wf_ref})"
 
       - name: Checkout zizmor baseline
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ steps.zizmor_baseline_ref.outputs.repository }}
           ref: ${{ steps.zizmor_baseline_ref.outputs.ref }}
