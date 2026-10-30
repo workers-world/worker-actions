@@ -117,8 +117,15 @@ on:
 # 顶层兜底最小权限；各 job 自行显式声明
 permissions: {}
 
+# Release PR 与 destin push 分池 cancel，避免 push 噪声 cancel 已在排队的 PR run（#213）。
+# 二者仍共享 grokbot-box 槽位；降 enqueue（push admission）+ 托管 runner 分流才是主 ROI。
 concurrency:
-  group: worker-ci-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.sha }}
+  group: >-
+    worker-ci-${{ github.repository }}-${{
+      github.event_name == 'pull_request' &&
+      format('release-pr-{0}', github.event.pull_request.number) ||
+      format('destin-push-{0}', github.ref_name)
+    }}
   cancel-in-progress: true
 
 jobs:
@@ -129,7 +136,7 @@ jobs:
   # 调整触发范围时请同步改：qodana / ai-pr-review / release-auto-merge / notify-blocked / ci-summary
   # push 上 ensure-release-pr 使用相同 release_track；push verify/sync-lock 仍接受任意 dev_* 前缀。
   pure-destin-gate:
-    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 1
     permissions: {}
     outputs:
@@ -149,6 +156,28 @@ jobs:
             echo "release_track=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # push dev_*：仅 lock / workflow pin / docs 等噪声路径时跳过 worker-verify（不占 grokbot-box）。
+  push-admission:
+    needs: [pure-destin-gate]
+    if: |
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
+      github.event_name == 'push' &&
+      startsWith(github.ref_name, 'dev_')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      skip_packages_jobs: ${{ steps.admit.outputs.skip_packages_jobs }}
+    steps:
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.46
+        with:
+          fetch-depth: 0
+          persist-credentials: "false"
+      - name: Classify push diff (noise vs packages jobs)
+        id: admit
+        uses: workers-world/worker-actions/.github/actions/push-ci-admission@actions/v0.2.46
+
   # workflow-lint：仅 PR；push 不跑。拿不到路径时 PR 上跑一次（避免 paths-filter 再花 1 分钟）。
   workflow-lint:
     needs: [pure-destin-gate]
@@ -164,12 +193,15 @@ jobs:
       actions: write
     uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.46
     with:
+      runner: ubuntu-latest
       zizmor_baseline_repository: workers-world/worker-actions
       zizmor_baseline_ref: actions/v0.2.34
 
   verify:
+    needs: [pure-destin-gate, push-admission]
     # push：仅 sync-lock（非 bot）+ 可选 verify_on_push；PR：全量门禁
     # bot synchronize：sync-lock 提交 lock 后 PR 须重跑 verify；lock 漂移时 lock-precheck fail，不得 auto-merge
+    # push admission：lock-only / workflow pin / docs-only 跳过 sync-lock（#213）
     if: |
       (
         github.actor != 'github-actions[bot]' ||
@@ -183,7 +215,11 @@ jobs:
         (
           github.event_name == 'push' &&
           startsWith(github.ref_name, 'dev_') &&
-          (inputs.verify_on_push || inputs.sync_packages_lock)
+          (inputs.verify_on_push || inputs.sync_packages_lock) &&
+          (
+            needs.push-admission.result == 'skipped' ||
+            needs.push-admission.outputs.skip_packages_jobs != 'true'
+          )
         )
       )
     permissions:
@@ -385,9 +421,9 @@ jobs:
 
   # 仪器：进来多少 job、哪些 skipped、估算 hosted 分钟下界（文章「Claude 的眼睛」）
   ci-summary:
-    needs: [pure-destin-gate, workflow-lint, verify, ensure-release-pr, qodana, ai-pr-review, release-auto-merge]
+    needs: [pure-destin-gate, push-admission, workflow-lint, verify, ensure-release-pr, qodana, ai-pr-review, release-auto-merge]
     if: always()
-    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
     steps:

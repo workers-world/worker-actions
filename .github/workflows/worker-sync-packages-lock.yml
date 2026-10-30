@@ -39,7 +39,8 @@ permissions:
 
 jobs:
   sync-lock:
-    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    # sync-lock 仅需 GHA_TOKEN 读 Packages；放 ubuntu-latest 给 verify 腾 grokbot-box（#213）
+    runs-on: ubuntu-latest
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
     steps:
