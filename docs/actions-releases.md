@@ -163,7 +163,8 @@ sed -i '' 's|@actions/v0\.4\.31|@actions/v0.4.33|g' .github/workflows/*.yml
 
 | Tag | SHA | 日期 | 摘要 |
 |-----|-----|------|------|
-| `actions/v0.2.33` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#132**：bump 可仅 package.json；同仓 PR/push sync-lock heal→lock-precheck；ensure 等 heal；checkout 重试 |
+| `actions/v0.2.48` | （合入 master 后 `release-actions-bundle` patch+1） | — | **billing**：`worker-ci` gate/push-admission/ci-summary + workflow-lint runner + leaf ensure/merge/notify/failure-comment 私有仓走 `GHA_RUNNER`；内层 pin 对齐本 tag |
+| `actions/v0.2.47` | 407b14e | 2026-10-30 | Destin auto-align nested pins (WW-303)；gate 仍 `ubuntu-latest`（私有 consumer 在 org 计费限额下 blocked） |
 | `actions/v0.2.10` | （合入 master 后 `release-actions-bundle` patch+1） | — | 公开仓 `runs-on` 固定 `ubuntu-latest`（`worker-ensure-release-pr` 补齐 private 门控）；内层嵌套 pin 与本 tag 对齐 |
 | `actions/v0.2.9` | 41ba6e4 | 2026-09-30 | 内层嵌套 pin 对齐 `v0.2.8`（zizmor baseline）；**未**修复 ensure-release-pr / 旧嵌套上的 self-hosted 门控 |
 | `actions/v0.2.8` | （合入 master 后 `release-actions-bundle` patch+1） | — | 恢复 `worker-ci` `workflow_call.secrets`（v0.2.7 误删回归）；保留 `create_draft_release_pr` 默认 false |

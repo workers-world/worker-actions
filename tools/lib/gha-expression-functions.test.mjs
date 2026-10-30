@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { findUnsupportedMatchesCalls } from './gha-expression-functions.mjs';
+import { findUnsupportedMatchesCalls, GHA_RUNNER_RUNS_ON_EXPR } from './gha-expression-functions.mjs';
 import { PURE_DESTIN_BRANCH_BASH_RE } from './pure-destin-branch.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -56,4 +56,48 @@ test('worker-ci pure-destin-gate bash pattern stays aligned with PURE_DESTIN_BRA
   );
   assert.match(source, /pure-destin-gate:/);
   assert.doesNotMatch(source, /^\s+if:.*\bmatches\s*\(/m);
+});
+
+const CRITICAL_RUNS_ON_JOBS = [
+  { file: 'worker-ci.yml', patterns: ['pure-destin-gate:', 'push-admission:', 'ci-summary:'] },
+  {
+    file: 'worker-ensure-release-pr.yml',
+    patterns: ['ensure:'],
+  },
+  {
+    file: 'worker-release-auto-merge.yml',
+    patterns: ['merge:'],
+  },
+  {
+    file: 'worker-ci-failure-comment.yml',
+    patterns: ['comment:'],
+  },
+  {
+    file: 'worker-notify-release-pr-blocked.yml',
+    patterns: ['notify:'],
+  },
+];
+
+test('release-pr critical path jobs use GHA_RUNNER runs-on expression', () => {
+  for (const { file, patterns } of CRITICAL_RUNS_ON_JOBS) {
+    const source = fs.readFileSync(path.join(workflowsDir, file), 'utf8');
+    for (const jobKey of patterns) {
+      const blockRe = new RegExp(
+        `${jobKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?runs-on:\\s*(.+)$`,
+        'm',
+      );
+      const m = source.match(blockRe);
+      assert.ok(m, `${file}: expected runs-on under ${jobKey}`);
+      assert.equal(
+        m[1].trim(),
+        GHA_RUNNER_RUNS_ON_EXPR,
+        `${file} ${jobKey} runs-on must match GHA_RUNNER_RUNS_ON_EXPR`,
+      );
+    }
+  }
+  const workerCi = fs.readFileSync(path.join(workflowsDir, 'worker-ci.yml'), 'utf8');
+  assert.match(
+    workerCi,
+    /workflow-lint:[\s\S]*?runner:\s*\$\{\{ github\.event\.repository\.private && vars\.GHA_RUNNER != '' && vars\.GHA_RUNNER \|\| 'ubuntu-latest' \}\}/,
+  );
 });
