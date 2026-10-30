@@ -5,7 +5,7 @@ name: Worker verify
 #
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.51
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.53
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
@@ -97,7 +97,7 @@ jobs:
       ) ||
       inputs.run_verify
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
-    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.51
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.53
     with:
       bot: ${{ inputs.bot }}
       sync_packages_lock: ${{ inputs.sync_packages_lock }}
@@ -132,7 +132,7 @@ jobs:
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.51
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.53
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
@@ -176,7 +176,7 @@ jobs:
       # GitHub 判定 runner lost communication 并放弃 job；check 与测试其实已通过
       # （rev1#70，https://github.com/workers-world/rev1/actions/runs/40065381950）。
       # 提高 timeout-minutes 不能避免 lease 过期。依赖加速只保留上方 setup-node
-      # cache: npm（tarball）。门禁路径为 npm ci → check → test，不得再把 cache save 挡在前面。
+      # cache: npm（tarball）。门禁路径为 npm ci → check（± test 并行）；不得再把 cache save 挡在前面。
 
       - name: Materialize SDK from GitHub Packages
         if: steps.npm_scope.outputs.run_npm == 'true' && inputs.materialize_sdk
@@ -234,16 +234,48 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: npm run check
+      # #221 R5 Axis B（verify）：check∥test 并行；check 已等同 npm test 时不再重复 test 步
+      - name: npm run check and test
         if: steps.npm_scope.outputs.run_npm == 'true'
-        run: npm run check
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
-      - name: npm test
-        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.run_tests
-        run: npm test
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          RUN_TESTS: ${{ inputs.run_tests }}
+        run: |
+          set -uo pipefail
+          ec=0
+          separate_test="$(node -e '
+            const scripts = require("./package.json").scripts || {};
+            const check = (scripts.check || "").trim();
+            const test = (scripts.test || "").trim();
+            let out = "false";
+            if (process.env.RUN_TESTS === "true" && test) {
+              if (!check) {
+                out = "true";
+              } else {
+                const norm = (s) => s.replace(/\s+/g, " ");
+                const checkNorm = norm(check);
+                if (
+                  checkNorm !== norm(test) &&
+                  checkNorm !== "npm test" &&
+                  checkNorm !== "npm run test"
+                ) {
+                  out = "true";
+                }
+              }
+            }
+            process.stdout.write(out);
+          ')"
+          npm run check &
+          pid_check=$!
+          if [ "$separate_test" = "true" ]; then
+            npm test &
+            pid_test=$!
+          fi
+          wait "$pid_check" || ec=1
+          if [ "$separate_test" = "true" ]; then
+            wait "$pid_test" || ec=1
+          fi
+          exit "$ec"
 
   promote:
     needs: verify
@@ -256,7 +288,7 @@ jobs:
     # （bot=app 试点期 promote 嵌套链暂走 PAT：与 SDK 物化的 packages 读共用 GHA_TOKEN，
     #   全量切 App 需先完成包「Manage Actions access」授权，见 docs/github-app-token-migration.md §4）
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.51
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.53
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
