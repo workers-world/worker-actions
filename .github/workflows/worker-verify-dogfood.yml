@@ -6,14 +6,14 @@ name: Worker verify (dogfood)
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
 # 本仓 dogfood：ci-verify-dogfood 用 $/ 调用本 workflow；sync-lock 为 runs-on job（勿再嵌套 workflow_call，否则 startup_failure）。
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.50
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.51
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
 #
 # PR verify checkout PR head SHA（非 pull/N/merge），与 qodana 一致，避免 stale merge ref 导致 npm ci 失败。
 # sync-lock 与 verify 编排（#132：bump 可仅改 package.json，lock 由 CI heal）：
-#   push dev_* / 同仓 pull_request：sync-lock job 内 heal 后同 runner 跑 npm ci --dry-run 门禁（#221 Axis B）。
+#   push dev_* / 同仓 pull_request：sync-lock heal + 浅层 lock 导出；干净 npm ci 仅在 verify job（#221 R4 Axis C）。
 #   bot lock push 仍 synchronize PR；Node **24** 字面量（与 Cloudflare Builds 对齐）。
 # 无 SDK（materialize_sdk: false）时不因 lock 未同步跳过 verify（与旧 wait 行为一致）。
 # SDK 版本唯一来源：caller 仓 package.json 的 framework_sdk_worker（npm:@workers-world/...@X.Y.Z）。
@@ -249,6 +249,7 @@ jobs:
         with:
           working-directory: ${{ inputs.working_directory }}
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          skip_dry_run: "true"
 
       - name: Fail PR gate when package-lock out of sync
         if: >
@@ -259,7 +260,7 @@ jobs:
           steps.lock_gate.outputs.skip != 'true' &&
           steps.lock_gate.outputs.in_sync != 'true'
         run: |
-          echo "::error::PR 门禁：package-lock 与 package.json 仍不同步，或 npm ci --dry-run 失败（sync-lock heal 未成功）。"
+          echo "::error::PR 门禁：package-lock 与 package.json 仍不同步（sync-lock heal 未成功）；verify npm ci 将作最终硬拦。"
           echo "bump 可仅改 package.json；须配置 Org Secret GHA_TOKEN（read:packages）并确认 sync-lock job 已成功 push lock。"
           echo "勿依赖本地 npm install（开发者网络常无法访问 GitHub Packages）。"
           exit 1
@@ -395,8 +396,7 @@ jobs:
 
       # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
-      # node_modules 缓存命中时用 npm ci --prefer-offline（仍校验 lock，不跳过 dry-run 级完整性）；
-      # lock 变更时 cache key 变，自动全量 npm ci。不替代 sync-lock job 内 npm ci --dry-run 门禁。
+      # lock 变更时 cache key 变，自动全量 npm ci。sync-lock 不再跑 npm ci --dry-run（#221 R4 Axis C）。
       - name: Run npm ci
         if: steps.npm_scope.outputs.run_npm == 'true'
         run: |
