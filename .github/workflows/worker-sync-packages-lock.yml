@@ -91,7 +91,7 @@ jobs:
           # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
           permission-contents: write
 
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.48
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.50
         with:
           fetch-depth: ${{ env.HEAL_LOCK == 'true' && 0 || 1 }}
           ref: >-
@@ -107,7 +107,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.48
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.50
         id: lock_check
         if: env.HEAL_LOCK == 'true'
         with:
@@ -223,8 +223,8 @@ jobs:
           echo "push 被拒，rebase 后重试一次…"
           push_with_rebase
 
-      # 原 lock-precheck job：同 runner 在 heal 后直接 dry-run，省二次 checkout/setup-node/job 调度（#221 Axis B）
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.48
+      # 原 lock-precheck job：同 runner 在 heal 后同 runner dry-run，省二次 checkout/setup-node/job 调度（#221 Axis B）
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.50
         id: lock_gate
         if: inputs.run_verify
         with:
