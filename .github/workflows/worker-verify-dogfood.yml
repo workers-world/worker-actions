@@ -6,7 +6,7 @@ name: Worker verify (dogfood)
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
 # 本仓 dogfood：ci-verify-dogfood 用 $/ 调用本 workflow；sync-lock 为 runs-on job（勿再嵌套 workflow_call，否则 startup_failure）。
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.51
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.53
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
@@ -416,15 +416,47 @@ jobs:
         with:
           path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
           key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
-      - name: npm run check
+      # #221 R5 Axis B（verify）：与 worker-verify.yml 同编排
+      - name: npm run check and test
         if: steps.npm_scope.outputs.run_npm == 'true'
-        run: npm run check
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
-      - name: npm test
-        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.run_tests
-        run: npm test
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          RUN_TESTS: ${{ inputs.run_tests }}
+        run: |
+          set -uo pipefail
+          ec=0
+          separate_test="$(node -e '
+            const scripts = require("./package.json").scripts || {};
+            const check = (scripts.check || "").trim();
+            const test = (scripts.test || "").trim();
+            let out = "false";
+            if (process.env.RUN_TESTS === "true" && test) {
+              if (!check) {
+                out = "true";
+              } else {
+                const norm = (s) => s.replace(/\s+/g, " ");
+                const checkNorm = norm(check);
+                if (
+                  checkNorm !== norm(test) &&
+                  checkNorm !== "npm test" &&
+                  checkNorm !== "npm run test"
+                ) {
+                  out = "true";
+                }
+              }
+            }
+            process.stdout.write(out);
+          ')"
+          npm run check &
+          pid_check=$!
+          if [ "$separate_test" = "true" ]; then
+            npm test &
+            pid_test=$!
+          fi
+          wait "$pid_check" || ec=1
+          if [ "$separate_test" = "true" ]; then
+            wait "$pid_test" || ec=1
+          fi
+          exit "$ec"
 
   # dogfood 不嵌套 worker-promote（reusable→reusable→reusable 会 startup_failure）；promote 见 worker-verify.yml
