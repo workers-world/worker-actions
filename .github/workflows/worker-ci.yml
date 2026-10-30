@@ -202,7 +202,12 @@ jobs:
     # push：仅 sync-lock（非 bot）+ 可选 verify_on_push；PR：全量门禁
     # bot synchronize：sync-lock 提交 lock 后 PR 须重跑 verify；lock 漂移时 lock-precheck fail，不得 auto-merge
     # push admission：lock-only / workflow pin / docs-only 跳过 sync-lock（#213）
+    # always(): PR 上 push-admission 为 skipped 时，GHA 默认会跳过 needs 依赖 job；须显式继续
     if: |
+      always() &&
+      !cancelled() &&
+      needs.pure-destin-gate.result == 'success' &&
+      (needs.push-admission.result == 'success' || needs.push-admission.result == 'skipped') &&
       (
         github.actor != 'github-actions[bot]' ||
         (
