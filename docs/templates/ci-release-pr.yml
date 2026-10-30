@@ -29,8 +29,9 @@ jobs:
       issues: write
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.48
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.50
     secrets: inherit
     with:
       sync_packages_lock: true
+      # skip_workflow_lint: false  # 可选：Release PR 恢复 workflow-lint（默认 true）
       # skip_ai_review: false   # 试点：Org 配置 AI_REVIEW_LLM_TOKEN 后打开
