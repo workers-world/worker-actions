@@ -10,7 +10,7 @@ name: Worker ensure release PR
 # Caller（push job）：
 #   if: worker-ci pure-destin-gate release_track + push（勿仅用 startsWith dev_）
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.51
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.52
 #   secrets: inherit   # 或显式映射 workflow_call.secrets（GHA_TOKEN、RELEASE_BOT_*）
 #   with:
 #     release_branch: ${{ github.ref_name }}
@@ -161,7 +161,7 @@ jobs:
 
       - name: Checkout release branch
         if: steps.preflight.outputs.short_circuit != 'true' && (steps.preflight.outputs.needs_sync == 'true' || inputs.skip_lock_precheck != true)
-        uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.51
+        uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.52
         with:
           fetch-depth: 0
           ref: ${{ inputs.release_branch }}
@@ -170,7 +170,7 @@ jobs:
       - name: Require package-lock in sync before release PR
         if: steps.preflight.outputs.short_circuit != 'true' && inputs.skip_lock_precheck != true
         # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓；见 docs/actions-releases.md
-        uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.51
+        uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.52
         id: lock_gate
         with:
           skip_dry_run: "true"
@@ -186,7 +186,7 @@ jobs:
         id: sync-master
         if: steps.preflight.outputs.short_circuit != 'true' && steps.preflight.outputs.needs_sync == 'true'
         # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓；见 docs/actions-releases.md
-        uses: workers-world/worker-actions/.github/actions/sync-master-into-release-branch@actions/v0.2.51
+        uses: workers-world/worker-actions/.github/actions/sync-master-into-release-branch@actions/v0.2.52
         with:
           release_branch: ${{ inputs.release_branch }}
           master_branch: ${{ inputs.master_branch }}
