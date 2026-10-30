@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/worker-verify.yml"
       - ".github/workflows/worker-verify-dogfood.yml"
+      - ".github/workflows/worker-sync-packages-lock.yml"
       - ".github/workflows/worker-sync-packages-lock-dogfood.yml"
       - ".github/workflows/ci-verify-dogfood.yml"
       - "tools/npm-ci-dogfood/**"
@@ -23,7 +24,7 @@ jobs:
       contents: write
       packages: read
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-verify-dogfood.yml@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
+    uses: ./.github/workflows/worker-verify-dogfood.yml
     with:
       materialize_sdk: false
       sync_packages_lock: false

@@ -12,8 +12,8 @@ name: Worker verify
 #
 # PR verify checkout PR head SHA（非 pull/N/merge），与 qodana 一致，避免 stale merge ref 导致 npm ci 失败。
 # sync-lock 与 verify 编排（#132：bump 可仅改 package.json，lock 由 CI heal）：
-#   push dev_* / 同仓 pull_request：sync-lock 在 lock-precheck 前按 package.json 刷新 lock 并 bot push（GHA_TOKEN 读 Packages）。
-#   lock-precheck + verify npm ci 仍为硬门禁；heal 失败则 fail（不要求开发者本地 npm install / 提交 lock）。
+#   push dev_* / 同仓 pull_request：sync-lock job 内 heal 后同 runner 跑 npm ci --dry-run 门禁（#221 合并原 lock-precheck）。
+#   verify npm ci 仍为硬门禁；heal 失败则 fail（不要求开发者本地 npm install / 提交 lock）。
 #   bot lock push 仍 synchronize PR；Node **24** 字面量（与 Cloudflare Builds 对齐）。
 # 无 SDK（materialize_sdk: false）时不因 lock 未同步跳过 verify（与旧 wait 行为一致）。
 # SDK 版本唯一来源：caller 仓 package.json 的 framework_sdk_worker（npm:@workers-world/...@X.Y.Z）。
@@ -82,84 +82,43 @@ permissions:
 jobs:
   sync-lock:
     if: >
-      inputs.sync_packages_lock &&
       (
+        inputs.sync_packages_lock &&
         (
-          github.event_name == 'push' &&
-          startsWith(github.ref_name, 'dev_')
-        ) ||
-        (
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository
+          (
+            github.event_name == 'push' &&
+            startsWith(github.ref_name, 'dev_')
+          ) ||
+          (
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+          )
         )
-      )
+      ) ||
+      inputs.run_verify
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
     uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.48
     with:
       bot: ${{ inputs.bot }}
+      sync_packages_lock: ${{ inputs.sync_packages_lock }}
+      run_verify: ${{ inputs.run_verify }}
+      materialize_sdk: ${{ inputs.materialize_sdk }}
+      working_directory: ${{ inputs.working_directory }}
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
       RELEASE_BOT_APP_ID: ${{ secrets.RELEASE_BOT_APP_ID }}
 
-  lock-precheck:
+  verify:
     needs: sync-lock
     if: >
       always() &&
       inputs.run_verify &&
-      (needs.sync-lock.result == 'success' || needs.sync-lock.result == 'skipped')
-    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
-    defaults:
-      run:
-        working-directory: ${{ inputs.working_directory }}
-    permissions:
-      contents: read
-    outputs:
-      in_sync: ${{ steps.lock_check.outputs.in_sync }}
-      skip: ${{ steps.lock_check.outputs.skip }}
-    env:
-      SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
-    steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.48
-        with:
-          fetch-depth: 1
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
-
-      - name: Pull lock commit from sync-lock job
-        if: needs.sync-lock.result == 'success'
-        run: git pull --ff-only origin "${SYNC_LOCK_BRANCH}"
-
-      # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓（非 worker-actions）→ action.yml 404
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.48
-        id: lock_check
-        with:
-          working-directory: ${{ inputs.working_directory }}
-          node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
-
-      - name: Fail PR gate when package-lock out of sync
-        if: >
-          github.event_name == 'pull_request' &&
-          inputs.sync_packages_lock &&
-          inputs.materialize_sdk &&
-          steps.lock_check.outputs.skip != 'true' &&
-          steps.lock_check.outputs.in_sync != 'true'
-        run: |
-          echo "::error::PR 门禁：package-lock 与 package.json 仍不同步，或 npm ci --dry-run 失败（sync-lock heal 未成功）。"
-          echo "bump 可仅改 package.json；须配置 Org Secret GHA_TOKEN（read:packages）并确认 sync-lock job 已成功 push lock。"
-          echo "勿依赖本地 npm install（开发者网络常无法访问 GitHub Packages）。"
-          exit 1
-
-  verify:
-    needs: [sync-lock, lock-precheck]
-    if: >
-      always() &&
-      inputs.run_verify &&
       (needs.sync-lock.result == 'success' || needs.sync-lock.result == 'skipped') &&
-      (needs.lock-precheck.result == 'success' || needs.lock-precheck.result == 'skipped') &&
       (
-        needs.lock-precheck.result == 'skipped' ||
-        needs.lock-precheck.outputs.skip == 'true' ||
-        needs.lock-precheck.outputs.in_sync == 'true' ||
+        needs.sync-lock.result == 'skipped' ||
+        needs.sync-lock.outputs.skip == 'true' ||
+        needs.sync-lock.outputs.in_sync == 'true' ||
         !(inputs.sync_packages_lock && inputs.materialize_sdk)
       )
     runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
@@ -268,7 +227,7 @@ jobs:
 
       # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
-      # 始终全量 npm ci（配合 setup-node 的 npm tarball cache）。不替代 lock-precheck 的 npm ci --dry-run。
+      # 始终全量 npm ci（配合 setup-node 的 npm tarball cache）。不替代 sync-lock job 内 npm ci --dry-run 门禁。
       - name: Run npm ci
         if: steps.npm_scope.outputs.run_npm == 'true'
         run: npm ci --no-fund --no-audit
