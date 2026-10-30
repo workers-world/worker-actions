@@ -131,6 +131,8 @@ jobs:
       actions: write
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+      # 私有仓 + GHA_RUNNER：自托管（#213 不在此路径 save setup-node/npm/node_modules Actions cache）
+      VERIFY_ON_SELF_HOSTED: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && 'true' || 'false' }}
     steps:
       - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.53
         with:
@@ -162,21 +164,25 @@ jobs:
 
       - uses: actions/setup-node@v7.1.0
         if: steps.npm_scope.outputs.run_npm == 'true'
+        id: setup_node
         with:
           node-version: "24"
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
           # self-hosted 上 Post setup-node 写 npm cache 曾占 verify 墙钟 ~2/3（#213 Phase A+）；托管 runner 保留 tarball cache
-          cache: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && false || 'npm' }}
+          cache: ${{ env.VERIFY_ON_SELF_HOSTED == 'true' && false || 'npm' }}
           cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
 
-      # 不缓存整棵 node_modules（已去掉 actions/cache restore/save）。
-      # self-hosted 上大目录（rev1 本地 node_modules ~827MB / 数万文件）的
-      # Save node_modules cache 曾占约 10 分钟，期间 job lease 续约停滞，
-      # GitHub 判定 runner lost communication 并放弃 job；check 与测试其实已通过
-      # （rev1#70，https://github.com/workers-world/rev1/actions/runs/40065381950）。
-      # 提高 timeout-minutes 不能避免 lease 过期。依赖加速只保留上方 setup-node
-      # cache: npm（tarball）。门禁路径为 npm ci → check（± test 并行）；不得再把 cache save 挡在前面。
+      # #221 R6 Axis A：托管 runner 恢复 node_modules（dogfood 已验证 ~5s p50 级 win）；自托管不 restore/save
+      # （rev1#70 Save 大 tree 卡 lease）。自托管仅用 npm ci --prefer-offline 吃 runner 本地 ~/.npm。
+      # save 放在 check∥test 之后，避免 cache 上传挡 verify 关键路径。
+      - name: Restore node_modules cache
+        if: steps.npm_scope.outputs.run_npm == 'true' && env.VERIFY_ON_SELF_HOSTED != 'true'
+        uses: actions/cache/restore@v6
+        id: node_modules_cache
+        with:
+          path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
+          key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
 
       - name: Materialize SDK from GitHub Packages
         if: steps.npm_scope.outputs.run_npm == 'true' && inputs.materialize_sdk
@@ -227,10 +233,25 @@ jobs:
 
       # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
-      # Release PR 硬门禁：全量 npm ci（配合 setup-node tarball cache）；sync-lock 不再重复 dry-run（#221 R4 Axis C）。
+      # #221 R6：cache-hit / 自托管 → --prefer-offline（仍完整 npm ci 硬门禁）；lock 变则 key 变 → 全量 ci。
       - name: Run npm ci
         if: steps.npm_scope.outputs.run_npm == 'true'
-        run: npm ci --no-fund --no-audit
+        run: |
+          set -euo pipefail
+          common=(--no-fund --no-audit)
+          prefer=false
+          if [ "${VERIFY_ON_SELF_HOSTED}" = "true" ]; then
+            prefer=true
+          elif [ "${{ steps.node_modules_cache.outputs.cache-hit }}" = "true" ]; then
+            prefer=true
+          elif [ "${{ steps.setup_node.outputs.cache-hit }}" = "true" ]; then
+            prefer=true
+          fi
+          if [ "$prefer" = "true" ]; then
+            npm ci --prefer-offline "${common[@]}"
+          else
+            npm ci "${common[@]}"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
@@ -276,6 +297,16 @@ jobs:
             wait "$pid_test" || ec=1
           fi
           exit "$ec"
+
+      - name: Save node_modules cache
+        if: >-
+          steps.npm_scope.outputs.run_npm == 'true' &&
+          env.VERIFY_ON_SELF_HOSTED != 'true' &&
+          steps.node_modules_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
+          key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
 
   promote:
     needs: verify
