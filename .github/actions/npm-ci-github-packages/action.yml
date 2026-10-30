@@ -34,7 +34,7 @@ runs:
         node-version: "24"
         registry-url: ${{ inputs.registry_url }}
         scope: ${{ inputs.scope }}
-        cache: npm
+        cache: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && false || 'npm' }}
         cache-dependency-path: ${{ inputs.working-directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working-directory) }}
 
     - shell: bash

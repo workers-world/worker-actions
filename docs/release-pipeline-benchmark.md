@@ -88,3 +88,16 @@ node tools/release-pipeline-benchmark/analyze.mjs \
 - 不改 release / publish workflow 以「刷快」
 - 不为 benchmark 额外触发 workflow 消耗额度
 - 不引入重型外部 APM
+
+## Phase A+ 编排试点（#213 / PGREQ20261030000007）
+
+2026-10-30 重测见基线 `release-pipeline-baseline-2026-10-30.md`（queue wait 为主因）。bundle 内 **P0 编排**（合入并发 `actions/v*` tag 后消费者生效）：
+
+| 目标 | 实现要点 |
+| --- | --- |
+| self-hosted 上削弱 setup-node post cache | `worker-verify` / `npm-ci-github-packages`：`GHA_RUNNER` 私有仓路径 `cache: false` |
+| Release PR vs destin push 并发 | `worker-ci` 分 `release-pr-*` / `destin-push-*` group（互不 cancel）；destin push 仍 cancel-in-progress 合并同分支噪声 run |
+| 噪声 destin push 跳过 sync-lock | `push-ci-admission` composite + `worker-ci` push-admission job |
+| 非 Packages 门禁 job 上托管 runner | `ubuntu-latest`：gate/summary/lint/ensure/merge/notify/sync-lock/lock-precheck；verify 仍走 `GHA_RUNNER` |
+
+Runner 保活与 grokbot-box 台数仍为 DevOps 范畴；验收对比 grokbot-box job queue p95 与 verify `Post setup-node` step p95。

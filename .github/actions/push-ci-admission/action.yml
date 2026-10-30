@@ -1,0 +1,19 @@
+name: Push CI admission (noise destin push)
+description: >-
+  dev_* push 上若 diff 仅含 lock / workflow pin / docs 等噪声路径，输出 skip_packages_jobs=true，
+  供 worker-ci 跳过 worker-verify sync-lock（#213）。
+
+outputs:
+  skip_packages_jobs:
+    description: "'true' 时 caller 可跳过 worker-verify on push"
+    value: ${{ steps.admit.outputs.skip_packages_jobs }}
+
+runs:
+  using: composite
+  steps:
+    - id: admit
+      shell: bash
+      env:
+        EVENT_BEFORE: ${{ github.event.before }}
+        EVENT_SHA: ${{ github.sha }}
+      run: node "${{ github.action_path }}/push-ci-admission.mjs"
