@@ -427,7 +427,4 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
-  # promote 仅 production pin 链需要；dogfood 不嵌套 worker-promote（避免 startup_failure）
-  # promote:
-  #   needs: verify
-  #   ...
+  # dogfood 不嵌套 worker-promote（reusable→reusable→reusable 会 startup_failure）；promote 见 worker-verify.yml
