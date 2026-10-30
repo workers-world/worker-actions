@@ -107,7 +107,7 @@ flowchart TB
 | 事件 | 运行的 job |
 |------|------------|
 | `push` → `dev_*` | verify（含 sync-lock）→ ensure-release-pr；另有独立 Sync default branch |
-| `pull_request` → `master`（head=`dev_*`） | workflow-lint、verify、qodana、可选 ai-pr-review → release-auto-merge；失败/绿门未合时 notify-blocked |
+| `pull_request` → `master`（head=`dev_*`） | verify、可选 workflow-lint（`skip_workflow_lint: false`）、qodana、可选 ai-pr-review → release-auto-merge；失败/绿门未合时 notify-blocked |
 
 文字说明见 [release-pr-ci.md](./release-pr-ci.md)。
 
@@ -142,9 +142,9 @@ flowchart TB
 
 | Job | needs | 主要触发条件 |
 |-----|-------|-------------|
-| workflow-lint | — | push `dev_*` 或 Release PR |
+| workflow-lint | — | Release PR 且 `skip_workflow_lint: false`（默认 skipped） |
 | verify | — | 始终（由 nested worker-verify 按事件细分） |
-| ensure-release-pr | workflow-lint | push `dev_*` 且 lint success；跳过 deleted |
+| ensure-release-pr | workflow-lint, verify | push `dev_*`；lint 常 skipped |
 | qodana | — | 同仓 Release PR（`dev_*` → `master`） |
 | ai-pr-review | workflow-lint | 同上 + lint success；默认 `skip_ai_review: true`；非 merge 门禁 |
 | release-auto-merge | lint, verify, qodana | 三门全 success/skipped；可选非 draft |

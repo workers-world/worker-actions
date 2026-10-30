@@ -9,7 +9,7 @@ name: Worker CI
 #   - Release PR 默认创建即 ready；门禁全绿 + require_non_draft_pr 后 auto-merge → Cloudflare Builds
 #   - workflow_call.secrets 须声明（与 actions/v0.2.6 同集）；actions/v0.2.7 tag 误删该块会导致 caller 显式 secrets: 映射 startup_failure — 合 master 后预期 actions/v0.2.8 patch；caller 可用 secrets: inherit 或显式映射下列 secrets
 #   - push 默认不跑 verify / workflow-lint；verify 仅在 pull_request（门禁）；push 仍跑 sync-lock，ensure 等其完成（#132）
-#   - skip_ai_review / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
+#   - skip_workflow_lint（默认 true）/ skip_ai_review / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
 #   - github-actions[bot]（lock-bot）跳过 lint/verify/qodana/ai-review/ensure
 #
 # Caller（业务仓 .github/workflows/ci.yml）典型用法：
@@ -26,6 +26,7 @@ name: Worker CI
 #     sync_packages_lock: true
 #
 # SDK 版本由各仓 package.json 决定；无 SDK：materialize_sdk: false；无 test：run_tests: false。
+# workflow-lint 默认 skip_workflow_lint: true（Release PR 非 merge 门禁；本仓 dogfood 仍走 ci.yml）。
 # AI PR review 默认 skip_ai_review: true（非 merge 门禁；试点仓显式 false + AI_REVIEW_LLM_TOKEN）。
 # sync-default-branch 须用独立 workflow（templates/sync-default-branch.yml），勿并入本门面。
 #
@@ -59,6 +60,10 @@ on:
         default: ".ai-review/config.json"
       skip_ai_review:
         description: "true 跳过自建 AI PR review（默认 true；非 merge 门禁）"
+        type: boolean
+        default: true
+      skip_workflow_lint:
+        description: "true 跳过 consumer Release PR 上的 workflow-lint（默认 true；非 merge 门禁；显式 false 恢复 lint）"
         type: boolean
         default: true
       skip_branch_deleted_check:
@@ -182,6 +187,7 @@ jobs:
   workflow-lint:
     needs: [pure-destin-gate]
     if: |
+      inputs.skip_workflow_lint != true &&
       needs.pure-destin-gate.outputs.release_track == 'true' &&
       github.actor != 'github-actions[bot]' &&
       github.event_name == 'pull_request' &&
@@ -440,6 +446,7 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
           IS_DRAFT: ${{ github.event.pull_request.draft }}
           SKIP_AI_REVIEW: ${{ inputs.skip_ai_review }}
+          SKIP_WORKFLOW_LINT: ${{ inputs.skip_workflow_lint }}
           VERIFY_ON_PUSH: ${{ inputs.verify_on_push }}
           CREATE_DRAFT: ${{ inputs.create_draft_release_pr }}
           LINT_R: ${{ needs.workflow-lint.result }}
@@ -471,6 +478,7 @@ jobs:
             echo "| ref | \`${REF_NAME}\` / head \`${HEAD_REF}\` |"
             echo "| draft | \`${IS_DRAFT}\` |"
             echo "| skip_ai_review | \`${SKIP_AI_REVIEW}\` |"
+            echo "| skip_workflow_lint | \`${SKIP_WORKFLOW_LINT}\` |"
             echo "| verify_on_push | \`${VERIFY_ON_PUSH}\` |"
             echo "| create_draft_release_pr | \`${CREATE_DRAFT}\` |"
             echo "| QODANA_ENABLED | \`${QODANA_VAR:-}\` / WW \`${QODANA_VAR_WW:-}\` |"
@@ -486,5 +494,5 @@ jobs:
             echo ""
             echo "**估算启动过的 hosted job 数（含本 summary）≈ ${ran}**（≈ GitHub Linux 计费分钟下界；短 job 按 1 分钟取整）。"
             echo ""
-            echo "skip 含义：lint/push 默认不上；qodana 需 Org Variable；ai-pr-review 需 \`skip_ai_review: false\` + LLM token；bot push 整段跳过；draft 不 merge。AI review 失败不阻断 merge。"
+            echo "skip 含义：consumer Release PR 默认 \`skip_workflow_lint: true\`（dogfood 用 ci.yml）；push 不上 lint；qodana 需 Org Variable；ai-pr-review 需 \`skip_ai_review: false\` + LLM token；bot push 整段跳过；draft 不 merge。AI review 失败不阻断 merge。"
           } >> "$GITHUB_STEP_SUMMARY"

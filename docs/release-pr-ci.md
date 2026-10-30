@@ -22,7 +22,7 @@ flowchart LR
 |------|------------|
 | `push` → `dev_*`（非 bot） | `sync-lock`（若启用，任意 `dev_*` 前缀）；**纯 destin** push 另跑 `ensure-release-pr`（默认 **ready**）；**Sync default branch**（仅当默认分支 ≠ 当前 ref） |
 | `push` → `dev_*`（`github-actions[bot]`） | **跳过** push 侧 job；lock 提交 **synchronize** Release PR 时会跑 **verify**（lock 已在 tip 同步） |
-| `pull_request` → `master`（head=纯 destin `dev_X_Y_Z`，非 draft） | **verify**（唯一全量门禁）；`workflow-lint`；可选 qodana / AI review（非门禁）；**auto-merge**（门禁绿） |
+| `pull_request` → `master`（head=纯 destin `dev_X_Y_Z`，非 draft） | **verify**（唯一全量门禁）；可选 `workflow-lint`（`skip_workflow_lint: false`）；可选 qodana / AI review（非门禁）；**auto-merge**（门禁绿） |
 | `pull_request`（仍 draft） | verify / lint / 可选扫描；**不** auto-merge（`require_non_draft_pr` 默认 true） |
 | `ready_for_review` | 非 draft 后与上相同 + **auto-merge**（门禁绿） |
 
@@ -118,7 +118,7 @@ Org 须已配置：
 
 1. `pull_request.branches: [master]`；建议 `paths-ignore: ["**/*.md", "docs/**"]`；`concurrency` 取消旧 run
 2. 单一 job `release-pr`：permissions 取并集，`secrets: inherit`
-3. `with` 只传仓间差异；默认 `promote: false`、`create_draft_release_pr: false`、`verify_on_push: false`、`skip_ai_review: true`
+3. `with` 只传仓间差异；默认 `promote: false`、`create_draft_release_pr: false`、`verify_on_push: false`、`skip_workflow_lint: true`、`skip_ai_review: true`
 4. 另复制 [templates/sync-default-branch.yml](../templates/sync-default-branch.yml) 为独立 workflow
 5. 门禁全绿后 auto-merge → Builds；需 draft 闸门时传 `create_draft_release_pr: true` 或手动 Convert to draft
 
@@ -140,7 +140,7 @@ Org 须已配置：
 
 | Job | 何时启动 |
 |-----|----------|
-| workflow-lint | 仅 Release PR（非 bot） |
+| workflow-lint | `skip_workflow_lint: false` **且** Release PR（非 bot）；默认 **skipped**（#221 Axis A） |
 | verify（npm ci/check/test） | 仅 PR（或 `verify_on_push: true`） |
 | sync-lock | push `dev_*` + 非 bot；同仓 PR 上 pull_request heal（bump 可不含 lock） |
 | ensure-release-pr | push + 非 bot + **纯 destin** `dev_X_Y_Z`；**在 sync-lock 完成后** |
