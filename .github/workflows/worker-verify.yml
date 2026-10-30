@@ -108,7 +108,7 @@ jobs:
       always() &&
       inputs.run_verify &&
       (needs.sync-lock.result == 'success' || needs.sync-lock.result == 'skipped')
-    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ inputs.working_directory }}
@@ -207,7 +207,8 @@ jobs:
           node-version: "24"
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
-          cache: npm
+          # self-hosted 上 Post setup-node 写 npm cache 曾占 verify 墙钟 ~2/3（#213 Phase A+）；托管 runner 保留 tarball cache
+          cache: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && false || 'npm' }}
           cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
 
       # 不缓存整棵 node_modules（已去掉 actions/cache restore/save）。
