@@ -301,6 +301,7 @@ jobs:
       actions: write
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+      VERIFY_ON_SELF_HOSTED: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && 'true' || 'false' }}
     steps:
       - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
         with:
@@ -332,15 +333,16 @@ jobs:
 
       - uses: actions/setup-node@v7.1.0
         if: steps.npm_scope.outputs.run_npm == 'true'
+        id: setup_node
         with:
           node-version: "24"
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
-          cache: npm
+          cache: ${{ env.VERIFY_ON_SELF_HOSTED == 'true' && false || 'npm' }}
           cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
 
       - name: Restore node_modules cache
-        if: steps.npm_scope.outputs.run_npm == 'true'
+        if: steps.npm_scope.outputs.run_npm == 'true' && env.VERIFY_ON_SELF_HOSTED != 'true'
         uses: actions/cache/restore@v6
         id: node_modules_cache
         with:
@@ -402,7 +404,15 @@ jobs:
         run: |
           set -euo pipefail
           common=(--no-fund --no-audit)
-          if [ "${{ steps.node_modules_cache.outputs.cache-hit }}" = "true" ]; then
+          prefer=false
+          if [ "${VERIFY_ON_SELF_HOSTED}" = "true" ]; then
+            prefer=true
+          elif [ "${{ steps.node_modules_cache.outputs.cache-hit }}" = "true" ]; then
+            prefer=true
+          elif [ "${{ steps.setup_node.outputs.cache-hit }}" = "true" ]; then
+            prefer=true
+          fi
+          if [ "$prefer" = "true" ]; then
             npm ci --prefer-offline "${common[@]}"
           else
             npm ci "${common[@]}"
@@ -410,12 +420,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Save node_modules cache
-        if: steps.npm_scope.outputs.run_npm == 'true' && steps.node_modules_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
-          key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
       # #221 R5 Axis B（verify）：与 worker-verify.yml 同编排
       - name: npm run check and test
         if: steps.npm_scope.outputs.run_npm == 'true'
@@ -458,5 +462,15 @@ jobs:
             wait "$pid_test" || ec=1
           fi
           exit "$ec"
+
+      - name: Save node_modules cache
+        if: >-
+          steps.npm_scope.outputs.run_npm == 'true' &&
+          env.VERIFY_ON_SELF_HOSTED != 'true' &&
+          steps.node_modules_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
+          key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
 
   # dogfood 不嵌套 worker-promote（reusable→reusable→reusable 会 startup_failure）；promote 见 worker-verify.yml
