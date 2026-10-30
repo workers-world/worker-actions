@@ -136,7 +136,7 @@ jobs:
   # 调整触发范围时请同步改：qodana / ai-pr-review / release-auto-merge / notify-blocked / ci-summary
   # push 上 ensure-release-pr 使用相同 release_track；push verify/sync-lock 仍接受任意 dev_* 前缀。
   pure-destin-gate:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 1
     permissions: {}
     outputs:
@@ -163,7 +163,7 @@ jobs:
       needs.pure-destin-gate.outputs.release_track == 'true' &&
       github.event_name == 'push' &&
       startsWith(github.ref_name, 'dev_')
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -193,7 +193,7 @@ jobs:
       actions: write
     uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.47
     with:
-      runner: ubuntu-latest
+      runner: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
       zizmor_baseline_repository: workers-world/worker-actions
       zizmor_baseline_ref: actions/v0.2.34
 
@@ -423,7 +423,7 @@ jobs:
   ci-summary:
     needs: [pure-destin-gate, push-admission, workflow-lint, verify, ensure-release-pr, qodana, ai-pr-review, release-auto-merge]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 2
     permissions: {}
     steps:
