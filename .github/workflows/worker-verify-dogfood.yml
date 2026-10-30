@@ -416,15 +416,49 @@ jobs:
         with:
           path: ${{ inputs.working_directory == '.' && 'node_modules' || format('{0}/node_modules', inputs.working_directory) }}
           key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
-      - name: npm run check
+      # #221 R5 Axis B（verify）：与 worker-verify.yml 同编排
+      - name: npm run check and test
         if: steps.npm_scope.outputs.run_npm == 'true'
-        run: npm run check
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
-      - name: npm test
-        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.run_tests
-        run: npm test
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          RUN_TESTS: ${{ inputs.run_tests }}
+        run: |
+          set -uo pipefail
+          ec=0
+          separate_test="$(node -e '
+            const scripts = require("./package.json").scripts || {};
+            const check = (scripts.check || "").trim();
+            const test = (scripts.test || "").trim();
+            if (process.env.RUN_TESTS !== "true" || !test) {
+              process.stdout.write("false");
+              return;
+            }
+            if (!check) {
+              process.stdout.write("true");
+              return;
+            }
+            const norm = (s) => s.replace(/\s+/g, " ");
+            const checkNorm = norm(check);
+            if (
+              checkNorm === norm(test) ||
+              checkNorm === "npm test" ||
+              checkNorm === "npm run test"
+            ) {
+              process.stdout.write("false");
+              return;
+            }
+            process.stdout.write("true");
+          ')"
+          npm run check &
+          pid_check=$!
+          if [ "$separate_test" = "true" ]; then
+            npm test &
+            pid_test=$!
+          fi
+          wait "$pid_check" || ec=1
+          if [ "$separate_test" = "true" ]; then
+            wait "$pid_test" || ec=1
+          fi
+          exit "$ec"
 
   # dogfood 不嵌套 worker-promote（reusable→reusable→reusable 会 startup_failure）；promote 见 worker-verify.yml
