@@ -4,4 +4,4 @@ current: actions/v0.2.48
 sha: "7af9cda0eb93200a209bbf5aadeb870ebd4293cf"
 released_at: "2026-10-30"
 notes: |
-  Auto-released on push to master (actions paths changed).
+  worker-ci gate/summary/lint runner + ensure/merge/notify/failure-comment on GHA_RUNNER for private repos (org ubuntu billing).
