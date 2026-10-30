@@ -4,6 +4,10 @@
  * not `matches()`. Using matches() in job/step `if:` fails evaluation and skips release jobs.
  */
 
+/** Standard runs-on for leaf workflows called from private worker repos (Org var GHA_RUNNER). */
+export const GHA_RUNNER_RUNS_ON_EXPR =
+  "${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}";
+
 /** @param {string} source workflow YAML text */
 export function findUnsupportedMatchesCalls(source) {
   const findings = [];

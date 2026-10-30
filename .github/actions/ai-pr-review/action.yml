@@ -56,7 +56,7 @@ runs:
         fetch-depth: 0
 
     - name: Ensure gh CLI
-      uses: workers-world/worker-actions/.github/actions/ensure-gh-cli@actions/v0.2.47
+      uses: workers-world/worker-actions/.github/actions/ensure-gh-cli@actions/v0.2.48
 
     - name: Run AI PR review
       shell: bash

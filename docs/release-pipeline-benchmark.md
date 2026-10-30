@@ -98,6 +98,6 @@ node tools/release-pipeline-benchmark/analyze.mjs \
 | self-hosted 上削弱 setup-node post cache | `worker-verify` / `npm-ci-github-packages`：`GHA_RUNNER` 私有仓路径 `cache: false` |
 | Release PR vs destin push 并发 | `worker-ci` 分 `release-pr-*` / `destin-push-*` group（互不 cancel）；destin push 仍 cancel-in-progress 合并同分支噪声 run |
 | 噪声 destin push 跳过 sync-lock | `push-ci-admission` composite + `worker-ci` push-admission job |
-| 非 Packages 门禁 job 上托管 runner | `ubuntu-latest`：gate/summary/lint/ensure/merge/notify/sync-lock/lock-precheck；verify 仍走 `GHA_RUNNER` |
+| 非 Packages 门禁 job | 私有 caller + `GHA_RUNNER`：`worker-ci` gate/admission/summary、workflow-lint runner、ensure/merge/notify/failure-comment；verify/sync-lock/lock-precheck 同表达式；公开仓仍 `ubuntu-latest` |
 
 Runner 保活与 grokbot-box 台数仍为 DevOps 范畴；验收对比 grokbot-box job queue p95 与 verify `Post setup-node` step p95。

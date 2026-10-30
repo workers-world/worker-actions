@@ -1,7 +1,7 @@
 # Actions bundle 当前版本（Worker 仓 pin 此 tag）
 # 完整变更见 docs/actions-releases.md；权威来源为 git tag
-current: actions/v0.2.47
-sha: "407b14e42e68693518e3492c31ac8e113eb7509f"
+current: actions/v0.2.48
+sha: "c6efb6cb1df7a5f5ff2ad66ff801d1940d80cbf6"
 released_at: "2026-10-30"
 notes: |
-  Destin auto-align nested pins to published tag (WW-303).
+  worker-ci gate/summary/lint runner + ensure/merge/notify/failure-comment on GHA_RUNNER for private repos (org ubuntu billing).
