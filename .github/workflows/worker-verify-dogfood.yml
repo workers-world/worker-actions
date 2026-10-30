@@ -427,20 +427,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
-  promote:
-    needs: verify
-    if: >
-      inputs.promote &&
-      inputs.run_verify &&
-      github.event_name == 'push' &&
-      startsWith(github.ref_name, 'dev_')
-    # 写操作走 PAT；勿给 GITHUB_TOKEN contents:write 直推 master
-    # （bot=app 试点期 promote 嵌套链暂走 PAT：与 SDK 物化的 packages 读共用 GHA_TOKEN，
-    #   全量切 App 需先完成包「Manage Actions access」授权，见 docs/github-app-token-migration.md §4）
-    permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@44bf242b6ad9c2b4f4c6d59280d8229e3ab3ee9b
-    secrets:
-      GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
-    with:
-      release_branch: ${{ github.ref_name }}
-      master_branch: ${{ inputs.master_branch }}
+  # promote 仅 production pin 链需要；dogfood 不嵌套 worker-promote（避免 startup_failure）
+  # promote:
+  #   needs: verify
+  #   ...
