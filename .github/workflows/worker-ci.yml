@@ -274,6 +274,8 @@ jobs:
       release_branch: ${{ github.ref_name }}
       create_draft_release_pr: ${{ inputs.create_draft_release_pr }}
       bot: ${{ inputs.bot }}
+      # push 上 verify（sync-lock）已成功时跳过 ensure 内重复 lock 门控（#221 Round 3 Axis B）
+      skip_lock_precheck: ${{ needs.verify.result == 'success' }}
 
   qodana:
     needs: [pure-destin-gate]
