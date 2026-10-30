@@ -1,7 +1,7 @@
 # Actions bundle 当前版本（Worker 仓 pin 此 tag）
 # 完整变更见 docs/actions-releases.md；权威来源为 git tag
-current: actions/v0.2.46
-sha: "b90baf53b5bc832191828463dcc4a5daa7e32aec"
-released_at: "2026-10-27"
+current: actions/v0.2.47
+sha: "407b14e42e68693518e3492c31ac8e113eb7509f"
+released_at: "2026-10-30"
 notes: |
-  Destin auto-align nested pins to published tag (WW-303).
+  Auto-released on push to master (actions paths changed).
