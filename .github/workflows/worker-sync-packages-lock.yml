@@ -39,8 +39,9 @@ permissions:
 
 jobs:
   sync-lock:
-    # sync-lock 仅需 GHA_TOKEN 读 Packages；放 ubuntu-latest 给 verify 腾 grokbot-box（#213）
-    runs-on: ubuntu-latest
+    # Prefer GHA_RUNNER on private repos — org ubuntu billing/spending limit blocks ubuntu-latest (2026-10).
+    # Previously pinned ubuntu-latest to free grokbot-box for verify (#213); billing broke that tradeoff.
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
     steps:
@@ -56,7 +57,7 @@ jobs:
           # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
           permission-contents: write
 
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.47
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.48
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
@@ -68,7 +69,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.47
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.48
         id: lock_check
         with:
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
