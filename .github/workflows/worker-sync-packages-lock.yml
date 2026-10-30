@@ -69,8 +69,8 @@ jobs:
       run:
         working-directory: ${{ inputs.working_directory }}
     outputs:
-      in_sync: ${{ steps.lock_gate.outputs.in_sync }}
-      skip: ${{ steps.lock_gate.outputs.skip }}
+      in_sync: ${{ steps.export_lock_status.outputs.in_sync }}
+      skip: ${{ steps.export_lock_status.outputs.skip }}
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
       HEAL_LOCK: >-
@@ -244,3 +244,17 @@ jobs:
           echo "bump 可仅改 package.json；须配置 Org Secret GHA_TOKEN（read:packages）并确认 sync-lock job 已成功 push lock。"
           echo "勿依赖本地 npm install（开发者网络常无法访问 GitHub Packages）。"
           exit 1
+
+      - name: Export lock job outputs
+        id: export_lock_status
+        if: always()
+        run: |
+          set -euo pipefail
+          in_sync="${{ steps.lock_gate.outputs.in_sync }}"
+          skip="${{ steps.lock_gate.outputs.skip }}"
+          if [ -z "$in_sync" ]; then
+            in_sync=true
+            skip=true
+          fi
+          echo "in_sync=${in_sync}" >> "$GITHUB_OUTPUT"
+          echo "skip=${skip}" >> "$GITHUB_OUTPUT"
