@@ -9,7 +9,7 @@ name: update package-lock.json file
 # 3) npm ci --dry-run 通过（传递依赖/lock 完整性；**push 路径 skip_dry_run**，完整校验仅在 PR 门禁）
 # 仅 SDK + 根依赖字符串匹配会漏掉无效 lock；PR verify 的 lock-precheck + npm ci 硬拦合入。
 #
-# 由 worker-verify 在 lock-precheck 前调用（push dev_* 与同仓 pull_request）；也可单独 workflow_call。
+# 由 worker-verify 调用：同 job 内 heal（push dev_* / 同仓 PR）+ PR 门禁 dry-run（run_verify）；也可单独 workflow_call。
 # pull_request 时 checkout/push 目标为 PR head 分支，非 merge ref。bump 可仅改 package.json。
 # 需刷新时：全量 npm install（非仅改 SDK 版本字段）；**不在 push 上跑 npm ci**（自托管/网络；PR 门禁校验）。
 # npm install/ci 仅当 caller .npmrc 或 npm_config_legacy_peer_deps 启用时才加 --legacy-peer-deps
@@ -22,6 +22,29 @@ on:
         description: "git push 凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*）。npm 认证不受影响，始终走 GHA_TOKEN/GITHUB_TOKEN（App 无 packages:read）"
         type: string
         default: "pat"
+      sync_packages_lock:
+        description: "是否在本 job 执行 CI heal（push dev_* / 同仓 pull_request）"
+        type: boolean
+        default: true
+      run_verify:
+        description: "是否在 heal 后（或仅门禁路径）跑 npm ci --dry-run 硬校验"
+        type: boolean
+        default: false
+      materialize_sdk:
+        description: "与 worker-verify 一致；无 SDK 仓不因 lock 漂移 fail PR"
+        type: boolean
+        default: true
+      working_directory:
+        description: "含 package.json / package-lock.json 的目录"
+        type: string
+        default: "."
+    outputs:
+      in_sync:
+        description: lock 已与 package.json 同步（run_verify 门禁步输出）
+        value: ${{ jobs.sync-lock.outputs.in_sync }}
+      skip:
+        description: 无 framework_sdk_worker，跳过 lock 门禁
+        value: ${{ jobs.sync-lock.outputs.skip }}
     secrets:
       GHA_TOKEN:
         description: read:packages PAT；未传则尝试 GITHUB_TOKEN
@@ -42,14 +65,25 @@ jobs:
     # Prefer GHA_RUNNER on private repos — org ubuntu billing/spending limit blocks ubuntu-latest (2026-10).
     # Previously pinned ubuntu-latest to free grokbot-box for verify (#213); billing broke that tradeoff.
     runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    outputs:
+      in_sync: ${{ steps.lock_gate.outputs.in_sync }}
+      skip: ${{ steps.lock_gate.outputs.skip }}
     env:
       SYNC_LOCK_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+      HEAL_LOCK: >-
+        ${{ inputs.sync_packages_lock && (
+          (github.event_name == 'push' && startsWith(github.ref_name, 'dev_')) ||
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        ) }}
     steps:
       # bot=app：就地 mint 1h App installation token（App push 可触发下游 workflow，与 PAT 等价）；
       # npm 认证与此分离（见 Regenerate 步骤 NODE_AUTH_TOKEN）
       - name: Mint GitHub App token
         id: bot-token
-        if: inputs.bot == 'app'
+        if: env.HEAL_LOCK == 'true' && inputs.bot == 'app'
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
@@ -59,8 +93,12 @@ jobs:
 
       - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.48
         with:
-          fetch-depth: 0
-          ref: ${{ github.event_name == 'pull_request' && format('refs/heads/{0}', github.event.pull_request.head.ref) || github.ref }}
+          fetch-depth: ${{ env.HEAL_LOCK == 'true' && 0 || 1 }}
+          ref: >-
+            ${{ github.event_name == 'pull_request' && (
+              env.HEAL_LOCK == 'true' && format('refs/heads/{0}', github.event.pull_request.head.ref) ||
+              github.event.pull_request.head.sha
+            ) || github.ref }}
           token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v7.1.0
@@ -71,16 +109,18 @@ jobs:
 
       - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.48
         id: lock_check
+        if: env.HEAL_LOCK == 'true'
         with:
+          working-directory: ${{ inputs.working_directory }}
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           skip_dry_run: "true"
 
       - name: Lock already in sync
-        if: steps.lock_check.outputs.in_sync == 'true' && steps.lock_check.outputs.skip != 'true'
+        if: env.HEAL_LOCK == 'true' && steps.lock_check.outputs.in_sync == 'true' && steps.lock_check.outputs.skip != 'true'
         run: echo "lock 已与 package.json 同步，跳过刷新"
 
       - name: Regenerate package-lock.json from GitHub Packages
-        if: steps.lock_check.outputs.in_sync != 'true'
+        if: env.HEAL_LOCK == 'true' && steps.lock_check.outputs.in_sync != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
@@ -182,3 +222,25 @@ jobs:
           fi
           echo "push 被拒，rebase 后重试一次…"
           push_with_rebase
+
+      # 原 lock-precheck job：同 runner 在 heal 后直接 dry-run，省二次 checkout/setup-node/job 调度（#221 Axis B）
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.48
+        id: lock_gate
+        if: inputs.run_verify
+        with:
+          working-directory: ${{ inputs.working_directory }}
+          node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Fail PR gate when package-lock out of sync
+        if: >
+          inputs.run_verify &&
+          github.event_name == 'pull_request' &&
+          inputs.sync_packages_lock &&
+          inputs.materialize_sdk &&
+          steps.lock_gate.outputs.skip != 'true' &&
+          steps.lock_gate.outputs.in_sync != 'true'
+        run: |
+          echo "::error::PR 门禁：package-lock 与 package.json 仍不同步，或 npm ci --dry-run 失败（sync-lock heal 未成功）。"
+          echo "bump 可仅改 package.json；须配置 Org Secret GHA_TOKEN（read:packages）并确认 sync-lock job 已成功 push lock。"
+          echo "勿依赖本地 npm install（开发者网络常无法访问 GitHub Packages）。"
+          exit 1
