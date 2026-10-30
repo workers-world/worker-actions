@@ -1,7 +1,7 @@
 # Actions bundle 当前版本（Worker 仓 pin 此 tag）
 # 完整变更见 docs/actions-releases.md；权威来源为 git tag
-current: actions/v0.2.48
-sha: "7af9cda0eb93200a209bbf5aadeb870ebd4293cf"
+current: actions/v0.2.51
+sha: "d6a5806ca0b0482dc69c21e4efcc0a01d7702b98"
 released_at: "2026-10-30"
 notes: |
-  worker-ci gate/summary/lint runner + ensure/merge/notify/failure-comment on GHA_RUNNER for private repos (org ubuntu billing).
+  Auto-released on push to master (actions paths changed).
