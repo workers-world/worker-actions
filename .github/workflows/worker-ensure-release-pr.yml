@@ -5,6 +5,7 @@ name: Worker ensure release PR
 # 若 merge 冲突且**仅** package.json / lockfile，自动保留 destin（--ours）并完成 merge + lock 对齐；其它冲突 fail-closed。
 # 默认创建即 ready；门禁全绿后 worker-ci 的 require_non_draft_pr + auto-merge 合入 master。
 # create_draft_release_pr: true 可恢复 draft 闸门（控 Cloudflare Builds 频率）。
+# preflight（#221 Round 3 Axis D）：compare API 判定空 Release / 已有 open PR 时跳过 checkout·sync；skip_lock_precheck 省略 push 后重复 lock 门控。
 #
 # Caller（push job）：
 #   if: worker-ci pure-destin-gate release_track + push（勿仅用 startsWith dev_）
@@ -36,6 +37,10 @@ on:
         description: "写操作凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App mint，须配 RELEASE_BOT_*，见 docs/github-app-token-migration.md）"
         type: string
         default: "pat"
+      skip_lock_precheck:
+        description: "true：push 侧 sync-lock 已成功，跳过本 job 内重复的 package-lock-in-sync（#221 Round 3 Axis B/D）"
+        type: boolean
+        default: false
     outputs:
       pr_number:
         description: 当前 dev_* → master 的 open Release PR 号（已有或新建）
@@ -60,7 +65,7 @@ jobs:
     timeout-minutes: 60
     permissions: {}
     outputs:
-      pr_number: ${{ steps.open-pr.outputs.pr_number }}
+      pr_number: ${{ steps.export.outputs.pr_number }}
     steps:
       # bot=app：就地 mint 1h 短周期 App installation token（默认仅当前仓 scope）；
       # mint 失败会显式报错（fail-closed），不会静默回落 PAT
@@ -110,7 +115,52 @@ jobs:
             exit 1
           fi
 
+      # API-only preflight：空 Release（ahead=0）或已有 open PR 且仅需维护时跳过 checkout/sync（#221 Round 3 Axis D）
+      - name: Preflight release PR necessity
+        id: preflight
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+          MASTER_BRANCH: ${{ inputs.master_branch }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_BRANCH" =~ ^dev_[0-9]+_[0-9]+_[0-9]+$ ]]; then
+            echo "short_circuit=true" >> "$GITHUB_OUTPUT"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            echo "reason=non_pure_destin" >> "$GITHUB_OUTPUT"
+            echo "needs_sync=false" >> "$GITHUB_OUTPUT"
+            echo "Skip: release_branch must be pure destin dev_X_Y_Z (numeric segments only)"
+            exit 0
+          fi
+          existing="$(gh pr list --repo "$REPO" --head "$RELEASE_BRANCH" --base "$MASTER_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          ahead_by="$(gh api "repos/${REPO}/compare/${MASTER_BRANCH}...${RELEASE_BRANCH}" --jq '.ahead_by')"
+          behind_by="$(gh api "repos/${REPO}/compare/${MASTER_BRANCH}...${RELEASE_BRANCH}" --jq '.behind_by')"
+          needs_sync=false
+          if [ "${behind_by}" != "0" ]; then
+            needs_sync=true
+          fi
+          echo "needs_sync=${needs_sync}" >> "$GITHUB_OUTPUT"
+          if [ -n "${existing}" ] && [ "${ahead_by}" != "0" ] && [ "${behind_by}" = "0" ]; then
+            echo "short_circuit=true" >> "$GITHUB_OUTPUT"
+            echo "pr_number=${existing}" >> "$GITHUB_OUTPUT"
+            echo "reason=open_release_pr_unchanged" >> "$GITHUB_OUTPUT"
+            echo "::notice::Short-circuit ensure-release-pr: open Release PR #${existing} already covers ${ahead_by} commit(s) ahead of ${MASTER_BRANCH}"
+            exit 0
+          fi
+          if [ "${ahead_by}" = "0" ] && [ "${behind_by}" = "0" ]; then
+            echo "short_circuit=true" >> "$GITHUB_OUTPUT"
+            echo "pr_number=${existing}" >> "$GITHUB_OUTPUT"
+            echo "reason=empty_release" >> "$GITHUB_OUTPUT"
+            echo "::notice::Short-circuit ensure-release-pr: no commits on ${RELEASE_BRANCH} ahead of ${MASTER_BRANCH} (0-file / empty release)"
+            exit 0
+          fi
+          echo "short_circuit=false" >> "$GITHUB_OUTPUT"
+          echo "pr_number=" >> "$GITHUB_OUTPUT"
+          echo "reason=needs_work" >> "$GITHUB_OUTPUT"
+
       - name: Checkout release branch
+        if: steps.preflight.outputs.short_circuit != 'true' && (steps.preflight.outputs.needs_sync == 'true' || inputs.skip_lock_precheck != true)
         uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.50
         with:
           fetch-depth: 0
@@ -118,6 +168,7 @@ jobs:
           token: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
 
       - name: Require package-lock in sync before release PR
+        if: steps.preflight.outputs.short_circuit != 'true' && inputs.skip_lock_precheck != true
         # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓；见 docs/actions-releases.md
         uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.50
         id: lock_gate
@@ -125,7 +176,7 @@ jobs:
           skip_dry_run: "true"
 
       - name: Fail when lock still out of sync after push sync-lock
-        if: steps.lock_gate.outputs.skip != 'true' && steps.lock_gate.outputs.in_sync != 'true'
+        if: steps.preflight.outputs.short_circuit != 'true' && inputs.skip_lock_precheck != true && steps.lock_gate.outputs.skip != 'true' && steps.lock_gate.outputs.in_sync != 'true'
         run: |
           echo "::error::dev 分支 package-lock 与 package.json 仍不同步；ensure-release-pr 拒绝开/维护 Release PR。"
           echo "请确认 push 侧 sync-lock 已成功 push lock（bump 可仅含 package.json；勿要求本地刷新 lock）。见 docs/release-pr-ci.md。"
@@ -133,6 +184,7 @@ jobs:
 
       - name: Sync master into release branch before release PR
         id: sync-master
+        if: steps.preflight.outputs.short_circuit != 'true' && steps.preflight.outputs.needs_sync == 'true'
         # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓；见 docs/actions-releases.md
         uses: workers-world/worker-actions/.github/actions/sync-master-into-release-branch@actions/v0.2.50
         with:
@@ -144,6 +196,7 @@ jobs:
 
       - name: Open release PR if missing
         id: open-pr
+        if: steps.preflight.outputs.short_circuit != 'true'
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token || secrets.GHA_TOKEN }}
           BOT: ${{ inputs.bot }}
@@ -211,3 +264,19 @@ jobs:
           fi
           echo "Created release PR #${new} (draft=${CREATE_DRAFT})"
           echo "pr_number=${new}" >> "$GITHUB_OUTPUT"
+
+      - name: Export job outputs
+        id: export
+        if: always() && !cancelled()
+        env:
+          FROM_PREFLIGHT: ${{ steps.preflight.outputs.pr_number }}
+          FROM_OPEN: ${{ steps.open-pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          if [ -n "${FROM_OPEN}" ]; then
+            echo "pr_number=${FROM_OPEN}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${FROM_PREFLIGHT}" ]; then
+            echo "pr_number=${FROM_PREFLIGHT}" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+          fi
