@@ -253,7 +253,7 @@ jobs:
 
   ensure-release-pr:
     needs: [pure-destin-gate, workflow-lint, verify]
-    # push 上须等 verify 内 sync-lock（含 PR dry-run 门禁）完成再开 Release PR，避免 heal 与开 PR 竞态（#132）。
+    # push 上须等 verify 内 sync-lock（heal + 浅层 lock）完成再开 Release PR，避免 heal 与开 PR 竞态（#132）。
     # push 上 lint 常 skipped；bot（lock）不建/不刷 PR
     if: |
       always() &&

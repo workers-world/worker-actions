@@ -6,10 +6,10 @@ name: update package-lock.json file
 # 跳过条件（须同时满足，见 package-lock-in-sync / lock-matches-package-json.mjs）：
 # 1) lock 已是目标 SDK 的 GitHub Packages 解析（非 file:）
 # 2) package.json 根 dependencies/devDependencies 与 lock packages[""] 一致
-# 3) npm ci --dry-run 通过（传递依赖/lock 完整性；**push 路径 skip_dry_run**，完整校验仅在 PR 门禁）
-# 仅 SDK + 根依赖字符串匹配会漏掉无效 lock；PR verify 的 lock-precheck + npm ci 硬拦合入。
+# 3) npm ci --dry-run（仅 run_verify=false 的遗留路径；**run_verify 时省略**，完整校验在 verify job npm ci — #221 Axis C）
+# 浅层 + heal 后仍 out of sync → fail；传递依赖/lock 完整性由 verify 内干净 npm ci 硬拦合入。
 #
-# 由 worker-verify 调用：同 job 内 heal（push dev_* / 同仓 PR）+ PR 门禁 dry-run（run_verify）；也可单独 workflow_call。
+# 由 worker-verify 调用：同 job 内 heal（push dev_* / 同仓 PR）+ run_verify 时浅层 lock 导出（无 dry-run）；也可单独 workflow_call。
 # pull_request 时 checkout/push 目标为 PR head 分支，非 merge ref。bump 可仅改 package.json。
 # 需刷新时：全量 npm install（非仅改 SDK 版本字段）；**不在 push 上跑 npm ci**（自托管/网络；PR 门禁校验）。
 # npm install/ci 仅当 caller .npmrc 或 npm_config_legacy_peer_deps 启用时才加 --legacy-peer-deps
@@ -27,7 +27,7 @@ on:
         type: boolean
         default: true
       run_verify:
-        description: "是否在 heal 后（或仅门禁路径）跑 npm ci --dry-run 硬校验"
+        description: "true：heal 后跑浅层 lock 导出供 verify job 编排；干净 npm ci 仅在 verify job（#221 Axis C 不再 dry-run）"
         type: boolean
         default: false
       materialize_sdk:
@@ -223,13 +223,14 @@ jobs:
           echo "push 被拒，rebase 后重试一次…"
           push_with_rebase
 
-      # 原 lock-precheck job：同 runner 在 heal 后同 runner dry-run，省二次 checkout/setup-node/job 调度（#221 Axis B）
+      # run_verify 时 verify job 跑干净 npm ci；此处仅浅层 lock 状态导出（#221 R4 Axis C 删 sync-lock dry-run）
       - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.50
         id: lock_gate
         if: inputs.run_verify
         with:
           working-directory: ${{ inputs.working_directory }}
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+          skip_dry_run: "true"
 
       - name: Fail PR gate when package-lock out of sync
         if: >
@@ -240,7 +241,7 @@ jobs:
           steps.lock_gate.outputs.skip != 'true' &&
           steps.lock_gate.outputs.in_sync != 'true'
         run: |
-          echo "::error::PR 门禁：package-lock 与 package.json 仍不同步，或 npm ci --dry-run 失败（sync-lock heal 未成功）。"
+          echo "::error::PR 门禁：package-lock 与 package.json 仍不同步（sync-lock heal 未成功）；verify npm ci 将作最终硬拦。"
           echo "bump 可仅改 package.json；须配置 Org Secret GHA_TOKEN（read:packages）并确认 sync-lock job 已成功 push lock。"
           echo "勿依赖本地 npm install（开发者网络常无法访问 GitHub Packages）。"
           exit 1

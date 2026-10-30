@@ -183,11 +183,11 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock，**不**跑干净 `npm ci`；bump 可仅 `package.json`）→ lock-precheck（**PR 硬门禁**）→ checkout（PR **head SHA**）→ setup-node **Node 24** → 物化 SDK（可选）→ **`npm ci`** → `npm run check` → `npm test`（可选）。
+verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24** → 物化 SDK（可选）→ **`npm ci`（PR 硬门禁）** → `npm run check` → `npm test`（可选）。
 
 | 事件 | npm ci / lock 门禁 |
 |------|-------------------|
-| `pull_request`（feature→`dev_*` 或 Release→`master`） | lock-precheck + verify `npm ci` **必须 success**；失败阻断合入 / auto-merge |
+| `pull_request`（feature→`dev_*` 或 Release→`master`） | sync-lock 浅层 + heal；verify **`npm ci` 必须 success**；失败阻断合入 / auto-merge |
 | `push` → `dev_*` | sync-lock 可选刷新 lock（**无** push 侧 npm ci 硬跑）；合入门槛只在 PR |
 
 | Job | 条件 |

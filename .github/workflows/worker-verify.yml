@@ -12,7 +12,7 @@ name: Worker verify
 #
 # PR verify checkout PR head SHA（非 pull/N/merge），与 qodana 一致，避免 stale merge ref 导致 npm ci 失败。
 # sync-lock 与 verify 编排（#132：bump 可仅改 package.json，lock 由 CI heal）：
-#   push dev_* / 同仓 pull_request：sync-lock job 内 heal 后同 runner 跑 npm ci --dry-run 门禁（#221 合并原 lock-precheck）。
+#   push dev_* / 同仓 pull_request：sync-lock job 内 heal + 浅层 lock 导出；干净 npm ci 仅在 verify job（#221 R4 Axis C）。
 #   verify npm ci 仍为硬门禁；heal 失败则 fail（不要求开发者本地 npm install / 提交 lock）。
 #   bot lock push 仍 synchronize PR；Node **24** 字面量（与 Cloudflare Builds 对齐）。
 # 无 SDK（materialize_sdk: false）时不因 lock 未同步跳过 verify（与旧 wait 行为一致）。
@@ -227,7 +227,7 @@ jobs:
 
       # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
-      # 始终全量 npm ci（配合 setup-node 的 npm tarball cache）。不替代 sync-lock job 内 npm ci --dry-run 门禁。
+      # Release PR 硬门禁：全量 npm ci（配合 setup-node tarball cache）；sync-lock 不再重复 dry-run（#221 R4 Axis C）。
       - name: Run npm ci
         if: steps.npm_scope.outputs.run_npm == 'true'
         run: npm ci --no-fund --no-audit

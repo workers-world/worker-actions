@@ -11,7 +11,7 @@ inputs:
     required: false
     default: ""
   skip_dry_run:
-    description: "true 时跳过 npm ci --dry-run（dev_* push sync-lock 用；PR 门禁须 false）"
+    description: "true 时跳过 npm ci --dry-run（push heal、以及 run_verify 时 verify job 已跑干净 npm ci — #221 Axis C）"
     required: false
     default: "false"
 
