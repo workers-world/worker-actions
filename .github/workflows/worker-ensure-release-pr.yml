@@ -9,7 +9,7 @@ name: Worker ensure release PR
 # Caller（push job）：
 #   if: worker-ci pure-destin-gate release_track + push（勿仅用 startsWith dev_）
 #   permissions: {}   # 建 PR 走 PAT，勿 contents/pull-requests
-#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.48
+#   uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.49
 #   secrets: inherit   # 或显式映射 workflow_call.secrets（GHA_TOKEN、RELEASE_BOT_*）
 #   with:
 #     release_branch: ${{ github.ref_name }}
@@ -111,7 +111,7 @@ jobs:
           fi
 
       - name: Checkout release branch
-        uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.48
+        uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.49
         with:
           fetch-depth: 0
           ref: ${{ inputs.release_branch }}
@@ -119,7 +119,7 @@ jobs:
 
       - name: Require package-lock in sync before release PR
         # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓；见 docs/actions-releases.md
-        uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.48
+        uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.49
         id: lock_gate
         with:
           skip_dry_run: "true"
@@ -134,7 +134,7 @@ jobs:
       - name: Sync master into release branch before release PR
         id: sync-master
         # 跨仓 workflow_call 时 uses: ./ 解析到 caller 仓；见 docs/actions-releases.md
-        uses: workers-world/worker-actions/.github/actions/sync-master-into-release-branch@actions/v0.2.48
+        uses: workers-world/worker-actions/.github/actions/sync-master-into-release-branch@actions/v0.2.49
         with:
           release_branch: ${{ inputs.release_branch }}
           master_branch: ${{ inputs.master_branch }}
