@@ -9,7 +9,7 @@ name: Planning Release
 #   concurrency: { group: planning-release-${{ github.repository }}, cancel-in-progress: false }
 #   jobs:
 #     release:
-#       uses: workers-world/worker-actions/.github/workflows/planning-release.yml@actions/v0.2.62
+#       uses: workers-world/worker-actions/.github/workflows/planning-release.yml@actions/v0.2.63
 #       secrets: inherit
 #       with:
 #         mode: ${{ inputs.mode }}
