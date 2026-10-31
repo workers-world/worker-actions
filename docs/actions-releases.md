@@ -163,6 +163,7 @@ sed -i '' 's|@actions/v0\.4\.31|@actions/v0.4.33|g' .github/workflows/*.yml
 
 | Tag | SHA | 日期 | 摘要 |
 |-----|-----|------|------|
+| `actions/v0.2.62` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R14**：回滚 R13 gate poll（恢复 R11 **2s→5s→10s→cap 20s**，首轮立即查询）；保留 R13 对 R12 的 verify 回滚；**R14 Builds 侧 E2E 在 consumer 仓单独测量**；内层 pin 对齐本 tag |
 | `actions/v0.2.61` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R13**：回滚 R12（`correctness_on_builds` 恢复 GHA check∥test 与 node_modules cache；仍 GHA `npm ci`）；`builds-correctness-gate` 更紧自适应 poll **1s→2s→5s→10s→cap 20s**；内层 pin 对齐本 tag |
 | `actions/v0.2.61` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R12**：`correctness_on_builds` 时 GHA verify **跳过** node_modules cache（仍跳过 check∥test；仍 `npm ci`/物化）；保留 R11 gate 自适应 poll + 双 `package-lock-in-sync`；内层 pin 对齐本 tag |
 | `actions/v0.2.59` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R11**：回滚 R10 sync-lock 双 `package-lock-in-sync`；`builds-correctness-gate` 自适应 poll（2s→5s→10s→cap **20s**，首轮立即查询）；内层 pin 对齐本 tag |

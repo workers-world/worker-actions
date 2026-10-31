@@ -184,7 +184,7 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6；**R13** 回滚 R12 cache 跳过）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ **`correctness_on_builds: false`（默认）**：`npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6）→ **`correctness_on_builds: true`（#221 R7；R9 回滚 R8 npm ci 跳过；**R13** 回滚 R12）**：仍跑 setup-node / 物化 / `npm ci` / node_modules cache / **check∥test**（Builds build command 仍并行）→ worker-ci 并行 **`builds-correctness-gate`**（#221 R13：首轮立即查询 + 自适应 **1s→2s→5s→10s→cap 20s** 轮询 CF Workers Builds GitHub Check；R11 为 2s 起；R9 曾试固定 5s、R10 固定 20s）。
+verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6；**R13** 回滚 R12 cache 跳过）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ **`correctness_on_builds: false`（默认）**：`npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6）→ **`correctness_on_builds: true`（#221 R7；R9 回滚 R8 npm ci 跳过；**R13** 回滚 R12）**：仍跑 setup-node / 物化 / `npm ci` / node_modules cache / **check∥test**（Builds build command 仍并行）→ worker-ci 并行 **`builds-correctness-gate`**（#221 **R14** 回滚 R13 poll：首轮立即查询 + 自适应 **2s→5s→10s→cap 20s** 轮询 CF Workers Builds GitHub Check；R13 曾试 1s 起；R9 曾试固定 5s、R10 固定 20s）。
 
 | 事件 | npm ci / lock 门禁 |
 |------|-------------------|

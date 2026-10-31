@@ -31,19 +31,17 @@ test('filterBuildsChecks keeps cloudflare-workers-and-pages app only', () => {
   assert.match(matched[0].name, /mok1/);
 });
 
-test('adaptivePollSeconds ramps 1,2,5,10 then cap', () => {
-  assert.equal(adaptivePollSeconds(20, 0), 1);
-  assert.equal(adaptivePollSeconds(20, 1), 2);
-  assert.equal(adaptivePollSeconds(20, 2), 5);
-  assert.equal(adaptivePollSeconds(20, 3), 10);
-  assert.equal(adaptivePollSeconds(20, 4), 20);
+test('adaptivePollSeconds ramps 2,5,10 then cap', () => {
+  assert.equal(adaptivePollSeconds(20, 0), 2);
+  assert.equal(adaptivePollSeconds(20, 1), 5);
+  assert.equal(adaptivePollSeconds(20, 2), 10);
+  assert.equal(adaptivePollSeconds(20, 3), 20);
   assert.equal(adaptivePollSeconds(20, 99), 20);
 });
 
 test('adaptivePollSeconds respects lower cap', () => {
-  assert.equal(adaptivePollSeconds(6, 0), 1);
-  assert.equal(adaptivePollSeconds(6, 1), 2);
-  assert.equal(adaptivePollSeconds(6, 2), 5);
+  assert.equal(adaptivePollSeconds(6, 0), 2);
+  assert.equal(adaptivePollSeconds(6, 1), 5);
+  assert.equal(adaptivePollSeconds(6, 2), 6);
   assert.equal(adaptivePollSeconds(6, 3), 6);
-  assert.equal(adaptivePollSeconds(6, 4), 6);
 });

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * #221 Round 7–13：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
+ * #221 Round 7–14：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
  * R9 曾改为 5s 固定轮询（E2E 回归）；R10 回滚为默认 cap 20s、首轮立即查询。
  * R11：首轮立即查询后自适应间隔 2s → 5s → 10s → cap（默认 20s；--poll-seconds 仅作 cap）。
- * R13：更紧自适应 1s → 2s → 5s → 10s → cap（fail-closed 超时不变）。
+ * R13：更紧 1s 起自适应（E2E 回归）；R14 回滚 R13 poll，恢复 R11 的 2s→5s→10s→cap。
  */
 
 import { pathToFileURL } from 'node:url';
@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 const CF_APP_SLUG = 'cloudflare-workers-and-pages';
 
 /** 首轮查询后的 sleep 序列（秒）；其后每次 sleep 使用 cap（--poll-seconds，默认 20）。 */
-const ADAPTIVE_POLL_STEPS_SEC = [1, 2, 5, 10];
+const ADAPTIVE_POLL_STEPS_SEC = [2, 5, 10];
 
 /**
  * @param {number} capSeconds --poll-seconds（上限）
