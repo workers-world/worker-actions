@@ -91,7 +91,7 @@ jobs:
           # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
           permission-contents: write
 
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.55
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.56
         with:
           fetch-depth: ${{ env.HEAL_LOCK == 'true' && 0 || 1 }}
           ref: >-
@@ -107,7 +107,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.55
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.56
         id: lock_check
         if: env.HEAL_LOCK == 'true'
         with:
@@ -224,7 +224,7 @@ jobs:
           push_with_rebase
 
       # run_verify 时 verify job 跑干净 npm ci；此处仅浅层 lock 状态导出（#221 R4 Axis C 删 sync-lock dry-run）
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.55
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.56
         id: lock_gate
         if: inputs.run_verify
         with:
