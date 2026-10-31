@@ -33,5 +33,7 @@ jobs:
     secrets: inherit
     with:
       sync_packages_lock: true
+      correctness_on_builds: true
+      # builds_check_context: "Cloudflare Workers and Pages: script-name"
       # skip_workflow_lint: false  # 可选：Release PR 恢复 workflow-lint（默认 true）
       # skip_ai_review: false   # 试点：Org 配置 AI_REVIEW_LLM_TOKEN 后打开
