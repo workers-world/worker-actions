@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 /**
- * #221 Round 7–17：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
+ * #221 Round 7–11：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
  * R9 曾改为 5s 固定轮询（E2E 回归）；R10 回滚为默认 cap 20s、首轮立即查询。
  * R11：首轮立即查询后自适应间隔 2s → 5s → 10s → cap（默认 20s；--poll-seconds 仅作 cap）。
- * R13：更紧 1s 起自适应（E2E 回归）；R14 回滚 R13 poll，恢复 R11 的 2s→5s→10s→cap。
- * R16：CF Builds API 主路径（E2E 回归）；R17 回滚 R16，恢复 GitHub Check Runs 主路径。
+ * fail-closed 超时语义不变。
  */
 
 import { pathToFileURL } from 'node:url';
@@ -171,6 +170,7 @@ async function main() {
         lastNotice = Date.now();
       }
     }
+
   }
 
   console.error(
