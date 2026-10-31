@@ -29,7 +29,7 @@ jobs:
       issues: write
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.58
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.59
     secrets: inherit
     with:
       sync_packages_lock: true

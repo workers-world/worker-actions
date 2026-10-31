@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  adaptivePollSeconds,
   filterBuildsChecks,
   matchesContext,
 } from '../.github/actions/builds-correctness-gate/gate.mjs';
@@ -28,4 +29,19 @@ test('filterBuildsChecks keeps cloudflare-workers-and-pages app only', () => {
   const matched = filterBuildsChecks(runs, '');
   assert.equal(matched.length, 1);
   assert.match(matched[0].name, /mok1/);
+});
+
+test('adaptivePollSeconds ramps 2,5,10 then cap', () => {
+  assert.equal(adaptivePollSeconds(20, 0), 2);
+  assert.equal(adaptivePollSeconds(20, 1), 5);
+  assert.equal(adaptivePollSeconds(20, 2), 10);
+  assert.equal(adaptivePollSeconds(20, 3), 20);
+  assert.equal(adaptivePollSeconds(20, 99), 20);
+});
+
+test('adaptivePollSeconds respects lower cap', () => {
+  assert.equal(adaptivePollSeconds(6, 0), 2);
+  assert.equal(adaptivePollSeconds(6, 1), 5);
+  assert.equal(adaptivePollSeconds(6, 2), 6);
+  assert.equal(adaptivePollSeconds(6, 3), 6);
 });
