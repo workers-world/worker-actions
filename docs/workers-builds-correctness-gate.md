@@ -1,19 +1,19 @@
-# Workers Builds 正确性门禁（#221 Round 7）
+# Workers Builds 正确性门禁（#221 Round 7–8）
 
-Release PR 路径上，把 **`npm run check` ∥ `npm test`** 从 GHA `worker-verify` 迁到 **Cloudflare Workers Builds preview**，缩短 GHA verify 墙钟；GHA 仍保留 **sync-lock heal** 与 **`npm ci` 硬门禁**（短期与 Builds 内 `npm ci` 重叠，待 Builds 稳定后再删 GHA 侧 `npm ci`）。
+Release PR 路径上，把 **`npm run check` ∥ `npm test`** 与 **`npm ci` 依赖安装** 从 GHA `worker-verify` 迁到 **Cloudflare Workers Builds preview**，缩短 GHA verify 墙钟；GHA 仍保留 **sync-lock heal** 与 **`builds-correctness-gate`**（fail-closed）。
 
 ## 启用方式（业务仓）
 
 1. **Cloudflare Dashboard** → Worker 项目 → **Settings → Build**：
    - **Production branch**：`master`（不变）
    - **Preview builds**：**启用**（非 production 分支 / PR 触发 preview）
-   - **Build command**：在 Workers Builds 自动 `npm ci` 之后执行正确性脚本，例如 mok1（Biome+tsc / Vitest 分离时）：
+   - **Build command**：在 Workers Builds 自动 `npm ci` 之后执行正确性脚本。Builds 默认 shell 为 `/bin/sh`，并行 + `pipefail` 须包在 `bash -lc` 内，例如 mok1（Biome+tsc / Vitest 分离时）：
 
      ```bash
-     set -uo pipefail; ec=0; npm run check & p1=$!; npm test & p2=$!; wait "$p1" || ec=1; wait "$p2" || ec=1; exit "$ec"
+     bash -lc 'set -uo pipefail; ec=0; npm run check & p1=$!; npm test & p2=$!; wait "$p1" || ec=1; wait "$p2" || ec=1; exit "$ec"'
      ```
 
-     若 `package.json` 的 `check` 已等同 `test`，可仅 `npm run check`。
+     若 `package.json` 的 `check` 已等同 `test`，可仅 `npm run check`（同样建议 `bash -lc 'set -euo pipefail; npm run check'`）。
 
    - **Preview command**：保持 `npx wrangler preview`（或项目既有 preview 命令）；Build 红则 check run 失败，**不得** auto-merge。
 
@@ -32,13 +32,15 @@ Release PR 路径上，把 **`npm run check` ∥ `npm test`** 从 GHA `worker-ve
 
 ## GHA 仍做什么
 
-| 步骤 | Release PR |
-|------|------------|
+| 步骤 | Release PR（`correctness_on_builds: true`） |
+|------|---------------------------------------------|
 | sync-lock heal + lock 门禁 | ✓ |
-| verify `npm ci` | ✓（`correctness_on_builds` 时仍跑） |
-| verify check∥test | ✗（改 Builds build command） |
-| builds-correctness-gate | ✓（`correctness_on_builds: true` 时） |
+| verify setup-node / 物化 SDK / `npm ci` | ✗（#221 R8；Builds 内 `npm ci`） |
+| verify check∥test | ✗（#221 R7；Builds build command） |
+| builds-correctness-gate | ✓ |
 | ensure / auto-merge / zizmor（dogfood） | ✓ |
+
+`correctness_on_builds: false`（默认）时 verify 仍跑完整 **npm ci + check∥test** 硬门禁。
 
 ## mok1 / sch1 注意
 
@@ -59,7 +61,7 @@ Release PR 路径上，把 **`npm run check` ∥ `npm test`** 从 GHA `worker-ve
 ## 相关文件
 
 - [.github/workflows/worker-ci.yml](../.github/workflows/worker-ci.yml) — `builds-correctness-gate` job
-- [.github/workflows/worker-verify.yml](../.github/workflows/worker-verify.yml) — `correctness_on_builds` 跳过 check∥test
+- [.github/workflows/worker-verify.yml](../.github/workflows/worker-verify.yml) — `correctness_on_builds` 跳过 GHA npm ci 与 check∥test
 - [.github/actions/builds-correctness-gate/](../.github/actions/builds-correctness-gate/) — GitHub Check 轮询
 
-Issue：[workers-world/worker-actions#221](https://github.com/workers-world/worker-actions/issues/221)（Round 7 刀：Move→Builds `check∥test`）。
+Issue：[workers-world/worker-actions#221](https://github.com/workers-world/worker-actions/issues/221)（Round 7：`check∥test` → Builds；Round 8：GHA `npm ci` → Builds）。
