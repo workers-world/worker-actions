@@ -184,7 +184,7 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ **`correctness_on_builds: false`（默认）**：`npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6）→ **`correctness_on_builds: true`（#221 R7；R9 回滚 R8 npm ci 跳过）**：仍跑 setup-node / 物化 / `npm ci` / cache save，**跳过** check∥test（Builds build command）→ worker-ci 并行 **`builds-correctness-gate`**（#221 R9：**5s** 轮询 CF Workers Builds GitHub Check，首轮立即查询）。
+verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ **`correctness_on_builds: false`（默认）**：`npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6）→ **`correctness_on_builds: true`（#221 R7；R9 回滚 R8 npm ci 跳过）**：仍跑 setup-node / 物化 / `npm ci` / cache save，**跳过** check∥test（Builds build command）→ worker-ci 并行 **`builds-correctness-gate`**（#221 R10：**20s** 轮询 CF Workers Builds GitHub Check，首轮立即查询；R9 曾试 5s 已回滚）。
 
 | 事件 | npm ci / lock 门禁 |
 |------|-------------------|
@@ -206,7 +206,7 @@ flowchart LR
   checkout[checkout_with_PAT] --> refresh[refresh_package-lock] --> commit[commit_and_push]
 ```
 
-来源：[`worker-sync-packages-lock.yml`](../.github/workflows/worker-sync-packages-lock.yml)。
+来源：[`worker-sync-packages-lock.yml`](../.github/workflows/worker-sync-packages-lock.yml)。#221 R10：`run_verify` 与 heal 预检共用一次 `package-lock-in-sync`（lock 已同步时）；heal 改写 lock 后仍二次校验。
 
 ### 5.2 门禁
 

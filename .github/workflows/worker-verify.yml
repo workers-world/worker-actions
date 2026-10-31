@@ -5,7 +5,7 @@ name: Worker verify
 #
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.57
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.58
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
@@ -101,7 +101,7 @@ jobs:
       ) ||
       inputs.run_verify
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
-    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.57
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.58
     with:
       bot: ${{ inputs.bot }}
       sync_packages_lock: ${{ inputs.sync_packages_lock }}
@@ -138,7 +138,7 @@ jobs:
       # 私有仓 + GHA_RUNNER：自托管（#213 不在此路径 save setup-node/npm/node_modules Actions cache）
       VERIFY_ON_SELF_HOSTED: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && 'true' || 'false' }}
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.57
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.58
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
@@ -328,7 +328,7 @@ jobs:
     # （bot=app 试点期 promote 嵌套链暂走 PAT：与 SDK 物化的 packages 读共用 GHA_TOKEN，
     #   全量切 App 需先完成包「Manage Actions access」授权，见 docs/github-app-token-migration.md §4）
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.57
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.58
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:
