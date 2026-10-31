@@ -6,7 +6,7 @@ name: Worker verify (dogfood)
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
 # 本仓 dogfood：ci-verify-dogfood 用 $/ 调用本 workflow；sync-lock 为 runs-on job（勿再嵌套 workflow_call，否则 startup_failure）。
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.56
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.57
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
@@ -56,7 +56,7 @@ on:
         type: boolean
         default: true
       correctness_on_builds:
-        description: "true：verify 不跑 npm ci / check∥test（由 Cloudflare Workers Builds preview 承担；仍跑 sync-lock heal，#221 R7/R8）"
+        description: "true：verify 不跑 check∥test（仍跑 npm ci 硬门禁；正确性由 Workers Builds preview + gate 承担，#221 R7；R9 回滚 R8 npm ci 跳过）"
         type: boolean
         default: false
       bot:
@@ -336,7 +336,7 @@ jobs:
           echo "run_npm=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v7.1.0
-        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.correctness_on_builds != true
+        if: steps.npm_scope.outputs.run_npm == 'true'
         id: setup_node
         with:
           node-version: "24"
@@ -346,7 +346,7 @@ jobs:
           cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
 
       - name: Restore node_modules cache
-        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.correctness_on_builds != true && env.VERIFY_ON_SELF_HOSTED != 'true'
+        if: steps.npm_scope.outputs.run_npm == 'true' && env.VERIFY_ON_SELF_HOSTED != 'true'
         uses: actions/cache/restore@v6
         id: node_modules_cache
         with:
@@ -354,7 +354,7 @@ jobs:
           key: verify-deps-v1-${{ runner.os }}-node24-lock-${{ inputs.working_directory == '.' && hashFiles('package-lock.json') || hashFiles(format('{0}/package-lock.json', inputs.working_directory)) }}
 
       - name: Materialize SDK from GitHub Packages
-        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.materialize_sdk && inputs.correctness_on_builds != true
+        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.materialize_sdk
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           HAS_GHA_TOKEN: ${{ secrets.GHA_TOKEN != '' }}
@@ -404,7 +404,7 @@ jobs:
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
       # lock 变更时 cache key 变，自动全量 npm ci。sync-lock 不再跑 npm ci --dry-run（#221 R4 Axis C）。
       - name: Run npm ci
-        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.correctness_on_builds != true
+        if: steps.npm_scope.outputs.run_npm == 'true'
         run: |
           set -euo pipefail
           common=(--no-fund --no-audit)
@@ -467,15 +467,14 @@ jobs:
           fi
           exit "$ec"
 
-      - name: Skip GHA npm install and check∥test (Workers Builds owns correctness)
+      - name: Skip GHA check∥test (Workers Builds owns correctness scripts)
         if: inputs.correctness_on_builds == true
         run: |
-          echo "::notice::correctness_on_builds=true：GHA 不跑 npm ci / check∥test（sync-lock heal 仍运行）；Release PR 须 Cloudflare Workers Builds preview 绿（见 docs/workers-builds-correctness-gate.md）。"
+          echo "::notice::correctness_on_builds=true：GHA 仍跑 npm ci 硬门禁，不跑 check∥test（sync-lock heal 仍运行）；Release PR 须 Cloudflare Workers Builds preview 绿（见 docs/workers-builds-correctness-gate.md）。"
 
       - name: Save node_modules cache
         if: >-
           steps.npm_scope.outputs.run_npm == 'true' &&
-          inputs.correctness_on_builds != true &&
           env.VERIFY_ON_SELF_HOSTED != 'true' &&
           steps.node_modules_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6

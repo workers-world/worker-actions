@@ -38,7 +38,7 @@ jobs:
   release:
     permissions:
       contents: read
-    uses: workers-world/worker-actions/.github/workflows/planning-release.yml@actions/v0.2.56
+    uses: workers-world/worker-actions/.github/workflows/planning-release.yml@actions/v0.2.57
     secrets: inherit
     with:
       mode: ${{ inputs.mode }}
