@@ -1,6 +1,6 @@
 # Workers Builds 正确性门禁（#221 Round 7–8）
 
-Release PR 路径上，**GHA `worker-verify` 仍跑 `npm run check` ∥ `npm test`**（**R13** 回滚 R12）；Cloudflare Workers Builds preview build command 与 **`builds-correctness-gate`** 仍为 Release PR 双保险。**`npm ci` 与 node_modules cache 仍在 GHA 硬门禁**（#221 R9 回滚 R8）。GHA 仍保留 **sync-lock heal** 与 gate（fail-closed，首轮立即查询；#221 R13 自适应 **1s→2s→5s→10s→cap 20s**）。
+Release PR 路径上，**GHA `worker-verify` 仍跑 `npm run check` ∥ `npm test`**（**R13** 回滚 R12）；Cloudflare Workers Builds preview build command 与 **`builds-correctness-gate`** 仍为 Release PR 双保险。**`npm ci` 与 node_modules cache 仍在 GHA 硬门禁**（#221 R9 回滚 R8）。GHA 仍保留 **sync-lock heal** 与 gate（fail-closed，首轮立即查询；#221 **R14** 回滚 R13 poll，自适应 **2s→5s→10s→cap 20s**）。
 
 ## 启用方式（业务仓）
 
@@ -28,7 +28,7 @@ Release PR 路径上，**GHA `worker-verify` 仍跑 `npm run check` ∥ `npm tes
 
 3. **Branch protection（推荐 fail-closed）**  
    在 `master` 上除 GHA `verify` 外，将 **Cloudflare Workers Builds** 对应 GitHub Check 设为 required（名称见 PR → Checks）。  
-   `worker-ci` 的 **`builds-correctness-gate`** job 会轮询同一 commit 上的 CF App check（`cloudflare-workers-and-pages`；R13：**1s→2s→5s→10s→20s** 自适应间隔，首轮不 sleep），与 branch protection 双保险；**auto-merge 在 verify + builds-gate + qodana（若启用）均 success 后**才执行。
+   `worker-ci` 的 **`builds-correctness-gate`** job 会轮询同一 commit 上的 CF App check（`cloudflare-workers-and-pages`；**R14**：**2s→5s→10s→20s** 自适应间隔，首轮不 sleep），与 branch protection 双保险；**auto-merge 在 verify + builds-gate + qodana（若启用）均 success 后**才执行。
 
 ## GHA 仍做什么
 
@@ -38,7 +38,7 @@ Release PR 路径上，**GHA `worker-verify` 仍跑 `npm run check` ∥ `npm tes
 | verify setup-node / 物化 SDK / `npm ci` | ✓（#221 R9 回滚 R8；GHA 硬门禁） |
 | verify node_modules cache restore/save | ✓（#221 R6；**R13** 回滚 R12 跳过） |
 | verify check∥test | ✓（**R13** 回滚 R12；Builds 仍并行） |
-| builds-correctness-gate | ✓（R13：1s 起自适应 poll；R11 2s 起；R10 固定 20s；R9 曾试 5s） |
+| builds-correctness-gate | ✓（R14 回滚 R13 poll：2s 起；R13 曾试 1s 起；R10 固定 20s；R9 曾试 5s） |
 
 ## 试点仓差异
 
