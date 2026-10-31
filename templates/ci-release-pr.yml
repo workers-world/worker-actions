@@ -1,16 +1,15 @@
 # Release PR CI 模板（复制到 Worker 根目录 .github/workflows/ci.yml）
 # 说明见 docs/release-pr-ci.md；编排：worker-ci.yml
 # workers-world actions bundle: actions/v0.2.13（禁止 @master，见 docs/actions-releases.md）
-# 若 caller 使用显式 secrets: 映射（非 inherit），请 pin @actions/v0.2.63+（tag 打出后）；v0.2.7 缺 workflow_call.secrets 声明
+# 若 caller 使用显式 secrets: 映射（非 inherit），请 pin @actions/v0.2.64+（tag 打出后）；v0.2.7 缺 workflow_call.secrets 声明
 # 另复制 templates/sync-default-branch.yml 为独立 workflow（勿并入本文件）
-# correctness_on_builds: true 时建议映射 CLOUDFLARE_API_TOKEN、CLOUDFLARE_ACCOUNT_ID，并设置 builds_worker_tag（见 docs/workers-builds-correctness-gate.md）
+# correctness_on_builds: true 时须配 Cloudflare Builds preview + build command（见 docs/workers-builds-correctness-gate.md）
 name: CI
 
 # Release PR 模型：push dev_* → sync-lock + 自动开 Release PR（默认 ready）；
 # PR → master 上跑 verify（+ 可选 qodana / AI review）；全绿后 auto-merge（require_non_draft_pr 仍要求非 draft）。
 # 前置：Org Secret GHA_TOKEN（PAT repo）。caller 可 secrets: inherit，或显式映射 worker-ci workflow_call secrets：
 #   GHA_TOKEN, RELEASE_BOT_*, QODANA_TOKEN, AI_REVIEW_LLM_TOKEN, AI_REVIEW_LLM_*, NOTIFY_GHA_TOKEN
-#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID  # correctness_on_builds + builds_worker_tag（R16 CF Builds API 主路径）
 # OCR（alibaba/open-code-review）已移除 — 见 docs/ai-review/README.md
 on:
   push:
@@ -19,7 +18,7 @@ on:
       - "**/*.md"
       - "docs/**"
   pull_request:
-    # master：Release PR；dev_*：feature→destin 走 verify（correctness_on_builds：GHA npm ci + cache + check∥test；Builds gate 并行）
+    # master：Release PR；dev_*：feature→destin 走 verify（correctness_on_builds：GHA npm ci + check∥test；R17 跳过 hosted deps cache；Builds gate 并行）
     branches: ["master", "dev_*"]
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
@@ -40,15 +39,14 @@ jobs:
       # nested worker-ci → qodana 需 actions: write（cache）；notify-blocked 需 actions/checks: read
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.63
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.64
     secrets: inherit
     with:
       # SDK 版本以 package.json 为准；无 SDK 则 materialize_sdk: false
       sync_packages_lock: true
       # #221 R7/R9：check∥test 迁 Cloudflare Workers Builds preview（npm ci 仍在 GHA；须配 Dashboard Build command，见 docs/workers-builds-correctness-gate.md）
       correctness_on_builds: true
-      # builds_worker_tag: "external_script_id-from-cf-dashboard"  # R16 CF Builds API 主路径（须 CLOUDFLARE_* secrets）
-      # builds_check_context: "Cloudflare Workers and Pages: script-name"  # monorepo 多 Worker 时与 PR Checks 名一致（GitHub 回退）
+      # builds_check_context: "Cloudflare Workers and Pages: script-name"  # monorepo 多 Worker 时与 PR Checks 名一致
       # skip_workflow_lint: false  # 可选：Release PR 上恢复 workflow-lint（默认 true，非 merge 门禁）
       # create_draft_release_pr: true   # 可选；恢复 draft 闸门（默认 false，创建即 ready）
       # verify_on_push: false           # 默认；push 只 sync-lock + ensure Release PR
