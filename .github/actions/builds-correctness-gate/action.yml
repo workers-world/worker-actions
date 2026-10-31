@@ -1,6 +1,6 @@
 name: Workers Builds correctness gate
 description: |
-  #221 Round 7–13：轮询 PR commit 上 Cloudflare Workers Builds GitHub Check（首轮立即查询；R13 自适应 1s→2s→5s→10s→cap 20s；--poll-seconds 为 cap），fail-closed。
+  #221 Round 7–14：轮询 PR commit 上 Cloudflare Workers Builds GitHub Check（首轮立即查询；R14 回滚 R13 poll，自适应 2s→5s→10s→cap 20s；--poll-seconds 为 cap），fail-closed。
   GHA verify 仍跑 check∥test 时，Release PR auto-merge 亦须本 action 绿（Builds 双保险）。
 inputs:
   head_sha:
