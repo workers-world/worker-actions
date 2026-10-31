@@ -10,6 +10,7 @@ name: update package-lock.json file
 # 浅层 + heal 后仍 out of sync → fail；传递依赖/lock 完整性由 verify 内干净 npm ci 硬拦合入。
 #
 # 由 worker-verify 调用：同 job 内 heal（push dev_* / 同仓 PR）+ run_verify 时浅层 lock 导出（无 dry-run）；也可单独 workflow_call。
+# #221 R10：heal 预检与 verify 门禁共用一次 package-lock-in-sync（已 in-sync 时）；heal 刷新 lock 后仍二次校验（fail-closed 不变）。
 # pull_request 时 checkout/push 目标为 PR head 分支，非 merge ref。bump 可仅改 package.json。
 # 需刷新时：全量 npm install（非仅改 SDK 版本字段）；**不在 push 上跑 npm ci**（自托管/网络；PR 门禁校验）。
 # npm install/ci 仅当 caller .npmrc 或 npm_config_legacy_peer_deps 启用时才加 --legacy-peer-deps
@@ -91,7 +92,7 @@ jobs:
           # owner/repositories 均不传 → token 仅限当前仓（v3 语义；zizmor github-app 要求）
           permission-contents: write
 
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.57
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.58
         with:
           fetch-depth: ${{ env.HEAL_LOCK == 'true' && 0 || 1 }}
           ref: >-
@@ -107,9 +108,9 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
 
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.57
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.58
         id: lock_check
-        if: env.HEAL_LOCK == 'true'
+        if: env.HEAL_LOCK == 'true' || inputs.run_verify
         with:
           working-directory: ${{ inputs.working_directory }}
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
@@ -223,10 +224,13 @@ jobs:
           echo "push 被拒，rebase 后重试一次…"
           push_with_rebase
 
-      # run_verify 时 verify job 跑干净 npm ci；此处仅浅层 lock 状态导出（#221 R4 Axis C 删 sync-lock dry-run）
-      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.57
+      # run_verify + heal 已 out-of-sync 时 heal 步可能改写 lock，须二次 package-lock-in-sync（R10 合并已 in-sync 路径）
+      - uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.58
         id: lock_gate
-        if: inputs.run_verify
+        if: >
+          inputs.run_verify &&
+          env.HEAL_LOCK == 'true' &&
+          steps.lock_check.outputs.in_sync != 'true'
         with:
           working-directory: ${{ inputs.working_directory }}
           node_auth_token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
@@ -238,8 +242,10 @@ jobs:
           github.event_name == 'pull_request' &&
           inputs.sync_packages_lock &&
           inputs.materialize_sdk &&
-          steps.lock_gate.outputs.skip != 'true' &&
-          steps.lock_gate.outputs.in_sync != 'true'
+          (
+            (steps.lock_gate.conclusion == 'success' && steps.lock_gate.outputs.skip != 'true' && steps.lock_gate.outputs.in_sync != 'true') ||
+            (steps.lock_gate.conclusion == 'skipped' && steps.lock_check.conclusion == 'success' && steps.lock_check.outputs.skip != 'true' && steps.lock_check.outputs.in_sync != 'true')
+          )
         run: |
           echo "::error::PR 门禁：package-lock 与 package.json 仍不同步（sync-lock heal 未成功）；verify npm ci 将作最终硬拦。"
           echo "bump 可仅改 package.json；须配置 Org Secret GHA_TOKEN（read:packages）并确认 sync-lock job 已成功 push lock。"
@@ -253,6 +259,10 @@ jobs:
           set -euo pipefail
           in_sync="${{ steps.lock_gate.outputs.in_sync }}"
           skip="${{ steps.lock_gate.outputs.skip }}"
+          if [ -z "$in_sync" ]; then
+            in_sync="${{ steps.lock_check.outputs.in_sync }}"
+            skip="${{ steps.lock_check.outputs.skip }}"
+          fi
           if [ -z "$in_sync" ]; then
             in_sync=true
             skip=true
