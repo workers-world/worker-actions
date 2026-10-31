@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * #221 Round 7–9：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
- * R9：默认 poll 5s，首轮立即查询（轮末 sleep）；fail-closed 超时语义不变。
+ * #221 Round 7–10：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
+ * R9 曾改为 5s 轮询（E2E 回归）；R10 回滚为默认 20s，保留首轮立即查询（轮首不 sleep）。
+ * fail-closed 超时语义不变。
  */
 
 import { pathToFileURL } from 'node:url';
@@ -31,7 +32,7 @@ function parseArgs(argv) {
     headSha: '',
     checkContext: '',
     timeoutSeconds: 45 * 60,
-    pollSeconds: 5,
+    pollSeconds: 20,
     token: process.env.GITHUB_TOKEN || '',
   };
   for (let i = 0; i < argv.length; i++) {

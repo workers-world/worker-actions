@@ -163,6 +163,7 @@ sed -i '' 's|@actions/v0\.4\.31|@actions/v0.4.33|g' .github/workflows/*.yml
 
 | Tag | SHA | 日期 | 摘要 |
 |-----|-----|------|------|
+| `actions/v0.2.58` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R10**：回滚 R9 gate poll **5s→20s**（保留首轮立即查询）；sync-lock 合并已 in-sync 的双 `package-lock-in-sync`；内层 pin 对齐本 tag |
 | `actions/v0.2.57` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R9**：回滚 R8（`correctness_on_builds` 仍 GHA `npm ci`）；`builds-correctness-gate` 默认 poll **5s**、首轮立即查询；内层 pin 对齐本 tag |
 | `actions/v0.2.48` | （合入 master 后 `release-actions-bundle` patch+1） | — | **billing**：`worker-ci` gate/push-admission/ci-summary + workflow-lint runner + leaf ensure/merge/notify/failure-comment 私有仓走 `GHA_RUNNER`；内层 pin 对齐本 tag |
 | `actions/v0.2.47` | 407b14e | 2026-10-30 | Destin auto-align nested pins (WW-303)；gate 仍 `ubuntu-latest`（私有 consumer 在 org 计费限额下 blocked） |
