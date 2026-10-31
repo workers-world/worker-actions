@@ -6,7 +6,7 @@ name: Worker verify (dogfood)
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
 # 本仓 dogfood：ci-verify-dogfood 用 $/ 调用本 workflow；sync-lock 为 runs-on job（勿再嵌套 workflow_call，否则 startup_failure）。
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.60
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.61
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
@@ -346,10 +346,7 @@ jobs:
           cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
 
       - name: Restore node_modules cache
-        if: >-
-          steps.npm_scope.outputs.run_npm == 'true' &&
-          env.VERIFY_ON_SELF_HOSTED != 'true' &&
-          inputs.correctness_on_builds != true
+        if: steps.npm_scope.outputs.run_npm == 'true' && env.VERIFY_ON_SELF_HOSTED != 'true'
         uses: actions/cache/restore@v6
         id: node_modules_cache
         with:
@@ -427,9 +424,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
-      # #221 R5 Axis B（verify）：与 worker-verify.yml 同编排；R7 correctness_on_builds 跳过 check∥test
+      # #221 R5 Axis B（verify）：与 worker-verify.yml 同编排；R13 回滚 R12
       - name: npm run check and test
-        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.correctness_on_builds != true
+        if: steps.npm_scope.outputs.run_npm == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           RUN_TESTS: ${{ inputs.run_tests }}
@@ -470,16 +467,10 @@ jobs:
           fi
           exit "$ec"
 
-      - name: Skip GHA check∥test (Workers Builds owns correctness scripts)
-        if: inputs.correctness_on_builds == true
-        run: |
-          echo "::notice::correctness_on_builds=true：GHA 仍跑 npm ci 硬门禁，不跑 check∥test（sync-lock heal 仍运行）；Release PR 须 Cloudflare Workers Builds preview 绿（见 docs/workers-builds-correctness-gate.md）。"
-
       - name: Save node_modules cache
         if: >-
           steps.npm_scope.outputs.run_npm == 'true' &&
           env.VERIFY_ON_SELF_HOSTED != 'true' &&
-          inputs.correctness_on_builds != true &&
           steps.node_modules_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
