@@ -24,11 +24,13 @@ runs:
         CHECK_CONTEXT: ${{ inputs.check_context }}
         TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
         GITHUB_TOKEN: ${{ github.token }}
+        REPO_OWNER: ${{ github.repository_owner }}
+        REPO_NAME: ${{ github.event.repository.name }}
       run: |
         set -euo pipefail
         node "$GITHUB_ACTION_PATH/gate.mjs" \
-          --owner "${{ github.repository_owner }}" \
-          --repo "${{ github.event.repository.name }}" \
+          --owner "${REPO_OWNER}" \
+          --repo "${REPO_NAME}" \
           --head-sha "${HEAD_SHA}" \
           --check-context "${CHECK_CONTEXT}" \
           --timeout-seconds "$((TIMEOUT_MINUTES * 60))"
