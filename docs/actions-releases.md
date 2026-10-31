@@ -163,6 +163,7 @@ sed -i '' 's|@actions/v0\.4\.31|@actions/v0.4.33|g' .github/workflows/*.yml
 
 | Tag | SHA | 日期 | 摘要 |
 |-----|-----|------|------|
+| `actions/v0.2.64` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R17**：回滚 R16（`builds-correctness-gate` **GitHub Check 主路径**；R11 poll 2s→5s→10s→cap 20s）；`correctness_on_builds` 跳过 hosted setup-node/node_modules cache（**保留** GHA check∥test）；内层 pin 对齐本 tag |
 | `actions/v0.2.63` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R16**：`builds-correctness-gate` **CF Builds API 主路径**（commit + `external_script_id`）；GitHub Check 回退；自适应 poll **2s→5s→10s→cap 20s**；`worker-ci` secrets `CLOUDFLARE_*` + input `builds_worker_tag`；内层 pin 对齐本 tag |
 | `actions/v0.2.62` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R14**：回滚 R13 gate poll（恢复 R11 **2s→5s→10s→cap 20s**，首轮立即查询）；保留 R13 对 R12 的 verify 回滚；内层 pin 对齐本 tag |
 | `actions/v0.2.61` | （合入 master 后 `release-actions-bundle` patch+1） | — | **#221 R13**：回滚 R12（`correctness_on_builds` 恢复 GHA check∥test 与 node_modules cache；仍 GHA `npm ci`）；`builds-correctness-gate` 更紧自适应 poll **1s→2s→5s→10s→cap 20s**；内层 pin 对齐本 tag |
