@@ -51,6 +51,7 @@ flowchart TB
 
   WCI --> WL[worker-workflow-lint]
   WCI --> WV[worker-verify]
+  WCI --> BCG[builds-correctness-gate composite]
   WCI --> ERP[worker-ensure-release-pr]
   WCI --> QOD[worker-qodana-scan]
   WCI --> AIR[ai-pr-review]
@@ -417,6 +418,7 @@ flowchart TB
 | `ai-pr-review` | `ai-pr-review.yml` |
 | `qodana-parse` | `worker-qodana-scan` |
 | `qodana-scan-gate` | `worker-qodana-scan` |
+| `builds-correctness-gate` | `worker-ci`（#221 R7；轮询 CF Workers Builds GitHub Check） |
 
 跨仓 reusable 嵌套的 **workflow 与 composite** 均须全路径 `@actions/vX.Y.Z`（`$`/`./` 会解析到 caller 业务仓）；仅同仓 smoke 或先 checkout bundle 后可用相对路径（见 [actions-releases.md](./actions-releases.md)）。
 
@@ -427,7 +429,7 @@ flowchart TB
 | Workflow | 触发 | 类型 | 上游 | 下游 |
 |----------|------|------|------|------|
 | `ci.yml` | push `dev_*`；PR → `master`（含 fork） | 本仓入口 | — | workflow-lint（无 secrets；fork-safe） |
-| `worker-ci.yml` | `workflow_call` | 业务仓门面 | 业务仓 `ci.yml` | lint, verify, ensure-pr, qodana, ai-pr-review, ci-failure-comment, auto-merge, notify |
+| `worker-ci.yml` | `workflow_call` | 业务仓门面 | 业务仓 `ci.yml` | lint, verify, builds-correctness-gate, ensure-pr, qodana, ai-pr-review, ci-failure-comment, auto-merge, notify |
 | `worker-workflow-lint.yml` | `workflow_call` | Leaf | worker-ci / ci | —（actionlint / manifest 格式 / 卫生 / 凭据扫描） |
 | `worker-verify.yml` | `workflow_call` | Leaf | worker-ci | sync-packages-lock, promote |
 | `worker-sync-packages-lock.yml` | `workflow_call` | Leaf | worker-verify | — |
