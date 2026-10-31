@@ -36,6 +36,7 @@ Release PR 路径上，把 **`npm run check` ∥ `npm test`** 从 GHA `worker-ve
 |------|---------------------------------------------|
 | sync-lock heal + lock 门禁 | ✓ |
 | verify setup-node / 物化 SDK / `npm ci` | ✓（#221 R9 回滚 R8；GHA 硬门禁） |
+| verify node_modules cache restore/save | ✗（#221 R12；Release PR 不跑 check∥test，跳过 cache） |
 | verify check∥test | ✗（#221 R7；Builds build command） |
 | builds-correctness-gate | ✓（R11：自适应 poll；R10 固定 20s；R9 曾试 5s） |
 
@@ -58,7 +59,7 @@ Release PR 路径上，把 **`npm run check` ∥ `npm test`** 从 GHA `worker-ve
 ## 相关文件
 
 - [.github/workflows/worker-ci.yml](../.github/workflows/worker-ci.yml) — `builds-correctness-gate` job
-- [.github/workflows/worker-verify.yml](../.github/workflows/worker-verify.yml) — `correctness_on_builds` 跳过 GHA check∥test（仍跑 npm ci）
+- [.github/workflows/worker-verify.yml](../.github/workflows/worker-verify.yml) — `correctness_on_builds` 跳过 GHA check∥test 与 node_modules cache（仍跑 npm ci）
 - [.github/actions/builds-correctness-gate/](../.github/actions/builds-correctness-gate/) — GitHub Check 轮询
 
-Issue：[workers-world/worker-actions#221](https://github.com/workers-world/worker-actions/issues/221)（Round 7：`check∥test` → Builds；Round 8：GHA `npm ci` → Builds **已回滚**；Round 9：gate poll 5s + 回滚 R8；Round 10：gate poll 回滚 20s + sync-lock 合并 lock 校验）。
+Issue：[workers-world/worker-actions#221](https://github.com/workers-world/worker-actions/issues/221)（Round 7：`check∥test` → Builds；Round 8：GHA `npm ci` → Builds **已回滚**；Round 9：gate poll 5s + 回滚 R8；Round 10：gate poll 回滚 20s + sync-lock 合并 lock 校验；Round 11：回滚 R10 合并 + 自适应 poll；Round 12：跳过 GHA check∥test 与 node_modules cache，仍 GHA `npm ci`）。
