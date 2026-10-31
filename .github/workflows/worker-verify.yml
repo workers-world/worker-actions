@@ -5,7 +5,7 @@ name: Worker verify
 #
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.53
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.55
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
@@ -55,6 +55,10 @@ on:
         description: "是否跑 npm ci/check/test（默认 true）。false 时仍可跑 sync-lock（push 只刷 lock、门禁留在 PR）"
         type: boolean
         default: true
+      correctness_on_builds:
+        description: "true：verify 不跑 npm run check∥test（由 Cloudflare Workers Builds preview 承担；仍跑 npm ci 硬门禁，#221 R7）"
+        type: boolean
+        default: false
       bot:
         description: "sync-lock git push 凭证通道：pat（默认，GHA_TOKEN）| app（GitHub App，须配 RELEASE_BOT_*）。npm 认证不走 App（无 packages:read）；promote 嵌套链暂走 PAT"
         type: string
@@ -97,7 +101,7 @@ jobs:
       ) ||
       inputs.run_verify
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
-    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.55
     with:
       bot: ${{ inputs.bot }}
       sync_packages_lock: ${{ inputs.sync_packages_lock }}
@@ -134,7 +138,7 @@ jobs:
       # 私有仓 + GHA_RUNNER：自托管（#213 不在此路径 save setup-node/npm/node_modules Actions cache）
       VERIFY_ON_SELF_HOSTED: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && 'true' || 'false' }}
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.53
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.55
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
@@ -255,9 +259,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
 
-      # #221 R5 Axis B（verify）：check∥test 并行；check 已等同 npm test 时不再重复 test 步
+      # #221 R5 Axis B（verify）：check∥test 并行；#221 R7：correctness_on_builds 时改由 Workers Builds 承担
       - name: npm run check and test
-        if: steps.npm_scope.outputs.run_npm == 'true'
+        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.correctness_on_builds != true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           RUN_TESTS: ${{ inputs.run_tests }}
@@ -298,9 +302,15 @@ jobs:
           fi
           exit "$ec"
 
+      - name: Skip GHA check∥test (Workers Builds owns correctness)
+        if: steps.npm_scope.outputs.run_npm == 'true' && inputs.correctness_on_builds == true
+        run: |
+          echo "::notice::correctness_on_builds=true：GHA 不跑 check∥test；Release PR 须 Cloudflare Workers Builds preview 绿（见 docs/workers-builds-correctness-gate.md）。"
+
       - name: Save node_modules cache
         if: >-
           steps.npm_scope.outputs.run_npm == 'true' &&
+          inputs.correctness_on_builds != true &&
           env.VERIFY_ON_SELF_HOSTED != 'true' &&
           steps.node_modules_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -319,7 +329,7 @@ jobs:
     # （bot=app 试点期 promote 嵌套链暂走 PAT：与 SDK 物化的 packages 读共用 GHA_TOKEN，
     #   全量切 App 需先完成包「Manage Actions access」授权，见 docs/github-app-token-migration.md §4）
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.55
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:

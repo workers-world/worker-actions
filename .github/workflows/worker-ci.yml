@@ -9,6 +9,7 @@ name: Worker CI
 #   - Release PR 默认创建即 ready；门禁全绿 + require_non_draft_pr 后 auto-merge → Cloudflare Builds
 #   - workflow_call.secrets 须声明（与 actions/v0.2.6 同集）；actions/v0.2.7 tag 误删该块会导致 caller 显式 secrets: 映射 startup_failure — 合 master 后预期 actions/v0.2.8 patch；caller 可用 secrets: inherit 或显式映射下列 secrets
 #   - push 默认不跑 verify / workflow-lint；verify 仅在 pull_request（门禁）；push 仍跑 sync-lock，ensure 等其完成（#132）
+#   - #221 R7：correctness_on_builds 时 GHA verify 跳过 check∥test，由 Workers Builds preview + builds-correctness-gate 承担
 #   - skip_workflow_lint（默认 true）/ skip_ai_review / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
 #   - github-actions[bot]（lock-bot）跳过 lint/verify/qodana/ai-review/ensure
 #
@@ -20,7 +21,7 @@ name: Worker CI
 #     issues: write
 #     actions: write   # nested qodana（PR 限频 cache）
 #     checks: read     # nested notify-blocked
-#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.53
+#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.55
 #   secrets: inherit   # 或显式映射 workflow_call.secrets 全集（zizmor secrets-inherit / medium）
 #   with:
 #     sync_packages_lock: true
@@ -66,6 +67,18 @@ on:
         description: "true 跳过 consumer Release PR 上的 workflow-lint（默认 true；非 merge 门禁；显式 false 恢复 lint）"
         type: boolean
         default: true
+      correctness_on_builds:
+        description: "true：GHA verify 不跑 check∥test；Release PR 须 Workers Builds preview 绿（#221 R7；仍保留 verify npm ci + sync-lock）"
+        type: boolean
+        default: false
+      builds_check_context:
+        description: "可选：GitHub Check 名（monorepo 多 Worker 时与 branch protection 一致）；空=该 commit 上全部 Cloudflare Workers Builds check 须 success"
+        type: string
+        default: ""
+      builds_gate_timeout_minutes:
+        description: "等待 Workers Builds GitHub Check 的最长分钟数（builds-correctness-gate job）"
+        type: number
+        default: 45
       skip_branch_deleted_check:
         description: "已废弃：分支删除事件始终跳过建 PR（deleted head 无法 gh pr create）；保留 input 兼容旧 caller"
         type: boolean
@@ -175,13 +188,13 @@ jobs:
     outputs:
       skip_packages_jobs: ${{ steps.admit.outputs.skip_packages_jobs }}
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.53
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.55
         with:
           fetch-depth: 0
           persist-credentials: "false"
       - name: Classify push diff (noise vs packages jobs)
         id: admit
-        uses: workers-world/worker-actions/.github/actions/push-ci-admission@actions/v0.2.53
+        uses: workers-world/worker-actions/.github/actions/push-ci-admission@actions/v0.2.55
 
   # workflow-lint：仅 PR；push 不跑。拿不到路径时 PR 上跑一次（避免 paths-filter 再花 1 分钟）。
   workflow-lint:
@@ -197,7 +210,7 @@ jobs:
     permissions:
       contents: read
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.55
     with:
       runner: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
       zizmor_baseline_repository: workers-world/worker-actions
@@ -237,7 +250,7 @@ jobs:
       contents: write
       packages: read
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.55
     # 最小 secret 集：GHA_TOKEN 读 Packages；RELEASE_BOT_* 仅 bot=app 时由 sync-lock 消费
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
@@ -250,6 +263,30 @@ jobs:
       run_verify: ${{ github.event_name == 'pull_request' || inputs.verify_on_push }}
       promote: ${{ inputs.promote }}
       bot: ${{ inputs.bot }}
+      correctness_on_builds: ${{ inputs.correctness_on_builds && github.event_name == 'pull_request' }}
+
+  # #221 R7：与 verify 并行等待 Cloudflare Workers Builds GitHub Check（GHA 不再跑 check∥test）
+  builds-correctness-gate:
+    needs: [pure-destin-gate]
+    if: |
+      needs.pure-destin-gate.outputs.release_track == 'true' &&
+      inputs.correctness_on_builds == true &&
+      github.actor != 'github-actions[bot]' &&
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
+      github.base_ref == 'master' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.builds_gate_timeout_minutes }}
+    permissions:
+      checks: read
+      contents: read
+    steps:
+      - uses: workers-world/worker-actions/.github/actions/builds-correctness-gate@actions/v0.2.55
+        with:
+          head_sha: ${{ github.event.pull_request.head.sha }}
+          check_context: ${{ inputs.builds_check_context }}
+          timeout_minutes: ${{ inputs.builds_gate_timeout_minutes }}
 
   ensure-release-pr:
     needs: [pure-destin-gate, workflow-lint, verify]
@@ -265,7 +302,7 @@ jobs:
       github.event.deleted != true
     # PAT 建 PR（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.55
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
@@ -297,7 +334,7 @@ jobs:
       issues: write
       # nested worker-qodana-scan 需 actions: write（qodana-scan-gate PR 限频 cache）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.2.55
     # 最小 secret 集：qodana 只需 QODANA_TOKEN（Org 未配置时为空，由 gate skip，不报错）
     secrets:
       QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
@@ -324,7 +361,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/ai-pr-review.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/ai-pr-review.yml@actions/v0.2.55
     secrets:
       AI_REVIEW_LLM_TOKEN: ${{ secrets.AI_REVIEW_LLM_TOKEN }}
       AI_REVIEW_LLM_URL: ${{ secrets.AI_REVIEW_LLM_URL }}
@@ -337,7 +374,7 @@ jobs:
       actions_bundle_ref: actions/v0.2.39
 
   release-auto-merge:
-    needs: [pure-destin-gate, workflow-lint, verify, qodana]
+    needs: [pure-destin-gate, workflow-lint, verify, qodana, builds-correctness-gate]
     if: |
       always() &&
       needs.pure-destin-gate.outputs.release_track == 'true' &&
@@ -348,10 +385,11 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       (inputs.require_non_draft_pr != true || github.event.pull_request.draft == false) &&
       needs.verify.result == 'success' &&
-      (needs.qodana.result == 'success' || needs.qodana.result == 'skipped')
+      (needs.qodana.result == 'success' || needs.qodana.result == 'skipped') &&
+      (needs.builds-correctness-gate.result == 'success' || needs.builds-correctness-gate.result == 'skipped')
     # merge 凭证走 PAT（GHA_TOKEN）或 App（bot=app）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.2.55
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
@@ -363,7 +401,7 @@ jobs:
       bot: ${{ inputs.bot }}
 
   ci-failure-comment:
-    needs: [pure-destin-gate, workflow-lint, verify, qodana]
+    needs: [pure-destin-gate, workflow-lint, verify, qodana, builds-correctness-gate]
     if: |
       always() &&
       needs.pure-destin-gate.outputs.release_track == 'true' &&
@@ -374,20 +412,22 @@ jobs:
       (
         needs.workflow-lint.result == 'failure' ||
         needs.verify.result == 'failure' ||
-        needs.qodana.result == 'failure'
+        needs.qodana.result == 'failure' ||
+        needs.builds-correctness-gate.result == 'failure'
       )
     permissions:
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.2.55
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_ref: ${{ github.head_ref }}
       workflow_lint_result: ${{ needs.workflow-lint.result }}
       verify_result: ${{ needs.verify.result }}
       qodana_result: ${{ needs.qodana.result }}
+      builds_gate_result: ${{ needs.builds-correctness-gate.result }}
 
   notify-blocked:
-    needs: [pure-destin-gate, workflow-lint, verify, qodana, release-auto-merge]
+    needs: [pure-destin-gate, workflow-lint, verify, qodana, builds-correctness-gate, release-auto-merge]
     # reusable workflow 的 job 权限不能超过 caller；被调 notify 需要 actions/checks: read 拉 annotations
     permissions:
       actions: read
@@ -405,20 +445,23 @@ jobs:
       needs.release-auto-merge.result != 'cancelled' &&
       needs.verify.result != 'cancelled' &&
       needs.qodana.result != 'cancelled' &&
+      needs.builds-correctness-gate.result != 'cancelled' &&
       needs.workflow-lint.result != 'cancelled' &&
       (
         needs.workflow-lint.result == 'failure' ||
         needs.verify.result == 'failure' ||
         needs.qodana.result == 'failure' ||
+        needs.builds-correctness-gate.result == 'failure' ||
         needs.release-auto-merge.result == 'failure' ||
         (
           needs.release-auto-merge.result == 'skipped' &&
           (needs.workflow-lint.result == 'success' || needs.workflow-lint.result == 'skipped') &&
           needs.verify.result == 'success' &&
-          (needs.qodana.result == 'success' || needs.qodana.result == 'skipped')
+          (needs.qodana.result == 'success' || needs.qodana.result == 'skipped') &&
+          (needs.builds-correctness-gate.result == 'success' || needs.builds-correctness-gate.result == 'skipped')
         )
       )
-    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.53
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.55
     # 最小 secret 集：发信走 NOTIFY_*；GHA_TOKEN 跨仓拉取 annotation helper（公开仓可空）
     secrets:
       NOTIFY_GHA_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
@@ -434,7 +477,7 @@ jobs:
 
   # 仪器：进来多少 job、哪些 skipped、估算 hosted 分钟下界（文章「Claude 的眼睛」）
   ci-summary:
-    needs: [pure-destin-gate, push-admission, workflow-lint, verify, ensure-release-pr, qodana, ai-pr-review, release-auto-merge]
+    needs: [pure-destin-gate, push-admission, workflow-lint, verify, builds-correctness-gate, ensure-release-pr, qodana, ai-pr-review, release-auto-merge]
     if: always()
     runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 2
@@ -449,10 +492,12 @@ jobs:
           IS_DRAFT: ${{ github.event.pull_request.draft }}
           SKIP_AI_REVIEW: ${{ inputs.skip_ai_review }}
           SKIP_WORKFLOW_LINT: ${{ inputs.skip_workflow_lint }}
+          CORRECTNESS_ON_BUILDS: ${{ inputs.correctness_on_builds }}
           VERIFY_ON_PUSH: ${{ inputs.verify_on_push }}
           CREATE_DRAFT: ${{ inputs.create_draft_release_pr }}
           LINT_R: ${{ needs.workflow-lint.result }}
           VERIFY_R: ${{ needs.verify.result }}
+          BUILDS_GATE_R: ${{ needs.builds-correctness-gate.result }}
           ENSURE_R: ${{ needs.ensure-release-pr.result }}
           QODANA_R: ${{ needs.qodana.result }}
           AI_REVIEW_R: ${{ needs.ai-pr-review.result }}
@@ -463,7 +508,7 @@ jobs:
           set -euo pipefail
           # skipped / cancelled 不占 hosted 分钟；其余约 ≥1 计费分钟/job
           ran=0
-          for r in "$LINT_R" "$VERIFY_R" "$ENSURE_R" "$QODANA_R" "$AI_REVIEW_R" "$MERGE_R"; do
+          for r in "$LINT_R" "$VERIFY_R" "$BUILDS_GATE_R" "$ENSURE_R" "$QODANA_R" "$AI_REVIEW_R" "$MERGE_R"; do
             case "$r" in
               success|failure) ran=$((ran + 1)) ;;
             esac
@@ -481,6 +526,7 @@ jobs:
             echo "| draft | \`${IS_DRAFT}\` |"
             echo "| skip_ai_review | \`${SKIP_AI_REVIEW}\` |"
             echo "| skip_workflow_lint | \`${SKIP_WORKFLOW_LINT}\` |"
+            echo "| correctness_on_builds | \`${CORRECTNESS_ON_BUILDS}\` |"
             echo "| verify_on_push | \`${VERIFY_ON_PUSH}\` |"
             echo "| create_draft_release_pr | \`${CREATE_DRAFT}\` |"
             echo "| QODANA_ENABLED | \`${QODANA_VAR:-}\` / WW \`${QODANA_VAR_WW:-}\` |"
@@ -489,6 +535,7 @@ jobs:
             echo "|---|---|"
             echo "| workflow-lint | \`${LINT_R}\` |"
             echo "| verify | \`${VERIFY_R}\` |"
+            echo "| builds-correctness-gate | \`${BUILDS_GATE_R}\` |"
             echo "| ensure-release-pr | \`${ENSURE_R}\` |"
             echo "| qodana | \`${QODANA_R}\` |"
             echo "| ai-pr-review | \`${AI_REVIEW_R}\` |"
