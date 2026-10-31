@@ -5,7 +5,7 @@ name: Worker verify
 #
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.63
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.64
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
@@ -13,7 +13,7 @@ name: Worker verify
 # PR verify checkout PR head SHA（非 pull/N/merge），与 qodana 一致，避免 stale merge ref 导致 npm ci 失败。
 # sync-lock 与 verify 编排（#132：bump 可仅改 package.json，lock 由 CI heal）：
 #   push dev_* / 同仓 pull_request：sync-lock job 内 heal + 浅层 lock 导出；干净 npm ci 仅在 verify job（#221 R4 Axis C）。
-#   verify npm ci 为 PR 硬门禁（#221 R9 回滚 R8：correctness_on_builds 仍跑 npm ci/物化/cache 与 check∥test；R13 回滚 R12 cache 跳过）；heal 失败则 fail。
+#   verify npm ci 为 PR 硬门禁（#221 R9 回滚 R8：correctness_on_builds 仍跑 npm ci/物化/check∥test；R17 跳过 hosted deps cache；R13 回滚 R12 check∥test 跳过）；heal 失败则 fail。
 #   bot lock push 仍 synchronize PR；Node **24** 字面量（与 Cloudflare Builds 对齐）。
 # 无 SDK（materialize_sdk: false）时不因 lock 未同步跳过 verify（与旧 wait 行为一致）。
 # SDK 版本唯一来源：caller 仓 package.json 的 framework_sdk_worker（npm:@workers-world/...@X.Y.Z）。
@@ -56,7 +56,7 @@ on:
         type: boolean
         default: true
       correctness_on_builds:
-        description: "true：Release PR 仍跑 GHA check∥test 与 node_modules cache（R13 回滚 R12）；npm ci 硬门禁 + Workers Builds preview + gate（#221 R7；R9 回滚 R8 npm ci 跳过）"
+        description: "true：Release PR 仍跑 GHA npm ci + check∥test；跳过 hosted setup-node/node_modules cache（#221 R17）；Workers Builds preview + gate（#221 R7；R9 回滚 R8 npm ci 跳过）"
         type: boolean
         default: false
       bot:
@@ -101,7 +101,7 @@ jobs:
       ) ||
       inputs.run_verify
     # 跨仓调用时 ./ 与 $/ 均不可靠；须写全路径并 pin 与本 bundle 同 tag
-    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.63
+    uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.yml@actions/v0.2.64
     with:
       bot: ${{ inputs.bot }}
       sync_packages_lock: ${{ inputs.sync_packages_lock }}
@@ -138,7 +138,7 @@ jobs:
       # 私有仓 + GHA_RUNNER：自托管（#213 不在此路径 save setup-node/npm/node_modules Actions cache）
       VERIFY_ON_SELF_HOSTED: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && 'true' || 'false' }}
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.63
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.64
         with:
           fetch-depth: 1
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
@@ -174,14 +174,19 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@workers-world"
           # self-hosted 上 Post setup-node 写 npm cache 曾占 verify 墙钟 ~2/3（#213 Phase A+）；托管 runner 保留 tarball cache
-          cache: ${{ env.VERIFY_ON_SELF_HOSTED == 'true' && false || 'npm' }}
+          # R17：correctness_on_builds 时关 setup-node cache（与 node_modules cache 一并跳过）
+          cache: ${{ env.VERIFY_ON_SELF_HOSTED == 'true' && false || (inputs.correctness_on_builds == true && false || 'npm') }}
           cache-dependency-path: ${{ inputs.working_directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working_directory) }}
 
       # #221 R6 Axis A：托管 runner 恢复 node_modules（dogfood 已验证 ~5s p50 级 win）；自托管不 restore/save
+      # #221 R17：correctness_on_builds 时跳过 hosted deps cache（Builds 已 npm ci；保留 GHA check∥test，区别于 R12）
       # （rev1#70 Save 大 tree 卡 lease）。自托管仅用 npm ci --prefer-offline 吃 runner 本地 ~/.npm。
       # save 放在 check∥test 之后，避免 cache 上传挡 verify 关键路径。
       - name: Restore node_modules cache
-        if: steps.npm_scope.outputs.run_npm == 'true' && env.VERIFY_ON_SELF_HOSTED != 'true'
+        if: >-
+          steps.npm_scope.outputs.run_npm == 'true' &&
+          env.VERIFY_ON_SELF_HOSTED != 'true' &&
+          inputs.correctness_on_builds != true
         uses: actions/cache/restore@v6
         id: node_modules_cache
         with:
@@ -306,6 +311,7 @@ jobs:
         if: >-
           steps.npm_scope.outputs.run_npm == 'true' &&
           env.VERIFY_ON_SELF_HOSTED != 'true' &&
+          inputs.correctness_on_builds != true &&
           steps.node_modules_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
@@ -323,7 +329,7 @@ jobs:
     # （bot=app 试点期 promote 嵌套链暂走 PAT：与 SDK 物化的 packages 读共用 GHA_TOKEN，
     #   全量切 App 需先完成包「Manage Actions access」授权，见 docs/github-app-token-migration.md §4）
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.63
+    uses: workers-world/worker-actions/.github/workflows/worker-promote.yml@actions/v0.2.64
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
     with:

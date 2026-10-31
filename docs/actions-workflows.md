@@ -184,7 +184,7 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6；**R13** 回滚 R12 cache 跳过）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ **`correctness_on_builds: false`（默认）**：`npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6）→ **`correctness_on_builds: true`（#221 R7；R9 回滚 R8 npm ci 跳过；**R13** 回滚 R12）**：仍跑 setup-node / 物化 / `npm ci` / node_modules cache / **check∥test**（Builds build command 仍并行）→ worker-ci 并行 **`builds-correctness-gate`**（#221 **R16**：CF Builds API 主路径 + GitHub Check 回退；首轮立即查询 + 自适应 **2s→5s→10s→cap 20s**）。
+verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6；**R17** 在 `correctness_on_builds` 时跳过 hosted deps cache）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ **`correctness_on_builds: false`（默认）**：`npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6）→ **`correctness_on_builds: true`（#221 R7；R9 回滚 R8 npm ci 跳过；**R13** 回滚 R12 check∥test 跳过）**：仍跑 setup-node / 物化 / `npm ci` / **check∥test**（Builds build command 仍并行；**R17** 无 hosted cache）→ worker-ci 并行 **`builds-correctness-gate`**（#221 **R17**：GitHub Check 主路径；R11 自适应 **2s→5s→10s→cap 20s**）。
 
 | 事件 | npm ci / lock 门禁 |
 |------|-------------------|
@@ -418,7 +418,7 @@ flowchart TB
 | `ai-pr-review` | `ai-pr-review.yml` |
 | `qodana-parse` | `worker-qodana-scan` |
 | `qodana-scan-gate` | `worker-qodana-scan` |
-| `builds-correctness-gate` | `worker-ci`（#221 R16；CF Builds API 主路径 + GitHub 回退） |
+| `builds-correctness-gate` | `worker-ci`（#221 R17；GitHub Check 轮询） |
 
 跨仓 reusable 嵌套的 **workflow 与 composite** 均须全路径 `@actions/vX.Y.Z`（`$`/`./` 会解析到 caller 业务仓）；仅同仓 smoke 或先 checkout bundle 后可用相对路径（见 [actions-releases.md](./actions-releases.md)）。
 
