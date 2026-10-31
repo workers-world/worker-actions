@@ -9,7 +9,8 @@ name: Worker CI
 #   - Release PR 默认创建即 ready；门禁全绿 + require_non_draft_pr 后 auto-merge → Cloudflare Builds
 #   - workflow_call.secrets 须声明（与 actions/v0.2.6 同集）；actions/v0.2.7 tag 误删该块会导致 caller 显式 secrets: 映射 startup_failure — 合 master 后预期 actions/v0.2.8 patch；caller 可用 secrets: inherit 或显式映射下列 secrets
 #   - push 默认不跑 verify / workflow-lint；verify 仅在 pull_request（门禁）；push 仍跑 sync-lock，ensure 等其完成（#132）
-#   - #221 R7/R9/R13：correctness_on_builds 时 GHA verify 仍跑 check∥test 与 node_modules cache（R13 回滚 R12）；npm ci 仍在 GHA（R9 回滚 R8）；builds-correctness-gate 自适应 poll（R14 回滚 R13 poll：2s→5s→10s→cap）
+#   - #221 R16：builds-correctness-gate 主路径 CF Builds API；回退 GitHub Check；自适应 poll 2s→5s→10s→cap
+#   - #221 R7/R9/R13/R14：correctness_on_builds 时 GHA verify 仍跑 check∥test 与 node_modules cache（R13 回滚 R12）；npm ci 仍在 GHA（R9 回滚 R8）；R14 回滚 R13 gate poll（2s→5s→10s→cap）
 #   - skip_workflow_lint（默认 true）/ skip_ai_review / Qodana 未启用时 job 级不启动（不跑 skip-ack 空 runner）
 #   - github-actions[bot]（lock-bot）跳过 lint/verify/qodana/ai-review/ensure
 #
@@ -21,7 +22,7 @@ name: Worker CI
 #     issues: write
 #     actions: write   # nested qodana（PR 限频 cache）
 #     checks: read     # nested notify-blocked
-#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.62
+#   uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.63
 #   secrets: inherit   # 或显式映射 workflow_call.secrets 全集（zizmor secrets-inherit / medium）
 #   with:
 #     sync_packages_lock: true
@@ -75,8 +76,12 @@ on:
         description: "可选：GitHub Check 名（monorepo 多 Worker 时与 branch protection 一致）；空=该 commit 上全部 Cloudflare Workers Builds check 须 success"
         type: string
         default: ""
+      builds_worker_tag:
+        description: "Cloudflare Worker external_script_id（Builds API worker tag）；配 CLOUDFLARE_* secrets 时 gate 主路径轮询 CF API"
+        type: string
+        default: ""
       builds_gate_timeout_minutes:
-        description: "等待 Workers Builds GitHub Check 的最长分钟数（builds-correctness-gate job）"
+        description: "等待 Workers Builds 的最长分钟数（builds-correctness-gate job；CF API 或 GitHub Check 回退）"
         type: number
         default: 45
       skip_branch_deleted_check:
@@ -130,6 +135,12 @@ on:
         required: false
       NOTIFY_GHA_TOKEN:
         description: 与 notify-worker NOTIFY_GHA_TOKEN 同值（Org Secret）；未配置时 notify-blocked Guard 报错
+        required: false
+      CLOUDFLARE_API_TOKEN:
+        description: Cloudflare API Token（Workers CI Read）；builds-correctness-gate CF API 主路径
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        description: Cloudflare Account ID；与 CLOUDFLARE_API_TOKEN、builds_worker_tag 一并传入 gate
         required: false
 
 # 顶层兜底最小权限；各 job 自行显式声明
@@ -188,13 +199,13 @@ jobs:
     outputs:
       skip_packages_jobs: ${{ steps.admit.outputs.skip_packages_jobs }}
     steps:
-      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.62
+      - uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.63
         with:
           fetch-depth: 0
           persist-credentials: "false"
       - name: Classify push diff (noise vs packages jobs)
         id: admit
-        uses: workers-world/worker-actions/.github/actions/push-ci-admission@actions/v0.2.62
+        uses: workers-world/worker-actions/.github/actions/push-ci-admission@actions/v0.2.63
 
   # workflow-lint：仅 PR；push 不跑。拿不到路径时 PR 上跑一次（避免 paths-filter 再花 1 分钟）。
   workflow-lint:
@@ -210,7 +221,7 @@ jobs:
     permissions:
       contents: read
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.62
+    uses: workers-world/worker-actions/.github/workflows/worker-workflow-lint.yml@actions/v0.2.63
     with:
       runner: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
       zizmor_baseline_repository: workers-world/worker-actions
@@ -250,7 +261,7 @@ jobs:
       contents: write
       packages: read
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.62
+    uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.63
     # 最小 secret 集：GHA_TOKEN 读 Packages；RELEASE_BOT_* 仅 bot=app 时由 sync-lock 消费
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
@@ -265,7 +276,7 @@ jobs:
       bot: ${{ inputs.bot }}
       correctness_on_builds: ${{ inputs.correctness_on_builds && github.event_name == 'pull_request' }}
 
-  # #221 R7/R11：与 verify 并行等待 Cloudflare Workers Builds GitHub Check（GHA 不跑 check∥test；gate 自适应 poll，cap 20s）
+  # #221 R16：与 verify 并行；gate 主路径 CF Builds API（head commit + worker tag），回退 GitHub Check
   builds-correctness-gate:
     needs: [pure-destin-gate]
     if: |
@@ -282,11 +293,14 @@ jobs:
       checks: read
       contents: read
     steps:
-      - uses: workers-world/worker-actions/.github/actions/builds-correctness-gate@actions/v0.2.62
+      - uses: workers-world/worker-actions/.github/actions/builds-correctness-gate@actions/v0.2.63
         with:
           head_sha: ${{ github.event.pull_request.head.sha }}
           check_context: ${{ inputs.builds_check_context }}
           timeout_minutes: ${{ inputs.builds_gate_timeout_minutes }}
+          cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare_worker_tag: ${{ inputs.builds_worker_tag }}
+          cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   ensure-release-pr:
     needs: [pure-destin-gate, workflow-lint, verify]
@@ -302,7 +316,7 @@ jobs:
       github.event.deleted != true
     # PAT 建 PR（GHA_TOKEN）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.62
+    uses: workers-world/worker-actions/.github/workflows/worker-ensure-release-pr.yml@actions/v0.2.63
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
@@ -334,7 +348,7 @@ jobs:
       issues: write
       # nested worker-qodana-scan 需 actions: write（qodana-scan-gate PR 限频 cache）
       actions: write
-    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.2.62
+    uses: workers-world/worker-actions/.github/workflows/worker-qodana-scan.yml@actions/v0.2.63
     # 最小 secret 集：qodana 只需 QODANA_TOKEN（Org 未配置时为空，由 gate skip，不报错）
     secrets:
       QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
@@ -361,7 +375,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/ai-pr-review.yml@actions/v0.2.62
+    uses: workers-world/worker-actions/.github/workflows/ai-pr-review.yml@actions/v0.2.63
     secrets:
       AI_REVIEW_LLM_TOKEN: ${{ secrets.AI_REVIEW_LLM_TOKEN }}
       AI_REVIEW_LLM_URL: ${{ secrets.AI_REVIEW_LLM_URL }}
@@ -389,7 +403,7 @@ jobs:
       (needs.builds-correctness-gate.result == 'success' || needs.builds-correctness-gate.result == 'skipped')
     # merge 凭证走 PAT（GHA_TOKEN）或 App（bot=app）；勿给 GITHUB_TOKEN 写权限
     permissions: {}
-    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.2.62
+    uses: workers-world/worker-actions/.github/workflows/worker-release-auto-merge.yml@actions/v0.2.63
     secrets:
       GHA_TOKEN: ${{ secrets.GHA_TOKEN }}
       RELEASE_BOT_PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
@@ -417,7 +431,7 @@ jobs:
       )
     permissions:
       pull-requests: write
-    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.2.62
+    uses: workers-world/worker-actions/.github/workflows/worker-ci-failure-comment.yml@actions/v0.2.63
     with:
       pr_number: ${{ format('{0}', github.event.pull_request.number) }}
       head_ref: ${{ github.head_ref }}
@@ -461,7 +475,7 @@ jobs:
           (needs.builds-correctness-gate.result == 'success' || needs.builds-correctness-gate.result == 'skipped')
         )
       )
-    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.62
+    uses: workers-world/worker-actions/.github/workflows/worker-notify-release-pr-blocked.yml@actions/v0.2.63
     # 最小 secret 集：发信走 NOTIFY_*；GHA_TOKEN 跨仓拉取 annotation helper（公开仓可空）
     secrets:
       NOTIFY_GHA_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
