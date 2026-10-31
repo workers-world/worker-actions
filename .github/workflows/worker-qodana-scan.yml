@@ -75,7 +75,7 @@ jobs:
           echo "QODANA_CACHE_STATE=${RUNNER_TEMP}/qodana-cache/state.json" >> "$GITHUB_ENV"
 
       - name: Checkout caller repository
-        uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.58
+        uses: workers-world/worker-actions/.github/actions/checkout-with-transient-retry@actions/v0.2.59
         with:
           ref: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}
           fetch-depth: "0"
@@ -94,7 +94,7 @@ jobs:
 
       - name: Evaluate scan gate
         id: gate
-        uses: workers-world/worker-actions/.github/actions/qodana-scan-gate@actions/v0.2.58
+        uses: workers-world/worker-actions/.github/actions/qodana-scan-gate@actions/v0.2.59
         with:
           org_enabled: ${{ vars.QODANA_ENABLED }}
           base_ref: ${{ inputs.base_ref }}
@@ -168,7 +168,7 @@ jobs:
       - name: Parse SARIF or skip summary
         id: parse
         if: ${{ !cancelled() }}
-        uses: workers-world/worker-actions/.github/actions/qodana-parse@actions/v0.2.58
+        uses: workers-world/worker-actions/.github/actions/qodana-parse@actions/v0.2.59
         with:
           sarif_file: ${{ steps.resolve.outputs.mode == 'scan' && env.QODANA_SARIF || '' }}
           skip_reason: ${{ steps.resolve.outputs.mode != 'scan' && steps.resolve.outputs.skip_reason || '' }}
@@ -257,7 +257,7 @@ jobs:
 
       - name: Fail on blocking issues
         if: ${{ inputs.fail_on_blocking == true && steps.resolve.outputs.mode == 'scan' && steps.parse.outputs.pass != 'true' }}
-        uses: workers-world/worker-actions/.github/actions/qodana-parse@actions/v0.2.58
+        uses: workers-world/worker-actions/.github/actions/qodana-parse@actions/v0.2.59
         with:
           sarif_file: ${{ env.QODANA_SARIF }}
           head_sha: ${{ inputs.head_sha != '' && inputs.head_sha || github.event.pull_request.head.sha }}

@@ -1,13 +1,31 @@
 #!/usr/bin/env node
 /**
- * #221 Round 7–10：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
- * R9 曾改为 5s 轮询（E2E 回归）；R10 回滚为默认 20s，保留首轮立即查询（轮首不 sleep）。
+ * #221 Round 7–11：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
+ * R9 曾改为 5s 固定轮询（E2E 回归）；R10 回滚为默认 cap 20s、首轮立即查询。
+ * R11：首轮立即查询后自适应间隔 2s → 5s → 10s → cap（默认 20s；--poll-seconds 仅作 cap）。
  * fail-closed 超时语义不变。
  */
 
 import { pathToFileURL } from 'node:url';
 
 const CF_APP_SLUG = 'cloudflare-workers-and-pages';
+
+/** 首轮查询后的 sleep 序列（秒）；其后每次 sleep 使用 cap（--poll-seconds，默认 20）。 */
+const ADAPTIVE_POLL_STEPS_SEC = [2, 5, 10];
+
+/**
+ * @param {number} capSeconds --poll-seconds（上限）
+ * @param {number} afterFirstPollIndex 0 = 第一次 sleep（紧接首轮立即查询之后）
+ */
+export function adaptivePollSeconds(capSeconds, afterFirstPollIndex) {
+  const cap = Number(capSeconds);
+  const safeCap = Number.isFinite(cap) && cap > 0 ? cap : 20;
+  const idx = Number(afterFirstPollIndex);
+  if (Number.isFinite(idx) && idx >= 0 && idx < ADAPTIVE_POLL_STEPS_SEC.length) {
+    return Math.min(ADAPTIVE_POLL_STEPS_SEC[idx], safeCap);
+  }
+  return safeCap;
+}
 
 function matchesContext(name, checkContext) {
   if (!checkContext.trim()) return true;
@@ -45,7 +63,7 @@ function parseArgs(argv) {
     else if (arg === '--poll-seconds') opts.pollSeconds = Number(argv[++i]);
     else if (arg === '--help' || arg === '-h') {
       console.log(
-        'Usage: gate.mjs --owner O --repo R --head-sha SHA [--check-context NAME] [--timeout-seconds N]',
+        'Usage: gate.mjs --owner O --repo R --head-sha SHA [--check-context NAME] [--timeout-seconds N] [--poll-seconds CAP]',
       );
       process.exit(0);
     }
@@ -106,13 +124,14 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const deadline = Date.now() + opts.timeoutSeconds * 1000;
   let lastNotice = 0;
-  let polledOnce = false;
+  let polls = 0;
 
   while (Date.now() < deadline) {
-    if (polledOnce) {
-      await sleep(opts.pollSeconds * 1000);
+    if (polls > 0) {
+      const waitSec = adaptivePollSeconds(opts.pollSeconds, polls - 1);
+      await sleep(waitSec * 1000);
     }
-    polledOnce = true;
+    polls += 1;
 
     const all = await listCheckRuns(opts.owner, opts.repo, opts.headSha, opts.token);
     const matched = filterBuildsChecks(all, opts.checkContext);
