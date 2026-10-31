@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * #221 Round 7：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
- * fail-closed：超时仍无匹配 check、或任一匹配 check 非 success → exit 1。
+ * #221 Round 7–9：等待 PR head commit 上 Cloudflare Workers Builds GitHub Check 完成。
+ * R9：默认 poll 5s，首轮立即查询（轮末 sleep）；fail-closed 超时语义不变。
  */
 
 import { pathToFileURL } from 'node:url';
@@ -31,7 +31,7 @@ function parseArgs(argv) {
     headSha: '',
     checkContext: '',
     timeoutSeconds: 45 * 60,
-    pollSeconds: 20,
+    pollSeconds: 5,
     token: process.env.GITHUB_TOKEN || '',
   };
   for (let i = 0; i < argv.length; i++) {
@@ -105,8 +105,14 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const deadline = Date.now() + opts.timeoutSeconds * 1000;
   let lastNotice = 0;
+  let polledOnce = false;
 
   while (Date.now() < deadline) {
+    if (polledOnce) {
+      await sleep(opts.pollSeconds * 1000);
+    }
+    polledOnce = true;
+
     const all = await listCheckRuns(opts.owner, opts.repo, opts.headSha, opts.token);
     const matched = filterBuildsChecks(all, opts.checkContext);
 
@@ -145,7 +151,6 @@ async function main() {
       }
     }
 
-    await sleep(opts.pollSeconds * 1000);
   }
 
   console.error(

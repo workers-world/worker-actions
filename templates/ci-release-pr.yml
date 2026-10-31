@@ -1,7 +1,7 @@
 # Release PR CI 模板（复制到 Worker 根目录 .github/workflows/ci.yml）
 # 说明见 docs/release-pr-ci.md；编排：worker-ci.yml
 # workers-world actions bundle: actions/v0.2.13（禁止 @master，见 docs/actions-releases.md）
-# 若 caller 使用显式 secrets: 映射（非 inherit），请 pin @actions/v0.2.56+（tag 打出后）；v0.2.7 缺 workflow_call.secrets 声明
+# 若 caller 使用显式 secrets: 映射（非 inherit），请 pin @actions/v0.2.57+（tag 打出后）；v0.2.7 缺 workflow_call.secrets 声明
 # 另复制 templates/sync-default-branch.yml 为独立 workflow（勿并入本文件）
 name: CI
 
@@ -38,12 +38,12 @@ jobs:
       # nested worker-ci → qodana 需 actions: write（cache）；notify-blocked 需 actions/checks: read
       actions: write
       checks: read
-    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.56
+    uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.2.57
     secrets: inherit
     with:
       # SDK 版本以 package.json 为准；无 SDK 则 materialize_sdk: false
       sync_packages_lock: true
-      # #221 R7/R8：check∥test + npm ci 迁 Cloudflare Workers Builds preview；须先配 Dashboard Build command（见 docs/workers-builds-correctness-gate.md）
+      # #221 R7/R9：check∥test 迁 Cloudflare Workers Builds preview（npm ci 仍在 GHA；须配 Dashboard Build command，见 docs/workers-builds-correctness-gate.md）
       correctness_on_builds: true
       # builds_check_context: "Cloudflare Workers and Pages: script-name"  # monorepo 多 Worker 时与 PR Checks 名一致
       # skip_workflow_lint: false  # 可选：Release PR 上恢复 workflow-lint（默认 true，非 merge 门禁）
