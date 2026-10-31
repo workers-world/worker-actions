@@ -6,7 +6,7 @@ name: Worker verify (dogfood)
 # Caller 典型用法（sync-lock 已内置；promote 默认 false，日常走 Release PR）：
 #   permissions: { contents: write, packages: read }  # promote=true 时 contents 可降为 {}（写走 PAT）
 # 本仓 dogfood：ci-verify-dogfood 用 $/ 调用本 workflow；sync-lock 为 runs-on job（勿再嵌套 workflow_call，否则 startup_failure）。
-#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.59
+#   uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v0.2.64
 #   with:
 #     sync_packages_lock: true   # push dev_* 时按 package.json 刷新 lock 并提交
 #     run_verify: true           # false：仅 sync-lock（push 默认；门禁在 PR）
