@@ -51,6 +51,7 @@ flowchart TB
 
   WCI --> WL[worker-workflow-lint]
   WCI --> WV[worker-verify]
+  WCI --> BCG[builds-correctness-gate composite]
   WCI --> ERP[worker-ensure-release-pr]
   WCI --> QOD[worker-qodana-scan]
   WCI --> AIR[ai-pr-review]
@@ -183,7 +184,7 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ `npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6，在 check 之后）。
+verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ `npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B；**#221 R7 `correctness_on_builds` 时跳过**）→ 托管 `node_modules` save（R6，check 路径；R7 Builds 模式跳过 save）。**`correctness_on_builds: true` 时** worker-ci 并行 **`builds-correctness-gate`**（轮询 Cloudflare Workers Builds GitHub Check）。
 
 | 事件 | npm ci / lock 门禁 |
 |------|-------------------|
@@ -417,6 +418,7 @@ flowchart TB
 | `ai-pr-review` | `ai-pr-review.yml` |
 | `qodana-parse` | `worker-qodana-scan` |
 | `qodana-scan-gate` | `worker-qodana-scan` |
+| `builds-correctness-gate` | `worker-ci`（#221 R7；轮询 CF Workers Builds GitHub Check） |
 
 跨仓 reusable 嵌套的 **workflow 与 composite** 均须全路径 `@actions/vX.Y.Z`（`$`/`./` 会解析到 caller 业务仓）；仅同仓 smoke 或先 checkout bundle 后可用相对路径（见 [actions-releases.md](./actions-releases.md)）。
 
@@ -427,7 +429,7 @@ flowchart TB
 | Workflow | 触发 | 类型 | 上游 | 下游 |
 |----------|------|------|------|------|
 | `ci.yml` | push `dev_*`；PR → `master`（含 fork） | 本仓入口 | — | workflow-lint（无 secrets；fork-safe） |
-| `worker-ci.yml` | `workflow_call` | 业务仓门面 | 业务仓 `ci.yml` | lint, verify, ensure-pr, qodana, ai-pr-review, ci-failure-comment, auto-merge, notify |
+| `worker-ci.yml` | `workflow_call` | 业务仓门面 | 业务仓 `ci.yml` | lint, verify, builds-correctness-gate, ensure-pr, qodana, ai-pr-review, ci-failure-comment, auto-merge, notify |
 | `worker-workflow-lint.yml` | `workflow_call` | Leaf | worker-ci / ci | —（actionlint / manifest 格式 / 卫生 / 凭据扫描） |
 | `worker-verify.yml` | `workflow_call` | Leaf | worker-ci | sync-packages-lock, promote |
 | `worker-sync-packages-lock.yml` | `workflow_call` | Leaf | worker-verify | — |

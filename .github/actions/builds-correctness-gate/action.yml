@@ -1,0 +1,36 @@
+name: Workers Builds correctness gate
+description: |
+  #221 Round 7：轮询 PR commit 上 Cloudflare Workers Builds GitHub Check，fail-closed。
+  GHA verify 跳过 check∥test 时，Release PR auto-merge 须本 action 绿。
+inputs:
+  head_sha:
+    description: PR head commit SHA（与 release-auto-merge head_sha 一致）
+    required: true
+  check_context:
+    description: "可选：GitHub check 名子串或全名（monorepo 多 Worker）；空=该 commit 上全部 CF Builds check 须 success"
+    required: false
+    default: ""
+  timeout_minutes:
+    description: 等待 Builds check 的最长分钟数
+    required: false
+    default: "45"
+runs:
+  using: composite
+  steps:
+    - name: Wait for Cloudflare Workers Builds check
+      shell: bash
+      env:
+        HEAD_SHA: ${{ inputs.head_sha }}
+        CHECK_CONTEXT: ${{ inputs.check_context }}
+        TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+        GITHUB_TOKEN: ${{ github.token }}
+        REPO_OWNER: ${{ github.repository_owner }}
+        REPO_NAME: ${{ github.event.repository.name }}
+      run: |
+        set -euo pipefail
+        node "$GITHUB_ACTION_PATH/gate.mjs" \
+          --owner "${REPO_OWNER}" \
+          --repo "${REPO_NAME}" \
+          --head-sha "${HEAD_SHA}" \
+          --check-context "${CHECK_CONTEXT}" \
+          --timeout-seconds "$((TIMEOUT_MINUTES * 60))"

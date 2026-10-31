@@ -28,6 +28,11 @@ on:
       qodana_result:
         type: string
         required: true
+      builds_gate_result:
+        description: builds-correctness-gate job result（skipped 时仍传 skipped）
+        type: string
+        default: skipped
+        required: false
 
 permissions:
   pull-requests: write
@@ -48,6 +53,7 @@ jobs:
           LINT: ${{ inputs.workflow_lint_result }}
           VERIFY: ${{ inputs.verify_result }}
           QODANA: ${{ inputs.qodana_result }}
+          BUILDS_GATE: ${{ inputs.builds_gate_result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO: ${{ github.repository }}
         run: |
@@ -56,6 +62,7 @@ jobs:
           [ "$LINT" = "failure" ] && FAILED="${FAILED}- workflow-lint: **failure**\n"
           [ "$VERIFY" = "failure" ] && FAILED="${FAILED}- verify: **failure**\n"
           [ "$QODANA" = "failure" ] && FAILED="${FAILED}- qodana: **failure**\n"
+          [ "$BUILDS_GATE" = "failure" ] && FAILED="${FAILED}- Workers Builds 正确性门禁: **failure**（见 PR Checks / Cloudflare Dashboard）\n"
           if [ -z "$FAILED" ]; then
             echo "No failure results — skip comment"
             exit 0

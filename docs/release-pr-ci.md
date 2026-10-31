@@ -118,7 +118,7 @@ Org 须已配置：
 
 1. `pull_request.branches: [master]`；建议 `paths-ignore: ["**/*.md", "docs/**"]`；`concurrency` 取消旧 run
 2. 单一 job `release-pr`：permissions 取并集，`secrets: inherit`
-3. `with` 只传仓间差异；默认 `promote: false`、`create_draft_release_pr: false`、`verify_on_push: false`、`skip_workflow_lint: true`、`skip_ai_review: true`
+3. `with` 只传仓间差异；默认 `promote: false`、`create_draft_release_pr: false`、`verify_on_push: false`、`skip_workflow_lint: true`、`skip_ai_review: true`；**Round 7 模板默认 `correctness_on_builds: true`**（须配 Cloudflare Builds preview，见 [workers-builds-correctness-gate.md](./workers-builds-correctness-gate.md)）
 4. 另复制 [templates/sync-default-branch.yml](../templates/sync-default-branch.yml) 为独立 workflow
 5. 门禁全绿后 auto-merge → Builds；需 draft 闸门时传 `create_draft_release_pr: true` 或手动 Convert to draft
 
@@ -141,7 +141,9 @@ Org 须已配置：
 | Job | 何时启动 |
 |-----|----------|
 | workflow-lint | `skip_workflow_lint: false` **且** Release PR（非 bot）；默认 **skipped**（#221 Axis A） |
-| verify（npm ci/check/test） | 仅 PR（或 `verify_on_push: true`） |
+| verify（npm ci；check∥test 见下） | 仅 PR（或 `verify_on_push: true`） |
+| verify check∥test | PR 上默认 GHA 跑；`correctness_on_builds: true` 时 **Builds** 跑（GHA 跳过） |
+| builds-correctness-gate | `correctness_on_builds: true` **且** Release PR → master |
 | sync-lock | push `dev_*` + 非 bot；同仓 PR 上 pull_request heal（bump 可不含 lock） |
 | ensure-release-pr | push + 非 bot + **纯 destin** `dev_X_Y_Z`；**在 sync-lock 完成后**；空 Release / 已有 PR 时 preflight 短路（#221 R3） |
 | qodana | Org `QODANA_ENABLED` / `WORKERS_WORLD_QODANA_ENABLED` 为 true **且** PR；否则 **skipped**（auto-merge 接受 skipped） |
@@ -158,7 +160,7 @@ Org 须已配置：
 在 GitHub 仓库 **Settings → Branches → master**：
 
 - Require pull request before merging（可仅 bot merge）
-- 可选 Required checks：`verify`（qodana / ai-pr-review 常为 skipped，勿设为 required，除非 Org 已启用）
+- 可选 Required checks：`verify`（qodana / ai-pr-review 常为 skipped，勿设为 required，除非 Org 已启用）；**`correctness_on_builds: true` 时**另加 Cloudflare Workers Builds GitHub Check（与 `builds_check_context` 一致），或依赖 `builds-correctness-gate` job fail-closed
 
 ## 与 AI PR review
 
