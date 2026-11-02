@@ -75,7 +75,8 @@ if [[ -f package-lock.json ]] && grep -q '"\.\./framework_sdk_worker"' package-l
   echo "移除 file: link 残留 lock，重新生成"
   rm -f package-lock.json
 fi
-NPM_COMMON_ARGS=(--no-fund --no-audit)
+# ignore-scripts: lock 刷新只需解析依赖树，勿编译 native（自托管常缺 make）
+NPM_COMMON_ARGS=(--no-fund --no-audit --ignore-scripts)
 legacy_peer_deps="$(node "$legacy_script")"
 if [ "$legacy_peer_deps" = "true" ]; then
   NPM_COMMON_ARGS+=(--legacy-peer-deps)

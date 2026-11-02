@@ -182,7 +182,8 @@ jobs:
             echo "移除 file: link 残留 lock，重新生成"
             rm -f package-lock.json
           fi
-          NPM_COMMON_ARGS=(--no-fund --no-audit)
+          # ignore-scripts: lock 刷新只需解析依赖树，勿编译 native（自托管常缺 make；doc1 tree-sitter-powershell）
+          NPM_COMMON_ARGS=(--no-fund --no-audit --ignore-scripts)
           if [ "${{ steps.lock_check.outputs.legacy_peer_deps }}" = "true" ]; then
             NPM_COMMON_ARGS+=(--legacy-peer-deps)
             echo "caller 启用 legacy-peer-deps，npm install/ci 将带上 --legacy-peer-deps"
