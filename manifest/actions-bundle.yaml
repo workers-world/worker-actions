@@ -1,7 +1,7 @@
 # Actions bundle 当前版本（Worker 仓 pin 此 tag）
 # 完整变更见 docs/actions-releases.md；权威来源为 git tag
 current: actions/v0.2.65
-sha: "61e04cc8204aa58de8147485c8c7c77596f63a69"
+sha: "d709918277a1f37ae523273ff17707a1f0dbf482"
 released_at: "2026-11-02"
 notes: |
   Released via workflow_dispatch.
