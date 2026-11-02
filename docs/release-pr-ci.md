@@ -141,7 +141,7 @@ Org 须已配置：
 | Job | 何时启动 |
 |-----|----------|
 | workflow-lint | `skip_workflow_lint: false` **且** Release PR（非 bot）；默认 **skipped**（#221 Axis A） |
-| verify（npm ci + check∥test） | 仅 PR（或 `verify_on_push: true`）；`correctness_on_builds: true` 时 GHA **仍跑 npm ci** 与 **check∥test**；**R17** 跳过 hosted deps cache（**R13** 回滚 R12 check∥test 跳过）；Builds + gate 仍为 Release PR 双保险 |
+| verify（npm ci + check∥test） | 仅 PR（或 `verify_on_push: true`）；`correctness_on_builds: true` 时 GHA **仍跑 npm ci**，**跳过** check∥test（#221 R7；R9 回滚 R8），脚本正确性由 **Builds** 承担 |
 | builds-correctness-gate | `correctness_on_builds: true` **且** Release PR → master |
 | sync-lock | push `dev_*` + 非 bot；同仓 PR 上 pull_request heal（bump 可不含 lock） |
 | ensure-release-pr | push + 非 bot + **纯 destin** `dev_X_Y_Z`；**在 sync-lock 完成后**；空 Release / 已有 PR 时 preflight 短路（#221 R3） |
