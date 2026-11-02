@@ -1,6 +1,6 @@
-# Workers Builds 正确性门禁（#221 Round 7–17）
+# Workers Builds 正确性门禁（#221 Round 7–8）
 
-Release PR 路径上，**GHA `worker-verify` 仍跑 `npm run check` ∥ `npm test`**（**R13** 回滚 R12）；Cloudflare Workers Builds preview build command 与 **`builds-correctness-gate`** 仍为 Release PR 双保险。**`npm ci` 仍在 GHA 硬门禁**（#221 R9 回滚 R8）。**R17** 在 `correctness_on_builds` 时跳过 hosted **setup-node / node_modules cache**（Builds 已 `npm ci`；**保留** GHA check∥test，区别于 R12）。GHA 仍保留 **sync-lock heal** 与 gate（fail-closed，首轮立即查询；**R17** 回滚 R16，**GitHub Check Runs** 主路径 `cloudflare-workers-and-pages`；自适应 **2s→5s→10s→cap 20s**）。
+Release PR 路径上，把 **`npm run check` ∥ `npm test`** 从 GHA `worker-verify` 迁到 **Cloudflare Workers Builds preview** build command，缩短 GHA verify 墙钟；**`npm ci` 仍在 GHA 硬门禁**（#221 R9 回滚 R8）。GHA 仍保留 **sync-lock heal** 与 **`builds-correctness-gate`**（fail-closed，首轮立即查询；#221 R11 自适应 **2s→5s→10s→cap 20s**，`--poll-seconds` 仅作 cap；R10 曾固定 20s、R9 曾试 5s）。
 
 ## 启用方式（业务仓）
 
@@ -28,7 +28,7 @@ Release PR 路径上，**GHA `worker-verify` 仍跑 `npm run check` ∥ `npm tes
 
 3. **Branch protection（推荐 fail-closed）**  
    在 `master` 上除 GHA `verify` 外，将 **Cloudflare Workers Builds** 对应 GitHub Check 设为 required（名称见 PR → Checks）。  
-   `worker-ci` 的 **`builds-correctness-gate`** job 会轮询同一 commit 上的 CF App check（`cloudflare-workers-and-pages`；2s→5s→10s→cap 20s 自适应间隔，首轮不 sleep），与 branch protection 双保险；**auto-merge 在 verify + builds-gate + qodana（若启用）均 success 后**才执行。
+   `worker-ci` 的 **`builds-correctness-gate`** job 会轮询同一 commit 上的 CF App check（`cloudflare-workers-and-pages`；R11：**2s→5s→10s→20s** 自适应间隔，首轮不 sleep），与 branch protection 双保险；**auto-merge 在 verify + builds-gate + qodana（若启用）均 success 后**才执行。
 
 ## GHA 仍做什么
 
@@ -36,17 +36,15 @@ Release PR 路径上，**GHA `worker-verify` 仍跑 `npm run check` ∥ `npm tes
 |------|---------------------------------------------|
 | sync-lock heal + lock 门禁 | ✓ |
 | verify setup-node / 物化 SDK / `npm ci` | ✓（#221 R9 回滚 R8；GHA 硬门禁） |
-| verify node_modules cache restore/save | ✗ hosted（**R17**；自托管本就不 cache） |
-| verify setup-node npm tarball cache | ✗ hosted（**R17**） |
-| verify check∥test | ✓（**R13** 回滚 R12；Builds 仍并行） |
-| builds-correctness-gate | ✓（GitHub Check 轮询；R17 回滚 R16 CF API） |
+| verify check∥test | ✗（#221 R7；Builds build command） |
+| builds-correctness-gate | ✓（R11：自适应 poll；R10 固定 20s；R9 曾试 5s） |
 
 ## 试点仓差异
 
 | 仓 | verify runner | gate runner | 备注 |
 |----|---------------|-------------|------|
 | **mok1**（公开） | verify：`ubuntu-latest` | `builds-correctness-gate`：`ubuntu-latest` | 须在 CF 配好 preview + build command；公开仓可用 GitHub **required checks** API |
-| **sch1**（私有自托管） | verify：`GHA_RUNNER` | gate 仍托管（GitHub Check API 轮询） | 同样须在 CF 配 preview；若无法用 UI 设 required check，依赖 **`builds-correctness-gate` fail-closed** 挡 merge |
+| **sch1**（私有自托管） | verify：`GHA_RUNNER` | gate 仍托管（仅 API 轮询） | 同样须在 CF 配 preview；若无法用 UI 设 required check，依赖 **`builds-correctness-gate` fail-closed** 挡 merge |
 
 ## Required checks 尚未可配时
 
@@ -60,7 +58,7 @@ Release PR 路径上，**GHA `worker-verify` 仍跑 `npm run check` ∥ `npm tes
 ## 相关文件
 
 - [.github/workflows/worker-ci.yml](../.github/workflows/worker-ci.yml) — `builds-correctness-gate` job
-- [.github/workflows/worker-verify.yml](../.github/workflows/worker-verify.yml) — `correctness_on_builds`：npm ci + check∥test；R17 跳过 hosted deps cache
+- [.github/workflows/worker-verify.yml](../.github/workflows/worker-verify.yml) — `correctness_on_builds` 跳过 GHA check∥test（仍跑 npm ci）
 - [.github/actions/builds-correctness-gate/](../.github/actions/builds-correctness-gate/) — GitHub Check 轮询
 
-Issue：[workers-world/worker-actions#221](https://github.com/workers-world/worker-actions/issues/221)（Round 17：回滚 R16 + 跳过 hosted deps cache）。
+Issue：[workers-world/worker-actions#221](https://github.com/workers-world/worker-actions/issues/221)（Round 7：`check∥test` → Builds；Round 8：GHA `npm ci` → Builds **已回滚**；Round 9：gate poll 5s + 回滚 R8；Round 10：gate poll 回滚 20s + sync-lock 合并 lock 校验）。
