@@ -26,16 +26,25 @@ function isNoisePath(p) {
   return false;
 }
 
+/** @param {string} sha */
+function listFilesInCommit(sha) {
+  return execFileSync(
+    'git',
+    ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', '--diff-filter=ACMRT', sha],
+    { encoding: 'utf8' },
+  )
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /** @param {string} before @param {string} sha */
 export function listChangedFiles(before, sha) {
   const zero = /^0+$/;
   if (!before || zero.test(before)) {
-    return execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMRT', sha], {
-      encoding: 'utf8',
-    })
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    // New ref first push: github.event.before is all zeros; single-arg `git diff <sha>`
+    // is empty on a clean checkout at tip — use the commit tree instead (#282).
+    return listFilesInCommit(sha);
   }
   return execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMRT', before, sha], {
     encoding: 'utf8',
@@ -47,7 +56,8 @@ export function listChangedFiles(before, sha) {
 
 /** @param {string[]} files */
 export function shouldSkipPackagesJobsOnPush(files) {
-  if (files.length === 0) return true;
+  // Unknown/empty file list must not skip verify (conservative; #282).
+  if (files.length === 0) return false;
   return files.every(isNoisePath);
 }
 
