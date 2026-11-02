@@ -95,7 +95,7 @@ node tools/release-pipeline-benchmark/analyze.mjs \
 
 | 目标 | 实现要点 |
 | --- | --- |
-| self-hosted 上削弱 setup-node post cache | `worker-verify` / `npm-ci-github-packages`：`GHA_RUNNER` 私有仓路径 `cache: false` |
+| self-hosted 上削弱 setup-node post cache | `worker-verify`：表达式里布尔 `false` 关 cache；`npm-ci-github-packages`：caller 传 `cache: ""`（composite 同步关 `package-manager-cache`，勿传字符串 `false`） |
 | Release PR vs destin push 并发 | `worker-ci` 分 `release-pr-*` / `destin-push-*` group（互不 cancel）；destin push 仍 cancel-in-progress 合并同分支噪声 run |
 | 噪声 destin push 跳过 sync-lock | `push-ci-admission` composite + `worker-ci` push-admission job |
 | 非 Packages 门禁 job | 私有 caller + `GHA_RUNNER`：`worker-ci` gate/admission/summary、workflow-lint runner、ensure/merge/notify/failure-comment；verify/sync-lock/lock-precheck 同表达式；公开仓仍 `ubuntu-latest` |
