@@ -34,19 +34,28 @@ jobs:
     outputs:
       proceed: ${{ steps.check.outputs.proceed }}
     steps:
+      # Need tools/actions-bundle/skip-actions-release.mjs（#294：merge commit 的 skip 在 PR 标题行）
+      - uses: actions/checkout@v7.0.1
+        with:
+          sparse-checkout: tools/actions-bundle
+          persist-credentials: false
+
       - name: Skip gate ([skip actions-release])
         id: check
         env:
           MSG: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
-          # Squash-merge：subject = PR 标题（首行）；正文含历史 commit 说明，勿扫描全文
-          subject="${MSG%%$'\n'*}"
-          if [[ "$subject" == *'[skip actions-release]'* ]]; then
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "Skip release: commit subject contains [skip actions-release]"
-          else
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          # Squash：subject=PR 标题；Merge commit：首行为 Merge pull request #N，PR 标题在其后首个非空行。
+          # 勿扫描全文——squash 正文常含历史 [skip actions-release]（见 docs/actions-releases.md）。
+          # CLI 写 proceed=；exit 0=skip，1=proceed（set +e 接收非 0）。
+          set +e
+          node tools/actions-bundle/skip-actions-release.mjs
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+            echo "::error::skip-actions-release.mjs failed with rc=${rc}"
+            exit "$rc"
           fi
 
   tag:
@@ -157,7 +166,7 @@ jobs:
             NEED_TAG=0
             echo "HEAD already tagged ${TAG}; sync backfill PR only"
           else
-            latest="$(git tag -l 'actions/v*' --sort=-v:refname | head -1 || true)"
+            latest="$(latest_actions_tag)"
             if [ -n "${INPUT_VERSION}" ]; then
               VERSION="${INPUT_VERSION}"
             elif [ -n "${latest}" ]; then
@@ -309,7 +318,7 @@ jobs:
           - Tag SHA: \`${REF}\`
           - tag_created_this_run: ${TAG_CREATED}
 
-          两阶段发版：tag 在 **已对齐全部 nested pin**（含 \`.github/workflows/**\`）的 commit 上打出（须 release-bot App \`workflows:write\`）；本 PR 合入 \`manifest/actions-bundle.yaml\` 与 master 对齐。回填分支由 App token push（**非** \`GITHUB_TOKEN\`）。**PR 标题**（squash subject）与 commit subject 含 \`[skip actions-release]\`，不会再打 tag。
+          两阶段发版：tag 在 **已对齐全部 nested pin**（含 \`.github/workflows/**\`）的 commit 上打出（须 release-bot App \`workflows:write\`）；本 PR 合入 \`manifest/actions-bundle.yaml\` 与 master 对齐。回填分支由 App token push（**非** \`GITHUB_TOKEN\`）。**PR 标题**与 commit subject 含 \`[skip actions-release]\`（squash subject **或** merge commit 的 PR 标题行），不会再打 tag。
           EOF
           )"
               echo "Opened backfill PR for ${TAG}"

@@ -371,7 +371,7 @@ flowchart LR
   pushTag --> backfillPr[open_pins_manifest_PR]
 ```
 
-触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。**commit subject**（首行）含 `[skip actions-release]` 时跳过（squash 正文里的历史 skip 不触发）。
+触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。**squash subject**（首行）或 **merge commit 的 PR 标题行**含 `[skip actions-release]` 时跳过（全文/squash 正文里的历史 skip 不触发；见 #294）。
 
 来源：[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml)。
 
