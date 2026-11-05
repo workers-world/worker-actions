@@ -16,7 +16,8 @@ source "${ROOT}/tools/actions-bundle/nested-pins-lib.sh"
 
 cd "$ROOT"
 
-git fetch origin "$DESTIN_BRANCH" --tags
+# --prune-tags：已删除的 ephemeral tag（如误打后删掉的 actions/v*）不得再被当作 latest（#293）
+git fetch origin "$DESTIN_BRANCH" --tags --prune --prune-tags
 
 latest="$(latest_actions_tag)"
 if [ -z "$latest" ]; then
