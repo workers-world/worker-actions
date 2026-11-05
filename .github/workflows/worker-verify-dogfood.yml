@@ -206,7 +206,8 @@ jobs:
             echo "移除 file: link 残留 lock，重新生成"
             rm -f package-lock.json
           fi
-          NPM_COMMON_ARGS=(--no-fund --no-audit)
+          # ignore-scripts: lock 刷新只需解析依赖树，勿编译 native（自托管常缺 make；与 worker-sync-packages-lock #291 对齐）
+          NPM_COMMON_ARGS=(--no-fund --no-audit --ignore-scripts)
           if [ "${{ steps.lock_check.outputs.legacy_peer_deps }}" = "true" ]; then
             NPM_COMMON_ARGS+=(--legacy-peer-deps)
             echo "caller 启用 legacy-peer-deps，npm install/ci 将带上 --legacy-peer-deps"
@@ -403,6 +404,7 @@ jobs:
       # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
       # lock 变更时 cache key 变，自动全量 npm ci。sync-lock 不再跑 npm ci --dry-run（#221 R4 Axis C）。
+      # #292：自托管常缺 make，与 sync-lock（#291）同机；npm ci 加 --ignore-scripts，勿编译 native。
       - name: Run npm ci
         if: steps.npm_scope.outputs.run_npm == 'true'
         run: |
@@ -411,6 +413,8 @@ jobs:
           prefer=false
           if [ "${VERIFY_ON_SELF_HOSTED}" = "true" ]; then
             prefer=true
+            # 自托管常缺 make；勿在 GHA 编译 native（#292 / #291）
+            common+=(--ignore-scripts)
           elif [ "${{ steps.node_modules_cache.outputs.cache-hit }}" = "true" ]; then
             prefer=true
           elif [ "${{ steps.setup_node.outputs.cache-hit }}" = "true" ]; then
