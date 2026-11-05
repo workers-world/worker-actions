@@ -1,39 +1,28 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { shouldSkipPackagesJobsOnPush } from './push-ci-admission.mjs';
+import {
+  listChangedFiles,
+  listFilesForNewRef,
+  shouldSkipPackagesJobsOnPush,
+} from './push-ci-admission.mjs';
 
-test('shouldSkipPackagesJobsOnPush skips lock-only and workflow pin pushes', () => {
-  assert.equal(
-    shouldSkipPackagesJobsOnPush(['package-lock.json']),
-    true,
-  );
-  assert.equal(
-    shouldSkipPackagesJobsOnPush(['.github/workflows/ci.yml']),
-    true,
-  );
-  assert.equal(
-    shouldSkipPackagesJobsOnPush(['package-lock.json', '.github/workflows/ci.yml']),
-    true,
-  );
-  assert.equal(
-    shouldSkipPackagesJobsOnPush(['docs/foo.md', 'README.md']),
-    true,
-  );
-});
+/** @param {string} dir @param {string[]} args */
+function git(dir, args) {
+  return execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+}
 
-test('shouldSkipPackagesJobsOnPush runs verify path when package.json or src changes', () => {
-  assert.equal(shouldSkipPackagesJobsOnPush(['package.json']), false);
-  assert.equal(shouldSkipPackagesJobsOnPush(['src/index.ts']), false);
-  assert.equal(
-    shouldSkipPackagesJobsOnPush(['package-lock.json', 'package.json']),
-    false,
-  );
-  assert.equal(shouldSkipPackagesJobsOnPush([]), false);
-});
+/** @returns {string} temp repo path with main + user config */
+function initRepo() {
+  const dir = mkdtempSync(join(tmpdir(), 'push-ci-adm-'));
+  git(dir, ['init', '-b', 'main']);
+  git(dir, ['config', 'user.email', 'test@test']);
+  git(dir, ['config', 'user.name', 'test']);
+  return dir;
+}
 
 /**
  * Isolated git fixture for listChangedFiles (must not use ambient GITHUB_SHA/HEAD:
@@ -66,6 +55,35 @@ ${expression}`,
   );
 }
 
+test('shouldSkipPackagesJobsOnPush skips lock-only and workflow pin pushes', () => {
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(['package-lock.json']),
+    true,
+  );
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(['.github/workflows/ci.yml']),
+    true,
+  );
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(['package-lock.json', '.github/workflows/ci.yml']),
+    true,
+  );
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(['docs/foo.md', 'README.md']),
+    true,
+  );
+});
+
+test('shouldSkipPackagesJobsOnPush runs verify path when package.json or src changes', () => {
+  assert.equal(shouldSkipPackagesJobsOnPush(['package.json']), false);
+  assert.equal(shouldSkipPackagesJobsOnPush(['src/index.ts']), false);
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(['package-lock.json', 'package.json']),
+    false,
+  );
+  assert.equal(shouldSkipPackagesJobsOnPush([]), false);
+});
+
 test('listChangedFiles with zero before uses tip commit paths (hermetic; #295)', () => {
   const dir = initFixtureRepo('push-ci-adm-zero-');
   writeFileSync(join(dir, 'README.md'), 'hello\n');
@@ -83,7 +101,7 @@ if (!files.includes('README.md')) throw new Error('missing README.md: ' + files)
 process.stdout.write(JSON.stringify(files));`,
   );
   const files = JSON.parse(out.trim());
-  assert.ok(files.length > 0, 'expected non-empty paths from diff-tree at tip');
+  assert.ok(files.length > 0, 'expected non-empty paths from new-ref listing');
   assert.ok(files.includes('README.md'));
 });
 
@@ -124,24 +142,92 @@ process.stdout.write('ok');`,
 });
 
 test('zero before on package.json-only tip commit does not skip (#282)', () => {
-  const dir = initFixtureRepo('push-ci-adm-');
+  const dir = initRepo();
   writeFileSync(join(dir, 'package.json'), '{"name":"x","version":"1.0.0"}\n');
-  execFileSync('git', ['add', 'package.json'], { cwd: dir });
-  execFileSync('git', ['commit', '-m', 'init'], { cwd: dir });
+  git(dir, ['add', 'package.json']);
+  git(dir, ['commit', '-m', 'init']);
+  git(dir, ['checkout', '-b', 'dev_00_99_02']);
   writeFileSync(join(dir, 'package.json'), '{"name":"x","version":"1.0.1"}\n');
-  execFileSync('git', ['add', 'package.json'], { cwd: dir });
-  execFileSync('git', ['commit', '-m', 'bump fsw pin'], { cwd: dir });
-  const sha = execFileSync('git', ['rev-parse', 'HEAD'], {
-    cwd: dir,
-    encoding: 'utf8',
-  }).trim();
-  const out = runAdmissionInRepo(
-    dir,
+  git(dir, ['add', 'package.json']);
+  git(dir, ['commit', '-m', 'bump fsw pin']);
+  const sha = git(dir, ['rev-parse', 'HEAD']);
+  const files = listChangedFiles(
+    '0000000000000000000000000000000000000000',
     sha,
-    `const files = listChangedFiles(zero, sha);
-if (!files.includes('package.json')) throw new Error('missing package.json: ' + files);
-if (shouldSkipPackagesJobsOnPush(files)) throw new Error('should not skip');
-process.stdout.write('ok');`,
+    'main',
+    { cwd: dir },
   );
-  assert.equal(out.trim(), 'ok');
+  assert.ok(files.includes('package.json'), `missing package.json: ${files}`);
+  assert.equal(shouldSkipPackagesJobsOnPush(files), false);
+});
+
+test('zero before covers full new-ref changeset when tip is noise-only (#297)', () => {
+  const dir = initRepo();
+  writeFileSync(join(dir, 'package.json'), '{"name":"x","version":"1.0.0"}\n');
+  writeFileSync(join(dir, 'README.md'), 'base\n');
+  git(dir, ['add', 'package.json', 'README.md']);
+  git(dir, ['commit', '-m', 'base on default']);
+
+  // New destin: earlier commit bumps package.json; tip only touches docs (noise).
+  git(dir, ['checkout', '-b', 'dev_00_99_00']);
+  writeFileSync(join(dir, 'package.json'), '{"name":"x","version":"1.0.1"}\n');
+  git(dir, ['add', 'package.json']);
+  git(dir, ['commit', '-m', 'bump package']);
+  mkdirSync(join(dir, 'docs'), { recursive: true });
+  writeFileSync(join(dir, 'docs', 'note.md'), 'noise tip\n');
+  git(dir, ['add', 'docs/note.md']);
+  git(dir, ['commit', '-m', 'docs only tip']);
+
+  const sha = git(dir, ['rev-parse', 'HEAD']);
+  const tipOnly = listFilesForNewRef(sha, '', { cwd: dir });
+  assert.deepEqual(
+    tipOnly,
+    ['docs/note.md'],
+    'tip-only fallback without default branch must see only noise',
+  );
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(tipOnly),
+    true,
+    'precondition: tip-only would incorrectly skip',
+  );
+
+  const files = listChangedFiles(
+    '0000000000000000000000000000000000000000',
+    sha,
+    'main',
+    { cwd: dir },
+  );
+  assert.ok(files.includes('package.json'), `expected package.json in ${files}`);
+  assert.ok(files.includes('docs/note.md'), `expected docs/note.md in ${files}`);
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(files),
+    false,
+    'merge-base range must not skip when earlier commit touched package.json',
+  );
+});
+
+test('zero before noise-only range vs default still skips', () => {
+  const dir = initRepo();
+  writeFileSync(join(dir, 'package.json'), '{"name":"x","version":"1.0.0"}\n');
+  git(dir, ['add', 'package.json']);
+  git(dir, ['commit', '-m', 'base']);
+
+  git(dir, ['checkout', '-b', 'dev_00_99_01']);
+  mkdirSync(join(dir, 'docs'), { recursive: true });
+  writeFileSync(join(dir, 'docs', 'a.md'), 'a\n');
+  git(dir, ['add', 'docs/a.md']);
+  git(dir, ['commit', '-m', 'docs']);
+  writeFileSync(join(dir, 'README.md'), 'r\n');
+  git(dir, ['add', 'README.md']);
+  git(dir, ['commit', '-m', 'readme tip']);
+
+  const sha = git(dir, ['rev-parse', 'HEAD']);
+  const files = listChangedFiles(
+    '0000000000000000000000000000000000000000',
+    sha,
+    'main',
+    { cwd: dir },
+  );
+  assert.deepEqual(files.sort(), ['README.md', 'docs/a.md']);
+  assert.equal(shouldSkipPackagesJobsOnPush(files), true);
 });
