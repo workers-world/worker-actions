@@ -3,9 +3,10 @@
  * When only "noise" paths change, skip worker-verify (sync-lock) on push — Release PR 门禁仍跑全量 verify。
  *
  * Env:
- *   EVENT_BEFORE    — github.event.before
- *   EVENT_SHA       — github.sha
- *   DEFAULT_BRANCH  — github.event.repository.default_branch（zero-before 时与 tip 求 merge-base）
+ *   EVENT_BEFORE     — github.event.before
+ *   EVENT_SHA        — github.sha
+ *   DEFAULT_BRANCH   — github.event.repository.default_branch（zero-before 时与 tip 求 merge-base；#297）
+ *   EVENT_COMMIT_IDS — space-separated github.event.commits.*.id (optional; #296)
  * Writes GITHUB_OUTPUT: skip_packages_jobs=true|false
  */
 
@@ -25,6 +26,11 @@ function isNoisePath(p) {
   if (p.startsWith('.github/dependabot')) return true;
   if (p === 'manifest/actions-bundle.yaml') return true;
   return false;
+}
+
+/** @param {string | undefined | null} before */
+export function isNewRefBefore(before) {
+  return !before || /^0+$/.test(before);
 }
 
 /**
@@ -55,6 +61,16 @@ function listFilesInCommit(sha, opts = {}) {
       opts,
     ),
   );
+}
+
+/** @param {string[]} shas @param {{ cwd?: string }} [opts] */
+function listFilesAcrossCommits(shas, opts = {}) {
+  const files = new Set();
+  for (const sha of shas) {
+    if (!sha) continue;
+    for (const f of listFilesInCommit(sha, opts)) files.add(f);
+  }
+  return [...files];
 }
 
 /**
@@ -109,51 +125,91 @@ export function listFilesSinceMergeBase(baseSha, sha, opts = {}) {
 
 /**
  * New-ref first push: prefer full changeset vs default-branch merge-base (#297);
- * fall back to tip-only diff-tree when merge-base is unavailable (#282).
+ * union github.event.commits when provided (#296); fall back to tip-only (#282).
  * @param {string} sha
  * @param {string} [defaultBranch]
- * @param {{ cwd?: string }} [opts]
+ * @param {{ cwd?: string, pushCommitIds?: string[] }} [opts]
  */
 export function listFilesForNewRef(sha, defaultBranch = '', opts = {}) {
+  const pushCommitIds = opts.pushCommitIds ?? [];
+  const fromCommits =
+    pushCommitIds.length > 0
+      ? listFilesAcrossCommits([...new Set([...pushCommitIds, sha].filter(Boolean))], opts)
+      : null;
+
   const baseSha = resolveDefaultBranchRef(defaultBranch, opts);
   if (baseSha) {
     const sinceBase = listFilesSinceMergeBase(baseSha, sha, opts);
-    if (sinceBase != null) return sinceBase;
+    if (sinceBase != null) {
+      if (fromCommits) return [...new Set([...sinceBase, ...fromCommits])];
+      return sinceBase;
+    }
   }
+  if (fromCommits) return fromCommits;
   return listFilesInCommit(sha, opts);
 }
 
 /**
  * @param {string} before
  * @param {string} sha
- * @param {string} [defaultBranch] zero-before 时与 tip 求 merge-base 的默认分支名
- * @param {{ cwd?: string }} [opts]
+ * @param {string | string[]} [defaultBranchOrCommitIds] default branch name (#297), or push commit ids (#296)
+ * @param {{ cwd?: string, pushCommitIds?: string[] }} [opts]
  */
-export function listChangedFiles(before, sha, defaultBranch = '', opts = {}) {
-  const zero = /^0+$/;
-  if (!before || zero.test(before)) {
-    // New ref first push: github.event.before is all zeros. Tip-only diff-tree
-    // misses earlier commits in the same push (e.g. package.json then docs) (#297).
-    return listFilesForNewRef(sha, defaultBranch, opts);
+export function listChangedFiles(before, sha, defaultBranchOrCommitIds = '', opts = {}) {
+  /** @type {string} */
+  let defaultBranch = '';
+  /** @type {string[]} */
+  let pushCommitIds = opts.pushCommitIds ?? [];
+  if (Array.isArray(defaultBranchOrCommitIds)) {
+    pushCommitIds = defaultBranchOrCommitIds;
+  } else {
+    defaultBranch = defaultBranchOrCommitIds || '';
+  }
+
+  if (isNewRefBefore(before)) {
+    // New ref first push: tip-only diff-tree misses earlier commits (#296 / #297).
+    return listFilesForNewRef(sha, defaultBranch, { ...opts, pushCommitIds });
   }
   return splitNames(
     git(['diff', '--name-only', '--diff-filter=ACMRT', before, sha], opts),
   );
 }
 
-/** @param {string[]} files */
-export function shouldSkipPackagesJobsOnPush(files) {
-  // Unknown/empty file list must not skip verify (conservative; #282).
+/**
+ * @param {string[]} files
+ * @param {{ newRef?: boolean }} [opts]
+ */
+export function shouldSkipPackagesJobsOnPush(files, opts = {}) {
+  // New-ref first push: never skip when listing may be incomplete (#296).
+  // Empty list must not skip (#282). With a full merge-base listing (#297),
+  // callers omit newRef and may still skip noise-only ranges.
+  if (opts.newRef) return false;
   if (files.length === 0) return false;
   return files.every(isNoisePath);
+}
+
+/** @param {string | undefined} raw */
+function parseCommitIds(raw) {
+  if (!raw || !raw.trim()) return [];
+  return raw
+    .trim()
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function main() {
   const before = process.env.EVENT_BEFORE ?? '';
   const sha = process.env.EVENT_SHA ?? process.env.GITHUB_SHA ?? 'HEAD';
   const defaultBranch = process.env.DEFAULT_BRANCH ?? '';
-  const files = listChangedFiles(before, sha, defaultBranch || '');
-  const skip = shouldSkipPackagesJobsOnPush(files);
+  const pushCommitIds = parseCommitIds(process.env.EVENT_COMMIT_IDS);
+  const newRef = isNewRefBefore(before);
+  const files = listChangedFiles(before, sha, defaultBranch || '', { pushCommitIds });
+  // Prefer #297 merge-base listing for skip when DEFAULT_BRANCH is set.
+  // When it is missing, tip/event.commits may be incomplete — apply #296 never-skip.
+  const skip = shouldSkipPackagesJobsOnPush(files, {
+    newRef: newRef && !defaultBranch,
+  });
   const out = process.env.GITHUB_OUTPUT;
   const line = `skip_packages_jobs=${skip ? 'true' : 'false'}`;
   if (out) {
@@ -163,7 +219,7 @@ function main() {
   }
   const summary = skip
     ? `push admission: skip worker-verify on push (${files.length} file(s), noise-only)`
-    : `push admission: run worker-verify on push (${files.length} file(s))`;
+    : `push admission: run worker-verify on push (${files.length} file(s)${newRef ? ', new-ref' : ''})`;
   console.log(`::notice::${summary}`);
   if (files.length > 0 && files.length <= 30) {
     console.log(`::notice::changed: ${files.join(', ')}`);

@@ -1,5 +1,6 @@
 /** Re-export for unit tests; canonical copy lives in push-ci-admission composite action. */
 export {
+  isNewRefBefore,
   listChangedFiles,
   listFilesForNewRef,
   listFilesSinceMergeBase,
