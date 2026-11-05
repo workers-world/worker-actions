@@ -97,29 +97,55 @@ update_manifest_for_tag() {
   echo "Updated ${manifest} → current=${tag} sha=${ref}"
 }
 
-# When tag exists locally: manifest sha must equal peel (rev-list -n 1).
-# Exit 0 if no manifest / no sha / tag missing (dev PR may lead tag). Exit 1 on mismatch.
+# Manifest current/sha/released_at vs local git facts (workflow-lint).
+# Decision mirror of tools/actions-bundle/manifest-sha.mjs#checkManifestReleaseConsistency:
+# - tag present: sha must equal peel (rev-list -n 1) (#205)
+# - tag absent + released_at set: fail — claims published but tag gone / never pushed (#293)
+# - tag absent + no released_at: skip (dev PR may lead tag)
+# - sha must resolve to a local commit object when we are enforcing
+# Exit 0 on ok/skip; exit 1 on inconsistency.
 check_manifest_sha_matches_tag() {
   local manifest="${1:-manifest/actions-bundle.yaml}"
   if [ ! -f "$manifest" ]; then
     echo "skip: no ${manifest}"
     return 0
   fi
-  local cur sha
+  local cur sha released_at
   cur="$(grep -E '^current:' "$manifest" | head -1 | awk '{print $2}' || true)"
   sha="$(grep -E '^sha:' "$manifest" | head -1 | sed -E 's/^sha:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/' || true)"
+  released_at="$(grep -E '^released_at:' "$manifest" | head -1 | sed -E 's/^released_at:[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/' || true)"
   if [ -z "$cur" ] || [ -z "$sha" ]; then
     echo "skip: manifest missing current/sha"
     return 0
   fi
-  if ! git rev-parse "$cur" >/dev/null 2>&1; then
+
+  local tag_present=0 peel="" sha_reachable=0
+  if git rev-parse --verify "$cur" >/dev/null 2>&1; then
+    tag_present=1
+    peel="$(git rev-list -n 1 "$cur")"
+  fi
+  if git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+    sha_reachable=1
+  fi
+
+  if [ "$tag_present" -eq 0 ]; then
+    if [ -n "$released_at" ]; then
+      if [ "$sha_reachable" -eq 0 ]; then
+        echo "::error::manifest current=${cur} released_at=${released_at} 声称已发布，但 tag 不存在，且 sha=${sha} 不可达（见 worker-actions#293）"
+      else
+        echo "::error::manifest current=${cur} released_at=${released_at} 声称已发布，但 tag 不存在（可能已删除或从未 push；见 worker-actions#293）"
+      fi
+      return 1
+    fi
     echo "skip: tag ${cur} not present locally（发版前 manifest 可领先 tag）"
     return 0
   fi
-  local peel
-  peel="$(git rev-list -n 1 "$cur")"
   if [ "$sha" != "$peel" ]; then
     echo "::error::manifest sha=${sha} 与 ${cur} peel=${peel} 不一致（见 worker-actions#205）"
+    return 1
+  fi
+  if [ "$sha_reachable" -eq 0 ]; then
+    echo "::error::manifest sha=${sha} 不可达（无对应 commit 对象；见 worker-actions#293）"
     return 1
   fi
   echo "ok: manifest sha matches ${cur} peel ${peel}"
