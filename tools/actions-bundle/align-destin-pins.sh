@@ -25,6 +25,12 @@ if [ -z "$latest" ]; then
   exit 0
 fi
 
+# Only align to a tag that still exists on origin（#294：勿 pin 已删除/未发布 tag）
+if ! remote_actions_tag_exists "$latest"; then
+  echo "Latest candidate ${latest} is not on origin; refusing align"
+  exit 0
+fi
+
 WT="$(mktemp -d)"
 cleanup() {
   git worktree remove -f "$WT" 2>/dev/null || rm -rf "$WT"
@@ -60,6 +66,12 @@ if [ "$DRY_RUN" = "true" ]; then
   echo "dry_run: would push ${ALIGN_BRANCH} and open PR → ${DESTIN_BRANCH}"
   git diff "origin/${DESTIN_BRANCH}"..HEAD --stat
   exit 0
+fi
+
+# Re-check immediately before push：tag 可能在 align 窗口内被删除（#294 事故链）
+if ! remote_actions_tag_exists "$latest"; then
+  echo "::error::Target tag ${latest} vanished from origin before push; refusing align PR"
+  exit 1
 fi
 
 if [ -z "$WORKFLOW_PUSH_GH_TOKEN" ]; then

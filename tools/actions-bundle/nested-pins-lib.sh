@@ -28,8 +28,30 @@ collect_inner_pin_versions() {
     --include='*.yml' --include='*.yaml' 2>/dev/null | sort -u || true
 }
 
+# Latest actions/v* tag on origin (authoritative). Falls back to local tags.
+# Prefer ls-remote so deleted tags (e.g. accidental mint then drop, #294) are not
+# treated as "latest published" just because a stale local ref remains.
 latest_actions_tag() {
+  local remote
+  remote="$(
+    git ls-remote --tags --refs origin 'refs/tags/actions/v*' 2>/dev/null \
+      | awk '{print $2}' \
+      | sed 's#^refs/tags/##' \
+      | sort -V \
+      | tail -1 || true
+  )"
+  if [ -n "$remote" ]; then
+    printf '%s\n' "$remote"
+    return 0
+  fi
   git tag -l 'actions/v*' --sort=-v:refname | head -1 || true
+}
+
+# Exit 0 if refs/tags/$1 exists on origin.
+remote_actions_tag_exists() {
+  local tag="$1"
+  [ -n "$tag" ] || return 1
+  git ls-remote --tags --refs origin "refs/tags/${tag}" 2>/dev/null | grep -q .
 }
 
 next_patch_actions_tag() {

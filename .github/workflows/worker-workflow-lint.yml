@@ -407,7 +407,14 @@ jobs:
           fi
           pin="${versions}"
           pin_tag="${pin#@}"
-          latest="$(git tag -l 'actions/v*' --sort=-v:refname | head -1 || true)"
+          # 与 align-destin-pins / nested-pins-lib 一致：以 origin ls-remote 为权威 latest（#294）
+          if [ -f tools/actions-bundle/nested-pins-lib.sh ]; then
+            # shellcheck source=tools/actions-bundle/nested-pins-lib.sh
+            source tools/actions-bundle/nested-pins-lib.sh
+            latest="$(latest_actions_tag)"
+          else
+            latest="$(git tag -l 'actions/v*' --sort=-v:refname | head -1 || true)"
+          fi
           if [ -z "$latest" ]; then
             echo "ok: 内层 pin 一致（${pin}）；无既有 actions/v* tag，跳过与 tag 对齐"
             exit 0
