@@ -27,9 +27,10 @@ inputs:
     default: "@workers-world"
   cache:
     description: >-
-      setup-node cache（默认 npm）。composite 不支持 vars context，勿在此引用 vars.GHA_RUNNER。
-      自托管若要关 cache 由 caller 传空字符串（勿传 false：setup-node 会把字符串 "false" 当成非法 package manager）。
-      空串时本 action 同时把 package-manager-cache 设为 false，避免 setup-node@v7 在
+      setup-node cache（托管 runner 默认 npm）。composite 不支持 vars context，勿在此引用 vars.GHA_RUNNER。
+      自托管由本 action 读 RUNNER_ENVIRONMENT 自动关 cache（无需 caller 传空串；与 #213 / pre-#278 意图对齐）。
+      托管若要关 cache 仍可传空字符串（勿传 false：setup-node 会把字符串 "false" 当成非法 package manager）。
+      关闭时同步把 package-manager-cache 设为 false，避免 setup-node@v7 在
       package.json 含 packageManager/devEngines.packageManager npm 时仍自动 restore/save。
     required: false
     default: "npm"
@@ -37,16 +38,37 @@ inputs:
 runs:
   using: composite
   steps:
+    # composite 无 vars；用 runner 默认环境变量检测自托管（#299），避免 bump 后默认 cache:npm 误开 Actions cache
+    - id: cache_cfg
+      shell: bash
+      env:
+        CACHE_INPUT: ${{ inputs.cache }}
+      run: |
+        set -euo pipefail
+        # self-hosted：永不 restore/save Actions npm cache（#213 Post setup-node 墙钟；#299 迁移缺口）
+        # github-hosted：沿用 inputs.cache；空串则关（含 package-manager-cache）
+        if [ "${RUNNER_ENVIRONMENT:-}" = "self-hosted" ] || [ "${CACHE_INPUT}" = "" ]; then
+          {
+            echo "cache="
+            echo "package_manager_cache=false"
+          } >> "$GITHUB_OUTPUT"
+        else
+          {
+            echo "cache=${CACHE_INPUT}"
+            echo "package_manager_cache=true"
+          } >> "$GITHUB_OUTPUT"
+        fi
+
     - uses: actions/setup-node@v7
       with:
         node-version: "24"
         registry-url: ${{ inputs.registry_url }}
         scope: ${{ inputs.scope }}
         # GitHub composite actions 不支持 vars context（Unrecognized named-value: vars）— 见 dld1 Deploy 41338364072
-        cache: ${{ inputs.cache }}
+        cache: ${{ steps.cache_cfg.outputs.cache }}
         # setup-node@v7：cache 为空时若 package-manager-cache 默认 true，会按 package.json 的
         # packageManager / devEngines.packageManager 自动启用 npm cache（#280）
-        package-manager-cache: ${{ inputs.cache == '' && 'false' || 'true' }}
+        package-manager-cache: ${{ steps.cache_cfg.outputs.package_manager_cache }}
         cache-dependency-path: ${{ inputs.working-directory == '.' && 'package-lock.json' || format('{0}/package-lock.json', inputs.working-directory) }}
 
     - shell: bash
