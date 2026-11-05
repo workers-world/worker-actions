@@ -16,4 +16,6 @@ runs:
       env:
         EVENT_BEFORE: ${{ github.event.before }}
         EVENT_SHA: ${{ github.sha }}
+        # New destin first push (before=0): diff tip vs merge-base with default branch (#297).
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: node "${{ github.action_path }}/push-ci-admission.mjs"
