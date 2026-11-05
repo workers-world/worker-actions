@@ -18,4 +18,6 @@ runs:
         EVENT_SHA: ${{ github.sha }}
         # New destin first push (before=0): diff tip vs merge-base with default branch (#297).
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        # Multi-commit new-ref first push: tip-only diff-tree misses earlier commits (#296).
+        EVENT_COMMIT_IDS: ${{ join(github.event.commits.*.id, ' ') }}
       run: node "${{ github.action_path }}/push-ci-admission.mjs"

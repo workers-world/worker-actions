@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  isNewRefBefore,
   listChangedFiles,
   listFilesForNewRef,
   shouldSkipPackagesJobsOnPush,
 } from './push-ci-admission.mjs';
+
+const ZERO = '0000000000000000000000000000000000000000';
 
 /** @param {string} dir @param {string[]} args */
 function git(dir, args) {
@@ -82,6 +85,20 @@ test('shouldSkipPackagesJobsOnPush runs verify path when package.json or src cha
     false,
   );
   assert.equal(shouldSkipPackagesJobsOnPush([]), false);
+});
+
+test('new-ref before never skips even when tip file list is noise-only (#296)', () => {
+  assert.equal(isNewRefBefore(ZERO), true);
+  assert.equal(isNewRefBefore(''), true);
+  assert.equal(isNewRefBefore('abc'), false);
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(['docs/x.md'], { newRef: true }),
+    false,
+  );
+  assert.equal(
+    shouldSkipPackagesJobsOnPush(['docs/x.md'], { newRef: false }),
+    true,
+  );
 });
 
 test('listChangedFiles with zero before uses tip commit paths (hermetic; #295)', () => {
@@ -230,4 +247,59 @@ test('zero before noise-only range vs default still skips', () => {
   );
   assert.deepEqual(files.sort(), ['README.md', 'docs/a.md']);
   assert.equal(shouldSkipPackagesJobsOnPush(files), true);
+});
+
+test('zero before multi-commit push includes non-tip package.json (#296)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'push-ci-adm-mc-'));
+  execFileSync('git', ['init', '-b', 'main'], { cwd: dir });
+  execFileSync('git', ['config', 'user.email', 'test@test'], { cwd: dir });
+  execFileSync('git', ['config', 'user.name', 'test'], { cwd: dir });
+  writeFileSync(join(dir, 'package.json'), '{"name":"x","version":"1.0.0"}\n');
+  execFileSync('git', ['add', 'package.json'], { cwd: dir });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: dir });
+  writeFileSync(join(dir, 'package.json'), '{"name":"x","version":"1.0.1"}\n');
+  execFileSync('git', ['add', 'package.json'], { cwd: dir });
+  execFileSync('git', ['commit', '-m', 'bump'], { cwd: dir });
+  const bumpSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: dir,
+    encoding: 'utf8',
+  }).trim();
+  mkdirSync(join(dir, 'docs'));
+  writeFileSync(join(dir, 'docs', 'x.md'), 'x\n');
+  execFileSync('git', ['add', 'docs/x.md'], { cwd: dir });
+  execFileSync('git', ['commit', '-m', 'docs'], { cwd: dir });
+  const tipSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: dir,
+    encoding: 'utf8',
+  }).trim();
+
+  const moduleUrl = new URL('./push-ci-admission.mjs', import.meta.url).href;
+  const out = execFileSync(
+    'node',
+    [
+      '--input-type=module',
+      '-e',
+      `import { listChangedFiles, shouldSkipPackagesJobsOnPush } from ${JSON.stringify(moduleUrl)};
+const zero = ${JSON.stringify(ZERO)};
+const tip = ${JSON.stringify(tipSha)};
+const bump = ${JSON.stringify(bumpSha)};
+const tipOnly = listChangedFiles(zero, tip);
+if (tipOnly.length !== 1 || tipOnly[0] !== 'docs/x.md') {
+  throw new Error('tip-only should be docs/x.md, got: ' + tipOnly);
+}
+if (!shouldSkipPackagesJobsOnPush(tipOnly)) {
+  throw new Error('tip-only noise would incorrectly skip without newRef guard');
+}
+const files = listChangedFiles(zero, tip, [bump, tip]);
+if (!files.includes('package.json')) throw new Error('missing package.json: ' + files);
+if (!files.includes('docs/x.md')) throw new Error('missing docs/x.md: ' + files);
+if (shouldSkipPackagesJobsOnPush(files)) throw new Error('full list should not skip');
+if (shouldSkipPackagesJobsOnPush(tipOnly, { newRef: true })) {
+  throw new Error('newRef must not skip on tip-only noise');
+}
+process.stdout.write('ok');`,
+    ],
+    { cwd: dir, encoding: 'utf8' },
+  );
+  assert.equal(out.trim(), 'ok');
 });
