@@ -216,6 +216,8 @@ jobs:
           fi
           echo "按 package.json 全量刷新 lock → framework_sdk_worker@${WANT_VER}"
           npm install "${NPM_COMMON_ARGS[@]}"
+          # 与 package-lock-in-sync/reformat-package-lock.mjs 一致：npm 默认 2-space，consumer 门禁要求 4-space
+          node -e 'const fs=require("fs");const p="package-lock.json";const l=JSON.parse(fs.readFileSync(p,"utf8"));fs.writeFileSync(p,JSON.stringify(l,null,4)+"\n");'
           echo "push sync-lock 不跑 npm ci（网络/自托管）；干净 npm ci 仅在 PR 门禁（与 Cloudflare Builds 对齐）"
           rm -rf node_modules
           if ! lock_matches_version; then

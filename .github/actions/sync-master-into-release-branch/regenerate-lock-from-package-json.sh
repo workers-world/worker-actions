@@ -15,6 +15,7 @@ fi
 action_root="${1:?action_path required}"
 lock_check_script="${action_root}/../package-lock-in-sync/lock-matches-package-json.mjs"
 legacy_script="${action_root}/../package-lock-in-sync/npm-ci-legacy-peer-deps.mjs"
+reformat_script="${action_root}/../package-lock-in-sync/reformat-package-lock.mjs"
 
 export LOCK_CHECK_SKIP_DRY_RUN=1
 if node "$lock_check_script"; then
@@ -84,6 +85,7 @@ if [ "$legacy_peer_deps" = "true" ]; then
 fi
 echo "按 destin package.json 全量刷新 lock → framework_sdk_worker@${WANT_VER}"
 npm install "${NPM_COMMON_ARGS[@]}"
+node "$reformat_script"
 rm -rf node_modules
 if ! lock_matches_version; then
   echo "::error::package-lock 未解析到 @workers-world/framework_sdk_worker@${WANT_VER}。"
