@@ -111,3 +111,35 @@ test('debounce_flush job uses ubuntu-latest only', () => {
   assert.ok(m, 'expected debounce_flush job runs-on');
   assert.equal(m[1].trim(), 'ubuntu-latest');
 });
+
+test('debounce flush gate schedules on re-entry without save_debounce_at', () => {
+  const source = fs.readFileSync(
+    path.join(workflowsDir, 'worker-notify-release-pr-blocked.yml'),
+    'utf8',
+  );
+  const gate = source.match(
+    /- name: Debounce flush gate[\s\S]*?(?=\n      - name: Pack debounce flush context)/,
+  );
+  assert.ok(gate, 'expected Debounce flush gate step');
+  const body = gate[0];
+  // Must accept debounce_pending even when only restored cache supplies first_seen
+  assert.match(body, /skip_reason/);
+  assert.match(body, /debounce_pending/);
+  assert.match(body, /\.notify-debounce-ts/);
+  assert.match(body, /schedule=true/);
+  // Must not require save_debounce_at alone (that drops re-entry after cancel-in-progress)
+  assert.doesNotMatch(
+    body,
+    /if \[ "\$skip" = "debounce_pending" \] && \[ -n "\$save" \]/,
+  );
+  // Cache save keys stay literal notify-* (not bundle helper outputs)
+  assert.match(
+    source,
+    /name: Save notify debounce cache\n[\s\S]*?key: notify-debounce-\$\{\{ github\.repository \}\}-\$\{\{ inputs\.pr_number \}\}/,
+  );
+  assert.doesNotMatch(source, /steps\.meta\.outputs\.debounce_cache_key/);
+  assert.doesNotMatch(
+    source,
+    /Save notify cooldown cache\n[\s\S]*?steps\.meta\.outputs\.cooldown_cache_key/,
+  );
+});

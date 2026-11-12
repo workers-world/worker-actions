@@ -349,8 +349,8 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .notify-debounce-ts
-          # 与 tools/lib notifyDebounceCacheKey / steps.meta.outputs.debounce_cache_key 同形
-          key: ${{ steps.meta.outputs.debounce_cache_key != '' && steps.meta.outputs.debounce_cache_key || format('notify-debounce-{0}-{1}', github.repository, inputs.pr_number) }}
+          # 字面量 key 与 restore 同形；勿用 bundle 输出的 debounce_cache_key（旧 bundle 前缀不同会 miss）
+          key: notify-debounce-${{ github.repository }}-${{ inputs.pr_number }}
 
       - name: Write cooldown timestamp for cache
         if: steps.meta.outputs.send_notify == 'true' && steps.notify.outputs.ok == 'true'
@@ -363,7 +363,8 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .notify-cooldown-ts
-          key: ${{ steps.meta.outputs.cooldown_cache_key != '' && steps.meta.outputs.cooldown_cache_key || format('notify-{0}-{1}-{2}', github.repository, inputs.pr_number, steps.meta.outputs.reason_class) }}
+          # 字面量 key 与 restore 同形；勿用 bundle 输出的 cooldown_cache_key
+          key: notify-${{ github.repository }}-${{ inputs.pr_number }}-${{ steps.meta.outputs.reason_class }}
 
       - name: Debounce flush gate
         id: flush_gate
@@ -372,18 +373,27 @@ jobs:
           set -euo pipefail
           # 任意 debounce_pending 都调度 flush（含 cache 已存在的重入）。
           # cancel-in-progress 可能杀掉旧 flush；若仅在首次 save 时 schedule，后续无事件会静默丢信（#311）。
+          # first_seen 解析顺序：新 bundle 的 debounce_first_seen_at → 旧 bundle 的 save_debounce_at → 已 restore 的 cache 文件。
           skip="${{ steps.meta.outputs.skip_reason }}"
           first_seen="${{ steps.meta.outputs.debounce_first_seen_at }}"
+          if [ -z "$first_seen" ]; then
+            first_seen="${{ steps.meta.outputs.save_debounce_at }}"
+          fi
+          if [ -z "$first_seen" ] && [ -f .notify-debounce-ts ]; then
+            first_seen="$(tr -d ' \n\r' < .notify-debounce-ts)"
+          fi
           if [ "$skip" = "debounce_pending" ] && [ -n "$first_seen" ]; then
             echo "schedule=true" >> "$GITHUB_OUTPUT"
+            echo "first_seen=${first_seen}" >> "$GITHUB_OUTPUT"
           else
             echo "schedule=false" >> "$GITHUB_OUTPUT"
+            echo "first_seen=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Pack debounce flush context
         if: steps.flush_gate.outputs.schedule == 'true'
         env:
-          DEBOUNCE_FIRST_SEEN_MS: ${{ steps.meta.outputs.debounce_first_seen_at }}
+          DEBOUNCE_FIRST_SEEN_MS: ${{ steps.flush_gate.outputs.first_seen }}
           REASON_CLASS: ${{ steps.meta.outputs.reason_class }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
