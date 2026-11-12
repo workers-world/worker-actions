@@ -349,7 +349,8 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .notify-debounce-ts
-          key: notify-debounce-${{ github.repository }}-${{ inputs.pr_number }}
+          # 与 tools/lib notifyDebounceCacheKey / steps.meta.outputs.debounce_cache_key 同形
+          key: ${{ steps.meta.outputs.debounce_cache_key != '' && steps.meta.outputs.debounce_cache_key || format('notify-debounce-{0}-{1}', github.repository, inputs.pr_number) }}
 
       - name: Write cooldown timestamp for cache
         if: steps.meta.outputs.send_notify == 'true' && steps.notify.outputs.ok == 'true'
@@ -362,16 +363,18 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .notify-cooldown-ts
-          key: notify-${{ github.repository }}-${{ inputs.pr_number }}-${{ steps.meta.outputs.reason_class }}
+          key: ${{ steps.meta.outputs.cooldown_cache_key != '' && steps.meta.outputs.cooldown_cache_key || format('notify-{0}-{1}-{2}', github.repository, inputs.pr_number, steps.meta.outputs.reason_class) }}
 
       - name: Debounce flush gate
         id: flush_gate
         if: always() && steps.meta.outcome == 'success'
         run: |
           set -euo pipefail
+          # 任意 debounce_pending 都调度 flush（含 cache 已存在的重入）。
+          # cancel-in-progress 可能杀掉旧 flush；若仅在首次 save 时 schedule，后续无事件会静默丢信（#311）。
           skip="${{ steps.meta.outputs.skip_reason }}"
-          save="${{ steps.meta.outputs.save_debounce_at }}"
-          if [ "$skip" = "debounce_pending" ] && [ -n "$save" ]; then
+          first_seen="${{ steps.meta.outputs.debounce_first_seen_at }}"
+          if [ "$skip" = "debounce_pending" ] && [ -n "$first_seen" ]; then
             echo "schedule=true" >> "$GITHUB_OUTPUT"
           else
             echo "schedule=false" >> "$GITHUB_OUTPUT"
@@ -380,7 +383,7 @@ jobs:
       - name: Pack debounce flush context
         if: steps.flush_gate.outputs.schedule == 'true'
         env:
-          DEBOUNCE_FIRST_SEEN_MS: ${{ steps.meta.outputs.save_debounce_at }}
+          DEBOUNCE_FIRST_SEEN_MS: ${{ steps.meta.outputs.debounce_first_seen_at }}
           REASON_CLASS: ${{ steps.meta.outputs.reason_class }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}

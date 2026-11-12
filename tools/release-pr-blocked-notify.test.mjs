@@ -13,6 +13,8 @@ import {
   debounceFlushWaitMs,
   evaluateNotifyDebounce,
   isMergeHeadStaleInAnnotations,
+  notifyCooldownCacheKey,
+  notifyDebounceCacheKey,
   shouldScheduleDebounceFlush,
   isPostMergeMergeRefGoneInAnnotations,
   isWithinNotifyCooldown,
@@ -181,6 +183,8 @@ test('first blocked run debounces before first email', () => {
   assert.equal(d.send, false);
   assert.equal(d.skipReason, 'debounce_pending');
   assert.equal(d.saveDebounceAtMs, now);
+  assert.equal(d.debounceFirstSeenAtMs, now);
+  assert.equal(shouldScheduleDebounceFlush(d), true);
 });
 
 test('still within debounce window does not send', () => {
@@ -198,6 +202,8 @@ test('still within debounce window does not send', () => {
   assert.equal(d.send, false);
   assert.equal(d.skipReason, 'debounce_pending');
   assert.equal(d.saveDebounceAtMs, null);
+  assert.equal(d.debounceFirstSeenAtMs, firstSeen);
+  assert.equal(shouldScheduleDebounceFlush(d), true);
 });
 
 test('after debounce elapsed still-blocked verify failure sends once', () => {
@@ -254,9 +260,10 @@ test('evaluateNotifyDebounce records first seen when cache empty', () => {
   const r = evaluateNotifyDebounce(null, now);
   assert.equal(r.elapsed, false);
   assert.equal(r.persistFirstSeenAtMs, now);
+  assert.equal(r.firstSeenAtMs, now);
 });
 
-test('shouldScheduleDebounceFlush only when first debounce cache write', () => {
+test('shouldScheduleDebounceFlush on any debounce_pending (incl. re-entry after cancel)', () => {
   assert.equal(
     shouldScheduleDebounceFlush({
       skipReason: 'debounce_pending',
@@ -264,12 +271,13 @@ test('shouldScheduleDebounceFlush only when first debounce cache write', () => {
     }),
     true,
   );
+  // cache 已存在、无新 firstSeen：仍须 schedule，否则 cancel-in-progress 杀旧 flush 后会静默丢信
   assert.equal(
     shouldScheduleDebounceFlush({
       skipReason: 'debounce_pending',
       saveDebounceAtMs: null,
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldScheduleDebounceFlush({
@@ -278,6 +286,26 @@ test('shouldScheduleDebounceFlush only when first debounce cache write', () => {
     }),
     false,
   );
+});
+
+test('in-window re-entry exposes debounceFirstSeenAtMs for flush reschedule', () => {
+  const now = 1_700_000_000_000;
+  const first = now - 5 * 60 * 1000;
+  const d = shouldSendBlockedNotify({
+    prState: 'OPEN',
+    verify: 'failure',
+    qodana: 'success',
+    merge: 'skipped',
+    annotations: '',
+    lastCooldownSentAtMs: null,
+    firstBlockedSeenAtMs: first,
+    nowMs: now,
+  });
+  assert.equal(d.send, false);
+  assert.equal(d.skipReason, 'debounce_pending');
+  assert.equal(d.saveDebounceAtMs, null);
+  assert.equal(d.debounceFirstSeenAtMs, first);
+  assert.equal(shouldScheduleDebounceFlush(d), true);
 });
 
 test('debounceFlushWaitMs returns remaining wait', () => {
@@ -292,6 +320,18 @@ test('evaluateNotifyDebounce elapsed after DEBOUNCE_MS', () => {
   const r = evaluateNotifyDebounce(first, now);
   assert.equal(r.elapsed, true);
   assert.equal(r.persistFirstSeenAtMs, null);
+  assert.equal(r.firstSeenAtMs, first);
+});
+
+test('notify cache key helpers match workflow key shapes', () => {
+  assert.equal(
+    notifyDebounceCacheKey('workers-world/worker-actions', '309'),
+    'notify-debounce-workers-world/worker-actions-309',
+  );
+  assert.equal(
+    notifyCooldownCacheKey('workers-world/worker-actions', '309', 'verify_failure'),
+    'notify-workers-world/worker-actions-309-verify_failure',
+  );
 });
 
 test('buildReleasePrBlockedEmail includes reasons in body', () => {

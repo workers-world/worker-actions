@@ -70,17 +70,19 @@ export function isWithinNotifyCooldown(lastSentAtMs, nowMs = Date.now()) {
   return nowMs - Number(lastSentAtMs) < COOLDOWN_MS;
 }
 
+/** 与 worker-notify-release-pr-blocked.yml cache key 保持一致。 */
 export function notifyCooldownCacheKey(repo, prNumber, reasonClass) {
   const r = String(repo ?? '').trim();
   const pr = String(prNumber ?? '').trim();
   const cls = String(reasonClass ?? REASON_CLASS.OTHER).trim();
-  return `release-pr-blocked-${r}-${pr}-${cls}`;
+  return `notify-${r}-${pr}-${cls}`;
 }
 
+/** 与 worker-notify-release-pr-blocked.yml debounce cache key 保持一致。 */
 export function notifyDebounceCacheKey(repo, prNumber) {
   const r = String(repo ?? '').trim();
   const pr = String(prNumber ?? '').trim();
-  return `release-pr-blocked-debounce-${r}-${pr}`;
+  return `notify-debounce-${r}-${pr}`;
 }
 
 export function isMergeHeadStaleInAnnotations(annotations) {
@@ -95,12 +97,13 @@ export function shouldSuppressMergeHeadStaleNotify({ annotations }) {
 }
 
 /**
- * @returns {{ elapsed: boolean, persistFirstSeenAtMs: number | null }}
- *   persistFirstSeenAtMs：仅当 cache 为空、需首次写入时为 nowMs。
+ * 只要仍在 debounce_pending，就调度 ubuntu-latest flush。
+ * 不能仅在「首次写入 cache」时调度：worker-ci concurrency cancel-in-progress
+ * 可能在 flush 等待期间取消旧 run；若重入时不再 schedule，且之后无 synchronize，
+ * 首封阻断邮件会被静默丢掉（#311）。重复 flush 由 cooldown + dedup-key 收敛。
  */
-/** 首次写入 debounce cache 时是否调度 ubuntu-latest flush job（非后续 debounce_pending 重入）。 */
-export function shouldScheduleDebounceFlush({ skipReason, saveDebounceAtMs }) {
-  return skipReason === 'debounce_pending' && saveDebounceAtMs != null;
+export function shouldScheduleDebounceFlush({ skipReason }) {
+  return skipReason === 'debounce_pending';
 }
 
 export function debounceFlushWaitMs(firstBlockedSeenAtMs, nowMs = Date.now()) {
@@ -109,13 +112,18 @@ export function debounceFlushWaitMs(firstBlockedSeenAtMs, nowMs = Date.now()) {
   return Math.max(0, parsed + DEBOUNCE_MS - nowMs);
 }
 
+/**
+ * @returns {{ elapsed: boolean, persistFirstSeenAtMs: number | null, firstSeenAtMs: number | null }}
+ *   persistFirstSeenAtMs：仅当 cache 为空、需首次写入时为 nowMs。
+ *   firstSeenAtMs：当前窗口起点（新建或已有 cache），供 flush job 等待。
+ */
 export function evaluateNotifyDebounce(firstBlockedSeenAtMs, nowMs = Date.now()) {
   const parsed = parseCooldownTimestamp(firstBlockedSeenAtMs);
   if (parsed == null) {
-    return { elapsed: false, persistFirstSeenAtMs: nowMs };
+    return { elapsed: false, persistFirstSeenAtMs: nowMs, firstSeenAtMs: nowMs };
   }
   const elapsed = nowMs - parsed >= DEBOUNCE_MS;
-  return { elapsed, persistFirstSeenAtMs: null };
+  return { elapsed, persistFirstSeenAtMs: null, firstSeenAtMs: parsed };
 }
 
 export function parseCooldownTimestamp(raw) {
@@ -257,6 +265,7 @@ export function shouldSendBlockedNotify({
       reasonClass: REASON_CLASS.POST_MERGE_MERGE_REF_GONE,
       reasons: [],
       saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
     };
   }
 
@@ -267,6 +276,7 @@ export function shouldSendBlockedNotify({
       reasonClass: REASON_CLASS.OTHER,
       reasons: [],
       saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
     };
   }
 
@@ -277,6 +287,7 @@ export function shouldSendBlockedNotify({
       reasonClass: REASON_CLASS.MERGE_HEAD_STALE,
       reasons: [],
       saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
     };
   }
 
@@ -288,6 +299,7 @@ export function shouldSendBlockedNotify({
       reasonClass: built.reasonClass,
       reasons: built.reasons,
       saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
     };
   }
 
@@ -299,6 +311,7 @@ export function shouldSendBlockedNotify({
       reasonClass: built.reasonClass,
       reasons: built.reasons,
       saveDebounceAtMs: debounce.persistFirstSeenAtMs,
+      debounceFirstSeenAtMs: debounce.firstSeenAtMs,
     };
   }
 
@@ -309,6 +322,7 @@ export function shouldSendBlockedNotify({
       reasonClass: built.reasonClass,
       reasons: built.reasons,
       saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
     };
   }
 
@@ -318,5 +332,6 @@ export function shouldSendBlockedNotify({
     reasonClass: built.reasonClass,
     reasons: built.reasons,
     saveDebounceAtMs: null,
+    debounceFirstSeenAtMs: null,
   };
 }
