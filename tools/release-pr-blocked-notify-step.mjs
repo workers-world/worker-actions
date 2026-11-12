@@ -2,7 +2,7 @@
 /**
  * GHA：PR 状态 / 冷却 / 原因分类 → 是否发信 + 邮件 outputs（WW-258）。
  * 环境变量：REPO, PR_NUMBER, HEAD_REF, PR_URL, VERIFY, QODANA, MERGE, RUN_URL,
- *   ANNOTATIONS, PR_STATE, COOLDOWN_SENT_AT（可选，毫秒时间戳）
+ *   ANNOTATIONS, PR_STATE, COOLDOWN_SENT_AT / DEBOUNCE_FIRST_SEEN_AT（可选，毫秒时间戳）
  */
 import { appendFileSync } from 'node:fs';
 import crypto from 'node:crypto';
@@ -10,6 +10,7 @@ import { buildReleasePrBlockedEmail } from './build-release-pr-blocked-email.mjs
 import {
   buildBlockedReasons,
   notifyCooldownCacheKey,
+  notifyDebounceCacheKey,
   parseCooldownTimestamp,
   shouldSendBlockedNotify,
 } from './lib/release-pr-blocked-notify.mjs';
@@ -40,6 +41,7 @@ function main() {
   const annotations = process.env.ANNOTATIONS ?? '';
   const prState = env('PR_STATE');
   const lastCooldownSentAtMs = parseCooldownTimestamp(process.env.COOLDOWN_SENT_AT);
+  const firstBlockedSeenAtMs = parseCooldownTimestamp(process.env.DEBOUNCE_FIRST_SEEN_AT);
 
   const preflightOnly = env('REASON_CLASS_ONLY') === 'true';
   if (preflightOnly) {
@@ -55,6 +57,7 @@ function main() {
     merge,
     annotations,
     lastCooldownSentAtMs,
+    firstBlockedSeenAtMs,
   });
 
   writeOutput('send_notify', decision.send ? 'true' : 'false');
@@ -63,6 +66,14 @@ function main() {
   writeOutput(
     'cooldown_cache_key',
     notifyCooldownCacheKey(repo, prNumber, decision.reasonClass),
+  );
+  writeOutput(
+    'debounce_cache_key',
+    notifyDebounceCacheKey(repo, prNumber),
+  );
+  writeOutput(
+    'save_debounce_at',
+    decision.saveDebounceAtMs != null ? String(decision.saveDebounceAtMs) : '',
   );
 
   if (!decision.send) {

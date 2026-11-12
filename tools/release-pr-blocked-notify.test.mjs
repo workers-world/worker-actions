@@ -7,13 +7,23 @@ import { fileURLToPath } from 'node:url';
 import { buildReleasePrBlockedEmail } from './build-release-pr-blocked-email.mjs';
 import {
   COOLDOWN_MS,
+  DEBOUNCE_MS,
   REASON_CLASS,
   buildBlockedReasons,
+  debounceFlushWaitMs,
+  evaluateNotifyDebounce,
+  isMergeHeadStaleInAnnotations,
+  shouldScheduleDebounceFlush,
   isPostMergeMergeRefGoneInAnnotations,
   isWithinNotifyCooldown,
   shouldSendBlockedNotify,
   shouldSkipNotifyForPrState,
 } from './lib/release-pr-blocked-notify.mjs';
+
+/** 测试用：模拟 debounce 窗口已过后才允许首发信。 */
+function debounceElapsedNow(nowMs = Date.now()) {
+  return nowMs - DEBOUNCE_MS - 1;
+}
 
 const fixturesDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -58,6 +68,7 @@ test('merged PR with merge-ref-only flake skips as post_merge_merge_ref_gone', (
 });
 
 test('open PR with merge ref checkout failure still sends', () => {
+  const now = Date.parse('2026-11-11T15:30:00Z');
   const ann = "couldn't find remote ref refs/pull/42/merge";
   const d = shouldSendBlockedNotify({
     prState: 'OPEN',
@@ -65,6 +76,8 @@ test('open PR with merge ref checkout failure still sends', () => {
     qodana: 'success',
     merge: 'skipped',
     annotations: ann,
+    firstBlockedSeenAtMs: debounceElapsedNow(now),
+    nowMs: now,
   });
   assert.equal(d.send, true);
 });
@@ -89,12 +102,15 @@ test('runner-lost wording does not mention SDK 依赖', () => {
 });
 
 test('open PR with real verify failure still sends', () => {
+  const now = Date.parse('2026-11-11T15:30:00Z');
   const d = shouldSendBlockedNotify({
     prState: 'OPEN',
     verify: 'failure',
     qodana: 'success',
     merge: 'failure',
     annotations: '[verify] ERROR\nnpm test failed: assertion error\n',
+    firstBlockedSeenAtMs: debounceElapsedNow(now),
+    nowMs: now,
   });
   assert.equal(d.send, true);
   assert.equal(d.reasonClass, REASON_CLASS.VERIFY);
@@ -113,6 +129,7 @@ test('6h cooldown suppresses repeat same class', () => {
     merge: 'skipped',
     annotations: 'unit test failed',
     lastCooldownSentAtMs: sentAt,
+    firstBlockedSeenAtMs: debounceElapsedNow(now),
     nowMs: now,
   });
   assert.equal(d.send, false);
@@ -129,12 +146,14 @@ test('cooldown expired allows send again', () => {
     merge: 'skipped',
     annotations: 'unit test failed',
     lastCooldownSentAtMs: sentAt,
+    firstBlockedSeenAtMs: debounceElapsedNow(now),
     nowMs: now,
   });
   assert.equal(d.send, true);
 });
 
 test('runner-lost twice on open PR still sends', () => {
+  const now = Date.parse('2026-11-11T15:30:00Z');
   const ann = readFixture('runner-lost-twice-annotations.txt');
   const d = shouldSendBlockedNotify({
     prState: 'OPEN',
@@ -142,9 +161,137 @@ test('runner-lost twice on open PR still sends', () => {
     qodana: 'success',
     merge: 'failure',
     annotations: ann,
+    firstBlockedSeenAtMs: debounceElapsedNow(now),
+    nowMs: now,
   });
   assert.equal(d.send, true);
   assert.equal(d.reasonClass, REASON_CLASS.RUNNER_LOST);
+});
+
+test('first blocked run debounces before first email', () => {
+  const now = Date.parse('2026-11-11T15:30:00Z');
+  const d = shouldSendBlockedNotify({
+    prState: 'OPEN',
+    verify: 'failure',
+    qodana: 'success',
+    merge: 'skipped',
+    annotations: 'lockfile indent AssertionError',
+    nowMs: now,
+  });
+  assert.equal(d.send, false);
+  assert.equal(d.skipReason, 'debounce_pending');
+  assert.equal(d.saveDebounceAtMs, now);
+});
+
+test('still within debounce window does not send', () => {
+  const now = Date.parse('2026-11-11T15:30:00Z');
+  const firstSeen = now - 10 * 60 * 1000;
+  const d = shouldSendBlockedNotify({
+    prState: 'OPEN',
+    verify: 'failure',
+    qodana: 'success',
+    merge: 'skipped',
+    annotations: 'lockfile indent AssertionError',
+    firstBlockedSeenAtMs: firstSeen,
+    nowMs: now,
+  });
+  assert.equal(d.send, false);
+  assert.equal(d.skipReason, 'debounce_pending');
+  assert.equal(d.saveDebounceAtMs, null);
+});
+
+test('after debounce elapsed still-blocked verify failure sends once', () => {
+  const now = Date.parse('2026-11-11T15:30:00Z');
+  const d = shouldSendBlockedNotify({
+    prState: 'OPEN',
+    verify: 'failure',
+    qodana: 'success',
+    merge: 'failure',
+    annotations: 'sch1 #322 lockfile indent AssertionError',
+    firstBlockedSeenAtMs: debounceElapsedNow(now),
+    nowMs: now,
+  });
+  assert.equal(d.send, true);
+  assert.equal(d.reasonClass, REASON_CLASS.VERIFY);
+});
+
+test('merged during debounce window skips without send', () => {
+  const now = Date.parse('2026-11-11T15:34:00Z');
+  const d = shouldSendBlockedNotify({
+    prState: 'MERGED',
+    verify: 'success',
+    qodana: 'success',
+    merge: 'failure',
+    annotations: 'some failure',
+    firstBlockedSeenAtMs: now - 5 * 60 * 1000,
+    nowMs: now,
+  });
+  assert.equal(d.send, false);
+  assert.equal(d.skipReason, 'pr_not_open');
+});
+
+test('merge head stale annotation skips notify (deploy-tracker #421)', () => {
+  const ann =
+    '::error::PR #421 head 已变为 1d02fd22abc（本 run 验证的是 cf7229e8def），拒绝 merge；等待新 push 触发的 run 重跑门禁。';
+  assert.equal(isMergeHeadStaleInAnnotations(ann), true);
+  const now = Date.parse('2026-11-11T15:30:00Z');
+  const d = shouldSendBlockedNotify({
+    prState: 'OPEN',
+    verify: 'success',
+    qodana: 'success',
+    merge: 'failure',
+    annotations: ann,
+    firstBlockedSeenAtMs: debounceElapsedNow(now),
+    nowMs: now,
+  });
+  assert.equal(d.send, false);
+  assert.equal(d.skipReason, 'merge_head_stale_wait_push');
+  assert.equal(d.reasonClass, REASON_CLASS.MERGE_HEAD_STALE);
+});
+
+test('evaluateNotifyDebounce records first seen when cache empty', () => {
+  const now = 1_700_000_000_000;
+  const r = evaluateNotifyDebounce(null, now);
+  assert.equal(r.elapsed, false);
+  assert.equal(r.persistFirstSeenAtMs, now);
+});
+
+test('shouldScheduleDebounceFlush only when first debounce cache write', () => {
+  assert.equal(
+    shouldScheduleDebounceFlush({
+      skipReason: 'debounce_pending',
+      saveDebounceAtMs: 1_700_000_000_000,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldScheduleDebounceFlush({
+      skipReason: 'debounce_pending',
+      saveDebounceAtMs: null,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldScheduleDebounceFlush({
+      skipReason: 'cooldown',
+      saveDebounceAtMs: 1_700_000_000_000,
+    }),
+    false,
+  );
+});
+
+test('debounceFlushWaitMs returns remaining wait', () => {
+  const first = 1_700_000_000_000;
+  assert.equal(debounceFlushWaitMs(first, first + 5 * 60 * 1000), DEBOUNCE_MS - 5 * 60 * 1000);
+  assert.equal(debounceFlushWaitMs(first, first + DEBOUNCE_MS), 0);
+});
+
+test('evaluateNotifyDebounce elapsed after DEBOUNCE_MS', () => {
+  const now = 1_700_000_000_000;
+  const first = now - DEBOUNCE_MS;
+  const r = evaluateNotifyDebounce(first, now);
+  assert.equal(r.elapsed, true);
+  assert.equal(r.persistFirstSeenAtMs, null);
 });
 
 test('buildReleasePrBlockedEmail includes reasons in body', () => {
