@@ -161,6 +161,13 @@ jobs:
           path: .notify-cooldown-ts
           key: notify-${{ github.repository }}-${{ inputs.pr_number }}-${{ steps.preflight.outputs.reason_class }}
 
+      - name: Restore notify debounce cache
+        id: debounce
+        uses: actions/cache/restore@v6
+        with:
+          path: .notify-debounce-ts
+          key: notify-debounce-${{ github.repository }}-${{ inputs.pr_number }}
+
       - name: Build notify decision and email
         id: meta
         env:
@@ -182,6 +189,12 @@ jobs:
             export COOLDOWN_SENT_AT
           else
             export COOLDOWN_SENT_AT=""
+          fi
+          if [ -f .notify-debounce-ts ]; then
+            DEBOUNCE_FIRST_SEEN_AT="$(tr -d ' \n\r' < .notify-debounce-ts)"
+            export DEBOUNCE_FIRST_SEEN_AT
+          else
+            export DEBOUNCE_FIRST_SEEN_AT=""
           fi
 
           NOTIFY_STEP=".ww-gha/tools/release-pr-blocked-notify-step.mjs"
@@ -322,6 +335,19 @@ jobs:
           SAFE_ERR="$(printf '%s' "${NOTIFY_ERROR:-unknown}" | tr '\r\n' '  ' | sed 's/^::/ ::/')"
           echo "::error::notify-worker send failed (ok!=true skipped=${NOTIFY_SKIPPED:-} error=${SAFE_ERR})；请检查 NOTIFY_WORKER_URL / NOTIFY_GHA_TOKEN 与 notify-worker 可达性"
           exit 1
+
+      - name: Write debounce timestamp for cache
+        if: steps.meta.outputs.save_debounce_at != ''
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ steps.meta.outputs.save_debounce_at }}" > .notify-debounce-ts
+
+      - name: Save notify debounce cache
+        if: steps.meta.outputs.save_debounce_at != ''
+        uses: actions/cache/save@v6
+        with:
+          path: .notify-debounce-ts
+          key: notify-debounce-${{ github.repository }}-${{ inputs.pr_number }}
 
       - name: Write cooldown timestamp for cache
         if: steps.meta.outputs.send_notify == 'true' && steps.notify.outputs.ok == 'true'
