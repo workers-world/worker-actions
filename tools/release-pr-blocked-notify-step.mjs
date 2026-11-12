@@ -75,6 +75,10 @@ function main() {
     'save_debounce_at',
     decision.saveDebounceAtMs != null ? String(decision.saveDebounceAtMs) : '',
   );
+  writeOutput(
+    'debounce_first_seen_at',
+    decision.debounceFirstSeenAtMs != null ? String(decision.debounceFirstSeenAtMs) : '',
+  );
 
   if (!decision.send) {
     return;
