@@ -458,8 +458,8 @@ jobs:
           FLUSH_CTX_FILE: .notify-flush-context.json
         run: |
           set -euo pipefail
-          FIRST="$(node -e "const c=require('fs').readFileSync(process.env.FLUSH_CTX_FILE,'utf8'); const j=JSON.parse(c); if(!j.debounceFirstSeenAtMs) process.exit(1); process.stdout.write(String(j.debounceFirstSeenAtMs));")"
-          export DEBOUNCE_FIRST_SEEN_AT="${FIRST}"
+          DEBOUNCE_FIRST_SEEN_AT="$(node -e "const c=require('fs').readFileSync(process.env.FLUSH_CTX_FILE,'utf8'); const j=JSON.parse(c); if(!j.debounceFirstSeenAtMs) process.exit(1); process.stdout.write(String(j.debounceFirstSeenAtMs));")"
+          export DEBOUNCE_FIRST_SEEN_AT
           WAIT_SCRIPT=".ww-gha/tools/debounce-flush-wait.mjs"
           if [ ! -f "${WAIT_SCRIPT}" ]; then
             echo "::error::debounce flush 需要 debounce-flush-wait.mjs（升级 actions bundle）"
@@ -483,8 +483,8 @@ jobs:
           FLUSH_CTX_FILE: .notify-flush-context.json
         run: |
           set -euo pipefail
-          REASON_CLASS="$(node -e "const j=JSON.parse(require('fs').readFileSync(process.env.FLUSH_CTX_FILE,'utf8')); process.stdout.write(j.reasonClass||'other');")"
-          echo "reason_class=${REASON_CLASS}" >> "$GITHUB_OUTPUT"
+          reason_class="$(node -e "const j=JSON.parse(require('fs').readFileSync(process.env.FLUSH_CTX_FILE,'utf8')); process.stdout.write(j.reasonClass||'other');")"
+          echo "reason_class=${reason_class}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/cache/restore@v6
         id: cooldown_cache
@@ -499,30 +499,12 @@ jobs:
           PR_STATE: ${{ steps.pr.outputs.state }}
         run: |
           set -euo pipefail
-          eval "$(node -e "
-          const j=JSON.parse(require('fs').readFileSync(process.env.FLUSH_CTX_FILE,'utf8'));
-          const esc=v=>String(v??'').replace(/'/g,\"'\\\\''\");
-          const lines=[
-            ['REPO', j.repo],
-            ['PR_NUMBER', j.prNumber],
-            ['HEAD_REF', j.headRef],
-            ['PR_URL', j.prUrl],
-            ['VERIFY', j.verify],
-            ['QODANA', j.qodana],
-            ['MERGE', j.merge],
-            ['RUN_URL', j.runUrl],
-            ['DEBOUNCE_FIRST_SEEN_AT', j.debounceFirstSeenAtMs],
-          ];
-          for (const [k,v] of lines) console.log('export '+k+\"='\"+esc(v)+\"'\");
-          ")"
-          export ANNOTATIONS="$(node -e "const j=JSON.parse(require('fs').readFileSync(process.env.FLUSH_CTX_FILE,'utf8')); process.stdout.write(j.annotations||'');")"
-          if [ -f .notify-cooldown-ts ]; then
-            export COOLDOWN_SENT_AT="$(tr -d ' \n\r' < .notify-cooldown-ts)"
-          else
-            export COOLDOWN_SENT_AT=""
+          FLUSH_STEP=".ww-gha/tools/debounce-flush-notify-step.mjs"
+          if [ ! -f "${FLUSH_STEP}" ]; then
+            echo "::error::debounce flush 需要 debounce-flush-notify-step.mjs（升级 actions bundle）"
+            exit 1
           fi
-          NOTIFY_STEP=".ww-gha/tools/release-pr-blocked-notify-step.mjs"
-          node "${NOTIFY_STEP}"
+          node "${FLUSH_STEP}"
 
       - name: Log notify skip (flush)
         if: steps.meta.outputs.send_notify != 'true'
