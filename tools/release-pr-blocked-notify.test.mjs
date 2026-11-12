@@ -10,8 +10,10 @@ import {
   DEBOUNCE_MS,
   REASON_CLASS,
   buildBlockedReasons,
+  debounceFlushWaitMs,
   evaluateNotifyDebounce,
   isMergeHeadStaleInAnnotations,
+  shouldScheduleDebounceFlush,
   isPostMergeMergeRefGoneInAnnotations,
   isWithinNotifyCooldown,
   shouldSendBlockedNotify,
@@ -252,6 +254,36 @@ test('evaluateNotifyDebounce records first seen when cache empty', () => {
   const r = evaluateNotifyDebounce(null, now);
   assert.equal(r.elapsed, false);
   assert.equal(r.persistFirstSeenAtMs, now);
+});
+
+test('shouldScheduleDebounceFlush only when first debounce cache write', () => {
+  assert.equal(
+    shouldScheduleDebounceFlush({
+      skipReason: 'debounce_pending',
+      saveDebounceAtMs: 1_700_000_000_000,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldScheduleDebounceFlush({
+      skipReason: 'debounce_pending',
+      saveDebounceAtMs: null,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldScheduleDebounceFlush({
+      skipReason: 'cooldown',
+      saveDebounceAtMs: 1_700_000_000_000,
+    }),
+    false,
+  );
+});
+
+test('debounceFlushWaitMs returns remaining wait', () => {
+  const first = 1_700_000_000_000;
+  assert.equal(debounceFlushWaitMs(first, first + 5 * 60 * 1000), DEBOUNCE_MS - 5 * 60 * 1000);
+  assert.equal(debounceFlushWaitMs(first, first + DEBOUNCE_MS), 0);
 });
 
 test('evaluateNotifyDebounce elapsed after DEBOUNCE_MS', () => {

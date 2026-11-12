@@ -98,6 +98,17 @@ export function shouldSuppressMergeHeadStaleNotify({ annotations }) {
  * @returns {{ elapsed: boolean, persistFirstSeenAtMs: number | null }}
  *   persistFirstSeenAtMs：仅当 cache 为空、需首次写入时为 nowMs。
  */
+/** 首次写入 debounce cache 时是否调度 ubuntu-latest flush job（非后续 debounce_pending 重入）。 */
+export function shouldScheduleDebounceFlush({ skipReason, saveDebounceAtMs }) {
+  return skipReason === 'debounce_pending' && saveDebounceAtMs != null;
+}
+
+export function debounceFlushWaitMs(firstBlockedSeenAtMs, nowMs = Date.now()) {
+  const parsed = parseCooldownTimestamp(firstBlockedSeenAtMs);
+  if (parsed == null) return 0;
+  return Math.max(0, parsed + DEBOUNCE_MS - nowMs);
+}
+
 export function evaluateNotifyDebounce(firstBlockedSeenAtMs, nowMs = Date.now()) {
   const parsed = parseCooldownTimestamp(firstBlockedSeenAtMs);
   if (parsed == null) {
