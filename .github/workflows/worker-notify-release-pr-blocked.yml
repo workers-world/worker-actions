@@ -365,6 +365,8 @@ jobs:
           path: .notify-cooldown-ts
           key: ${{ steps.meta.outputs.cooldown_cache_key != '' && steps.meta.outputs.cooldown_cache_key || format('notify-{0}-{1}-{2}', github.repository, inputs.pr_number, steps.meta.outputs.reason_class) }}
 
+      # 无 cancel-in-progress 的 caller 可能并行多个 flush；靠 dedup-key + cooldown 收敛重复发信。
+      # debounce_first_seen_at 优先；旧 actions_bundle_ref 无该 output 时回退 save_debounce_at / 已 restore 的 cache。
       - name: Debounce flush gate
         id: flush_gate
         if: always() && steps.meta.outcome == 'success'
@@ -374,16 +376,27 @@ jobs:
           # cancel-in-progress 可能杀掉旧 flush；若仅在首次 save 时 schedule，后续无事件会静默丢信（#311）。
           skip="${{ steps.meta.outputs.skip_reason }}"
           first_seen="${{ steps.meta.outputs.debounce_first_seen_at }}"
-          if [ "$skip" = "debounce_pending" ] && [ -n "$first_seen" ]; then
+          save="${{ steps.meta.outputs.save_debounce_at }}"
+          restored=""
+          if [ -f .notify-debounce-ts ]; then
+            restored="$(tr -d ' \n\r' < .notify-debounce-ts)"
+          fi
+          first="${first_seen:-${save:-$restored}}"
+          if [ "$skip" = "debounce_pending" ] && [ -n "$first" ]; then
             echo "schedule=true" >> "$GITHUB_OUTPUT"
+            echo "first_seen=${first}" >> "$GITHUB_OUTPUT"
           else
             echo "schedule=false" >> "$GITHUB_OUTPUT"
+            echo "first_seen=" >> "$GITHUB_OUTPUT"
+            if [ "$skip" = "debounce_pending" ]; then
+              echo "::warning::debounce_pending 但无法解析 firstSeen（debounce_first_seen/save/cache 皆空）；跳过 flush 调度。请对齐 actions_bundle_ref 与 workflow pin。"
+            fi
           fi
 
       - name: Pack debounce flush context
         if: steps.flush_gate.outputs.schedule == 'true'
         env:
-          DEBOUNCE_FIRST_SEEN_MS: ${{ steps.meta.outputs.debounce_first_seen_at }}
+          DEBOUNCE_FIRST_SEEN_MS: ${{ steps.flush_gate.outputs.first_seen }}
           REASON_CLASS: ${{ steps.meta.outputs.reason_class }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
