@@ -32,16 +32,14 @@ latest_actions_tag() {
   git tag -l 'actions/v*' --sort=-v:refname | head -1 || true
 }
 
-next_patch_actions_tag() {
-  local latest="$1"
-  [ -n "$latest" ] || return 0
-  local ver="${latest#actions/v}"
-  local maj min pat
-  IFS=. read -r maj min pat <<< "${ver}"
-  echo "actions/v${maj}.${min}.$((pat + 1))"
+# package.json version → actions/vX.Y.Z（版本权威，对齐 SDK；release-actions-bundle 据此打 tag）
+pkg_actions_tag() {
+  local ver
+  ver="$(node -p "require('./package.json').version")"
+  echo "actions/v${ver}"
 }
 
-# Exit 0 when inner pins satisfy workflow-lint (single version = latest or patch+1).
+# Exit 0 when inner pins satisfy workflow-lint (single version = latest tag or package.json pending tag).
 destin_pins_lint_aligned() {
   local latest="$1"
   local versions
@@ -59,17 +57,13 @@ destin_pins_lint_aligned() {
   fi
   local pin="${versions}"
   local pin_tag="${pin#@}"
-  if [ -z "$latest" ]; then
-    echo "ok: inner pin ${pin_tag}; no actions/v* tags yet"
+  local pending
+  pending="$(pkg_actions_tag)"
+  if [ "$pin_tag" = "$latest" ] || [ "$pin_tag" = "$pending" ]; then
+    echo "ok: inner pin ${pin_tag} (latest=${latest}, pending=${pending})"
     return 0
   fi
-  local next
-  next="$(next_patch_actions_tag "$latest")"
-  if [ "$pin_tag" = "$latest" ] || [ "$pin_tag" = "$next" ]; then
-    echo "ok: inner pin ${pin_tag} (latest=${latest}, next=${next})"
-    return 0
-  fi
-  echo "lag: inner pin ${pin_tag} behind latest=${latest} (allowed next=${next})"
+  echo "lag: inner pin ${pin_tag} behind latest=${latest} (allowed pending=${pending})"
   return 1
 }
 

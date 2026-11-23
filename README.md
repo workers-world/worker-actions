@@ -31,7 +31,7 @@ uses: workers-world/worker-actions/.github/workflows/worker-verify.yml@actions/v
 uses: workers-world/worker-actions/.github/actions/package-lock-in-sync@actions/v0.2.12
 ```
 
-当前推荐 tag 见 [manifest/actions-bundle.yaml](manifest/actions-bundle.yaml)（第一条 tag 在首次 push `master` 后由 `release-actions-bundle` 打出）。
+当前推荐 tag 见 [manifest/actions-bundle.yaml](manifest/actions-bundle.yaml)；版本权威 = [package.json](package.json) `version`（Release PR 里本地 bump，合入 master 后由 `release-actions-bundle` 打 tag）。
 
 ## 调用方配置（名称，不含值）
 

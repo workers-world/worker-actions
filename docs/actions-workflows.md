@@ -346,8 +346,9 @@ sequenceDiagram
 
   Dev->>CI: push
   CI->>Master: Release_PR_auto-merge
-  Master->>Rel: push_paths_workflows_or_actions
-  Rel->>Rel: align_nested_pins_and_tag
+  Master->>Rel: push_paths_workflows_actions_or_version_bump
+  Rel->>Rel: read_package_json_version_and_tag
+  Note over Rel: version 未 bump（tag 已存在）则 skip
   Rel->>GHR: push_tag_event
   GHR->>GHR: create_gh_release
   Rel->>Master: open_pins_and_manifest_PR_skip_release
@@ -445,13 +446,13 @@ flowchart TB
 | `planning-release.yml` | `workflow_call` | Leaf | 业务仓 `planning-release`（dispatch） | prepare → publish（Wrangler versions）；见 [planning-release.md](./planning-release.md) |
 | `worker-promote.yml` | `workflow_call` | Leaf / legacy | worker-verify, promote-gated | — |
 | `worker-promote-gated.yml` | `workflow_call` | Leaf / legacy | 遗留 caller | worker-promote |
-| `release-actions-bundle.yml` | push `master`（paths）；dispatch | 本仓发版 | — | tag + manifest PR |
+| `release-actions-bundle.yml` | push `master`（paths，含 `package.json` 版本 bump）；dispatch | 本仓发版 | — | tag + manifest PR |
 | `gh-release-on-tag.yml` | push `actions/v*` | 本仓入口 | tag push | create-gh-release |
 | `worker-consumer-actions-bump.yml` | `create` tag `actions/v*`；dispatch | 本仓入口 | annotated tag | mok1 bump PR（试点） |
 | `worker-destin-pin-align.yml` | schedule；push `dev_*`；`create` tag；dispatch | 本仓入口 | destin lag | destin 内层 pin 对齐 PR |
 | `create-gh-release.yml` | `workflow_call` | Leaf（跨仓通用） | gh-release-on-tag / 业务仓 caller | softprops Release |
 
-内层嵌套 pin 与外层入口 pin 须同版本；勿长期「外层已升、内层仍旧」。权威 tag 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml)。
+内层嵌套 pin 与外层入口 pin 须同版本；勿长期「外层已升、内层仍旧」。版本权威 = [package.json](../package.json) `version`；CI 回填的当前推荐 tag 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml)。
 
 ## 相关
 

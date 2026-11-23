@@ -1,6 +1,7 @@
 name: Release actions bundle
 
-# 合入 master（且变更触及可复用 workflow/action）后自动打不可变 tag actions/vX.Y.Z。
+# 合入 master（且变更触及可复用 workflow/action 或版本号）后自动打不可变 tag actions/vX.Y.Z。
+# 版本权威 = package.json version（对齐 SDK：本地 bump 才发版，未 bump 跳过）。
 # 也可 workflow_dispatch 指定版本。Worker 仓 pin 该 tag，勿再用 @master。
 # 打 tag 前在 release 分支对齐内层 @actions/v* pin；manifest 经 PR 回填（master 禁止直推）。见 docs/actions-releases.md
 # Phase B 鉴权：须 mint release-bot App（RELEASE_BOT_APP_ID = Variable 或 Secret + RELEASE_BOT_PRIVATE_KEY）；见 docs/github-app-token-migration.md
@@ -10,10 +11,12 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/actions/**"
+      - "package.json"
+      - "package-lock.json"
   workflow_dispatch:
     inputs:
       version:
-        description: 可选。留空则 patch+1；填写如 0.5.0 → tag actions/v0.1.0
+        description: 可选。留空则读 package.json version；填写如 0.5.0 → tag actions/v0.5.0
         required: false
         type: string
         default: ""
@@ -148,55 +151,54 @@ jobs:
           }
 
           TRIGGER_REF="$(git rev-parse HEAD)"
-          # 当前 commit 已有 tag（例如上次 run 已打 tag、PR 推送失败）→ 只回填 PR，勿再 patch+1
+          # 版本权威 = package.json version（对齐 SDK：本地 bump 才发版；未 bump 跳过，勿再 patch+1）
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if ! [[ "${PKG_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::package.json version 须为 X.Y.Z，当前: ${PKG_VERSION}"
+            exit 1
+          fi
+
+          # 当前 commit 已有 tag（例如上次 run 已打 tag、PR 推送失败）→ 只回填 PR，勿重复发版
           existing_on_head="$(git tag -l 'actions/v*' --points-at "$TRIGGER_REF" | sort -t. -k1,1 -k2,2n -k3,3n | tail -1 || true)"
-          if [ -n "${existing_on_head}" ] && [ -z "${INPUT_VERSION}" ]; then
+          if [ -n "${INPUT_VERSION}" ]; then
+            # workflow_dispatch 指定版本：minor/major 或应急通道
+            if ! [[ "${INPUT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::version 须为 X.Y.Z，当前: ${INPUT_VERSION}"
+              exit 1
+            fi
+            VERSION="${INPUT_VERSION}"
+            TAG="actions/v${VERSION}"
+            if git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "::error::tag 已存在: ${TAG}（workflow_dispatch 指定版本时勿重复）"
+              exit 1
+            fi
+            TAG_CREATED=0
+            NEED_TAG=1
+            echo "workflow_dispatch specified version: ${VERSION}"
+          elif [ -n "${existing_on_head}" ]; then
             TAG="${existing_on_head}"
             VERSION="${TAG#actions/v}"
             TAG_CREATED=0
             NEED_TAG=0
             echo "HEAD already tagged ${TAG}; sync backfill PR only"
+          elif git rev-parse "actions/v${PKG_VERSION}" >/dev/null 2>&1; then
+            # package.json 未 bump（该版本已发过）→ 跳过发版（对齐 SDK：版本没变不 publish/tag）
+            TAG="actions/v${PKG_VERSION}"
+            VERSION="${PKG_VERSION}"
+            echo "Skip release: ${TAG} already exists; bump package.json version to release"
+            {
+              echo "### Actions bundle release skipped"
+              echo ""
+              echo "- package.json version \`${PKG_VERSION}\` 已发布为 \`${TAG}\`，本次合入未 bump 版本号，未打新 tag。"
+              echo "- 下次发版：在 Release PR 里 bump \`package.json\` 的 \`version\`（如 \`0.2.66\`）。"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           else
-            latest="$(git tag -l 'actions/v*' --sort=-v:refname | head -1 || true)"
-            if [ -n "${INPUT_VERSION}" ]; then
-              VERSION="${INPUT_VERSION}"
-            elif [ -n "${latest}" ]; then
-              ver="${latest#actions/v}"
-              IFS=. read -r maj min pat <<< "${ver}"
-              VERSION="${maj}.${min}.$((pat + 1))"
-              echo "Auto bump patch: ${latest} → actions/v${VERSION}"
-            else
-              if [ -f manifest/actions-bundle.yaml ]; then
-                cur="$(grep -E '^current:' manifest/actions-bundle.yaml | head -1 | awk '{print $2}' || true)"
-                if [[ "${cur}" =~ ^actions/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-                  VERSION="${BASH_REMATCH[1]}"
-                else
-                  VERSION="0.4.0"
-                fi
-              else
-                VERSION="0.4.0"
-              fi
-              echo "No existing actions/v* tag; using ${VERSION}"
-            fi
-
-            if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::version 须为 X.Y.Z，当前: ${VERSION}"
-              exit 1
-            fi
-
+            VERSION="${PKG_VERSION}"
             TAG="actions/v${VERSION}"
             TAG_CREATED=0
-
-            if git rev-parse "$TAG" >/dev/null 2>&1; then
-              NEED_TAG=0
-              echo "Tag ${TAG} already exists at $(git rev-list -n 1 "$TAG")"
-              if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${INPUT_VERSION}" ]; then
-                echo "::error::tag 已存在: ${TAG}（workflow_dispatch 指定版本时勿重复）"
-                exit 1
-              fi
-            else
-              NEED_TAG=1
-            fi
+            NEED_TAG=1
+            echo "Release version from package.json: ${TAG}"
           fi
 
           MANIFEST="manifest/actions-bundle.yaml"

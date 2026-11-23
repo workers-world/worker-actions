@@ -1,7 +1,7 @@
 name: Destin actions pin align
 
 # WW-303 / #144: when destin (default dev_*) inner @actions/v* pins lag the latest published tag,
-# open or update a PR into destin (not master). Same allow-list as workflow-lint: latest tag or patch+1.
+# open or update a PR into destin (not master). Same allow-list as workflow-lint: latest tag or package.json pending tag.
 # See docs/actions-releases.md
 on:
   schedule:
