@@ -52,8 +52,11 @@ function splitNames(text) {
     .filter(Boolean);
 }
 
-/** Tip commit vs its first parent (or empty tree with --root). */
-/** @param {string} sha @param {{ cwd?: string }} [opts] */
+/**
+ * Tip commit vs its first parent (or empty tree with --root).
+ * @param {string} sha
+ * @param {{ cwd?: string }} [opts]
+ */
 function listFilesInCommit(sha, opts = {}) {
   return splitNames(
     git(
@@ -63,7 +66,10 @@ function listFilesInCommit(sha, opts = {}) {
   );
 }
 
-/** @param {string[]} shas @param {{ cwd?: string }} [opts] */
+/**
+ * @param {string[]} shas
+ * @param {{ cwd?: string }} [opts]
+ */
 function listFilesAcrossCommits(shas, opts = {}) {
   const files = new Set();
   for (const sha of shas) {

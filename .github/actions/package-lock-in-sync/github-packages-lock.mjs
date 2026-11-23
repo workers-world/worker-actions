@@ -48,7 +48,7 @@ export function validateWorkersWorldNpmSpecs(pkg) {
       if (!WW_NPM_SPEC_RE.test(s)) {
         return {
           ok: false,
-          message: `package.json 中 ${key} 须为 npm:@workers-world/<name>@${"X.Y.Z"}，当前: ${s}`,
+          message: `package.json 中 ${key} 须为 npm:@workers-world/<name>@X.Y.Z，当前: ${s}`,
         };
       }
     }
