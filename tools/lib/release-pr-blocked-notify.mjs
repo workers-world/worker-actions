@@ -2,6 +2,9 @@
  * Release PR 阻断通知：原因分类、PR 状态跳过、冷却窗口（WW-258 MVP A）。
  */
 
+/** 首次「需人工处理」邮件前等待窗口：留给 auto-merge 竞态自愈（默认 15 分钟）。 */
+export const DEBOUNCE_MS = 15 * 60 * 1000;
+
 export const COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 export const REASON_CLASS = {
@@ -10,12 +13,16 @@ export const REASON_CLASS = {
   QODANA: 'qodana_failure',
   MERGE: 'merge_failure',
   MERGE_SKIPPED: 'merge_skipped',
+  MERGE_HEAD_STALE: 'merge_head_stale_wait_push',
   POST_MERGE_MERGE_REF_GONE: 'post_merge_merge_ref_gone',
   OTHER: 'other',
 };
 
 const RUNNER_LOST_RE = /self-hosted runner lost communication/i;
 const MERGE_REF_GONE_RE = /couldn't find remote ref refs\/pull\/\d+\/merge/i;
+/** release-auto-merge TOCTOU：head 已前移，本 run 不得 merge，等待新 push 重跑。 */
+const MERGE_HEAD_STALE_RE =
+  /head 已变为[\s\S]*本 run 验证的是[\s\S]*拒绝 merge[\s\S]*等待新 push/i;
 
 export function hasRunnerLostCommunication(annotations) {
   return RUNNER_LOST_RE.test(String(annotations ?? ''));
@@ -63,11 +70,60 @@ export function isWithinNotifyCooldown(lastSentAtMs, nowMs = Date.now()) {
   return nowMs - Number(lastSentAtMs) < COOLDOWN_MS;
 }
 
+/** 与 worker-notify-release-pr-blocked.yml cache key 保持一致。 */
 export function notifyCooldownCacheKey(repo, prNumber, reasonClass) {
   const r = String(repo ?? '').trim();
   const pr = String(prNumber ?? '').trim();
   const cls = String(reasonClass ?? REASON_CLASS.OTHER).trim();
-  return `release-pr-blocked-${r}-${pr}-${cls}`;
+  return `notify-${r}-${pr}-${cls}`;
+}
+
+/** 与 worker-notify-release-pr-blocked.yml debounce cache key 保持一致。 */
+export function notifyDebounceCacheKey(repo, prNumber) {
+  const r = String(repo ?? '').trim();
+  const pr = String(prNumber ?? '').trim();
+  return `notify-debounce-${r}-${pr}`;
+}
+
+export function isMergeHeadStaleInAnnotations(annotations) {
+  return MERGE_HEAD_STALE_RE.test(String(annotations ?? ''));
+}
+
+/**
+ * PR head 相对本 run 已变：非人工介入，等待 synchronize 触发的新 run。
+ */
+export function shouldSuppressMergeHeadStaleNotify({ annotations }) {
+  return isMergeHeadStaleInAnnotations(annotations);
+}
+
+/**
+ * 只要仍在 debounce_pending，就调度 ubuntu-latest flush。
+ * 不能仅在「首次写入 cache」时调度：worker-ci concurrency cancel-in-progress
+ * 可能在 flush 等待期间取消旧 run；若重入时不再 schedule，且之后无 synchronize，
+ * 首封阻断邮件会被静默丢掉（#311）。重复 flush 由 cooldown + dedup-key 收敛。
+ */
+export function shouldScheduleDebounceFlush({ skipReason }) {
+  return skipReason === 'debounce_pending';
+}
+
+export function debounceFlushWaitMs(firstBlockedSeenAtMs, nowMs = Date.now()) {
+  const parsed = parseCooldownTimestamp(firstBlockedSeenAtMs);
+  if (parsed == null) return 0;
+  return Math.max(0, parsed + DEBOUNCE_MS - nowMs);
+}
+
+/**
+ * @returns {{ elapsed: boolean, persistFirstSeenAtMs: number | null, firstSeenAtMs: number | null }}
+ *   persistFirstSeenAtMs：仅当 cache 为空、需首次写入时为 nowMs。
+ *   firstSeenAtMs：当前窗口起点（新建或已有 cache），供 flush job 等待。
+ */
+export function evaluateNotifyDebounce(firstBlockedSeenAtMs, nowMs = Date.now()) {
+  const parsed = parseCooldownTimestamp(firstBlockedSeenAtMs);
+  if (parsed == null) {
+    return { elapsed: false, persistFirstSeenAtMs: nowMs, firstSeenAtMs: nowMs };
+  }
+  const elapsed = nowMs - parsed >= DEBOUNCE_MS;
+  return { elapsed, persistFirstSeenAtMs: null, firstSeenAtMs: parsed };
 }
 
 export function parseCooldownTimestamp(raw) {
@@ -193,6 +249,7 @@ export function shouldSendBlockedNotify({
   merge,
   annotations,
   lastCooldownSentAtMs,
+  firstBlockedSeenAtMs,
   nowMs = Date.now(),
 }) {
   if (shouldSuppressPostMergeMergeRefGoneNotify({
@@ -207,11 +264,31 @@ export function shouldSendBlockedNotify({
       skipReason: 'post_merge_merge_ref_gone',
       reasonClass: REASON_CLASS.POST_MERGE_MERGE_REF_GONE,
       reasons: [],
+      saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
     };
   }
 
   if (shouldSkipNotifyForPrState(prState)) {
-    return { send: false, skipReason: 'pr_not_open', reasonClass: REASON_CLASS.OTHER, reasons: [] };
+    return {
+      send: false,
+      skipReason: 'pr_not_open',
+      reasonClass: REASON_CLASS.OTHER,
+      reasons: [],
+      saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
+    };
+  }
+
+  if (shouldSuppressMergeHeadStaleNotify({ annotations })) {
+    return {
+      send: false,
+      skipReason: 'merge_head_stale_wait_push',
+      reasonClass: REASON_CLASS.MERGE_HEAD_STALE,
+      reasons: [],
+      saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
+    };
   }
 
   const built = buildBlockedReasons({ verify, qodana, merge, annotations });
@@ -221,6 +298,20 @@ export function shouldSendBlockedNotify({
       skipReason: 'runner_lost_first_infra',
       reasonClass: built.reasonClass,
       reasons: built.reasons,
+      saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
+    };
+  }
+
+  const debounce = evaluateNotifyDebounce(firstBlockedSeenAtMs, nowMs);
+  if (!debounce.elapsed) {
+    return {
+      send: false,
+      skipReason: 'debounce_pending',
+      reasonClass: built.reasonClass,
+      reasons: built.reasons,
+      saveDebounceAtMs: debounce.persistFirstSeenAtMs,
+      debounceFirstSeenAtMs: debounce.firstSeenAtMs,
     };
   }
 
@@ -230,6 +321,8 @@ export function shouldSendBlockedNotify({
       skipReason: 'cooldown',
       reasonClass: built.reasonClass,
       reasons: built.reasons,
+      saveDebounceAtMs: null,
+      debounceFirstSeenAtMs: null,
     };
   }
 
@@ -238,5 +331,7 @@ export function shouldSendBlockedNotify({
     skipReason: '',
     reasonClass: built.reasonClass,
     reasons: built.reasons,
+    saveDebounceAtMs: null,
+    debounceFirstSeenAtMs: null,
   };
 }

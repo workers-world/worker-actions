@@ -126,7 +126,7 @@ Org 须已配置：
 
 **package-lock 与 sync-lock（WW-171 / PGREQ20261010000003；Release 竞态 #132 / PGREQ20261016000008）**：
 
-- **PR 硬门禁**（feature→`dev_*` 与 Release→`master`）：sync-lock **浅层** lock 对齐 + heal；**干净 `npm ci`** 仅在 verify job（#221 R4 Axis C 删 sync-lock 内重复 dry-run）。heal 后仍浅层不同步 → **fail**；装不上由 verify `npm ci` 硬拦，不得 auto-merge / 合入。
+- **PR 硬门禁**（feature→`dev_*` 与 Release→`master`）：sync-lock **浅层** lock 对齐 + heal；**干净 `npm ci`** 仅在 verify job（#221 R4 Axis C 删 sync-lock 内重复 dry-run）。heal 后仍浅层不同步 → **fail**；装不上由 verify `npm ci` 硬拦，不得 auto-merge / 合入。自托管（`vars.GHA_RUNNER`）上 verify `npm ci` 带 **`--ignore-scripts`**（#292；与 sync-lock heal #291 一致），避免缺 `make` 时 native（如 tree-sitter-powershell）编译红；lifecycle 由 CF Builds（`correctness_on_builds`）或托管 runner 承担。
 - **Bump 契约（#132）**：提交 **可以只改 `package.json`**（含 SDK 版本）；**不要**求开发者在本地 `npm install` 或同 commit 附带 `package-lock.json`（本地网络常无法读 GitHub Packages）。lock 由 CI **`sync-lock`**（`GHA_TOKEN` / Packages 鉴权）刷新并 bot push。
 - **同仓 `pull_request`**：verify 内 **sync-lock heal**（与 push `dev_*` 相同逻辑），再 verify `npm ci` 硬门禁。
 - **push `dev_*`**：`sync_packages_lock: true` 时 bot 可按 `package.json` 做 `npm install` 刷新 lock 并提交，**不在 push 上强制干净 `npm ci`**（自托管/网络）；Cloudflare Builds 级校验留在 PR。

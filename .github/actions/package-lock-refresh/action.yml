@@ -1,0 +1,28 @@
+name: Refresh package-lock from package.json
+description: 按 package.json 全量 npm install 刷新 lock（自适应 @workers-world GitHub Packages）
+
+inputs:
+  working-directory:
+    description: 含 package.json 的目录
+    required: false
+    default: "."
+  node_auth_token:
+    description: 读 GitHub Packages 的 token
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: "24"
+        registry-url: https://npm.pkg.github.com
+        scope: "@workers-world"
+
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        NODE_AUTH_TOKEN: ${{ inputs.node_auth_token }}
+      run: |
+        set -euo pipefail
+        node "${{ github.action_path }}/../package-lock-in-sync/refresh-package-lock.mjs"

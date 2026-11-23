@@ -16,11 +16,18 @@ source "${ROOT}/tools/actions-bundle/nested-pins-lib.sh"
 
 cd "$ROOT"
 
-git fetch origin "$DESTIN_BRANCH" --tags
+# --prune-tags：已删除的 ephemeral tag（如误打后删掉的 actions/v*）不得再被当作 latest（#293）
+git fetch origin "$DESTIN_BRANCH" --tags --prune --prune-tags
 
 latest="$(latest_actions_tag)"
 if [ -z "$latest" ]; then
   echo "No actions/v* tags; nothing to align"
+  exit 0
+fi
+
+# Only align to a tag that still exists on origin（#294：勿 pin 已删除/未发布 tag）
+if ! remote_actions_tag_exists "$latest"; then
+  echo "Latest candidate ${latest} is not on origin; refusing align"
   exit 0
 fi
 
@@ -59,6 +66,12 @@ if [ "$DRY_RUN" = "true" ]; then
   echo "dry_run: would push ${ALIGN_BRANCH} and open PR → ${DESTIN_BRANCH}"
   git diff "origin/${DESTIN_BRANCH}"..HEAD --stat
   exit 0
+fi
+
+# Re-check immediately before push：tag 可能在 align 窗口内被删除（#294 事故链）
+if ! remote_actions_tag_exists "$latest"; then
+  echo "::error::Target tag ${latest} vanished from origin before push; refusing align PR"
+  exit 1
 fi
 
 if [ -z "$WORKFLOW_PUSH_GH_TOKEN" ]; then

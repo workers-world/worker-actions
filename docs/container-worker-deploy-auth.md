@@ -53,7 +53,10 @@ steps:
       has_gha_token: ${{ secrets.GHA_TOKEN != '' }}
       # working-directory: "."   # 子目录项目可改
       # node_version: "22"
+      # cache: ""               # 仅托管 runner 需要关 Actions npm cache 时传空串；自托管已自动关闭
 ```
+
+自托管 runner 上本 action 会读 `RUNNER_ENVIRONMENT` 自动关闭 setup-node 的 Actions npm cache（及 `package-manager-cache`），**不必**再传 `cache: ""`。托管 runner 默认 `cache: npm`；若要关闭仍传空串（勿传字符串 `false`）。
 
 **Secret 约定**与 [release-pr-ci.md § GHA_TOKEN](./release-pr-ci.md#1-org-secret-gha_token) 相同：`secrets: inherit` 到 Org `GHA_TOKEN` 即可。
 

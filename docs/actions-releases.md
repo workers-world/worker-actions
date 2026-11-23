@@ -7,7 +7,7 @@ Worker 仓通过 **semver tag** 引用可复用 workflow，**禁止** `@master`�
 | 项 | 约定 |
 |----|------|
 | Tag 格式 | `actions/vX.Y.Z`（与业务 `v*` Release 区分） |
-| 当前版本 | 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml) |
+| 当前版本 | **权威 = [package.json](../package.json) `version`**（对齐 SDK 语义）；CI 回填的说明书见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml) |
 | Caller 示例 | `uses: workers-world/worker-actions/.github/workflows/worker-ci.yml@actions/v0.1.0` |
 | 跨仓嵌套（门面 / leaf 对业务仓暴露） | **reusable workflow 与 composite action 一律全路径** `workers-world/worker-actions/.github/…@actions/vX.Y.Z`。跨仓 `workflow_call` 时 `$/`/`./` 会解析到 **业务仓**（workflow：`workflow was not found`；composite：`Can't find 'action.yml' under …/counter-worker/.github/actions/…`）。 |
 | 同仓例外 | 本仓 smoke / dogfood、或 **先 checkout** `workers-world/worker-actions` 再 `uses: ./.gha-actions-bundle/...`（如 OCR）仍可用相对路径。 |
@@ -56,9 +56,10 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 | 阶段 | 谁做 | 说明 |
 |------|------|------|
 | 1. 开发 bundle | 本仓 `dev_*` | 内层嵌套 pin 与 **本 PR 目标版本** 对齐；跨仓 reusable 用全路径 `@actions/v…` |
-| 2. 合入 master | CI auto-merge | 改动了 `.github/workflows/**` 或 actions 时触发发版 |
-| 3. 打 tag | `release-actions-bundle` | patch+1 → 对齐内层 pin → `actions/vX.Y.Z` push 到远端（**tag 树内 pin 须等于该 tag**） |
-| 4. bump 消费者 | **各业务仓** | tag 存在后，在需要升级的仓内 bump 外层 `@actions/v…` 并走 Release PR |
+| 2. bump 版本 | 本仓 `dev_*`（Release PR 内） | **本地 bump [package.json](../package.json) `version`**（如 `0.2.66`）——版本权威，随 PR 评审；未 bump 则合入 master 后跳过发版 |
+| 3. 合入 master | CI auto-merge | 改动了 `.github/workflows/**`、`.github/actions/**` 或 `package.json` 时触发发版 |
+| 4. 打 tag | `release-actions-bundle` | 读 `package.json` `version` → 对齐内层 pin → `actions/vX.Y.Z` push 到远端（**tag 树内 pin 须等于该 tag**；该版本 tag 已存在则跳过） |
+| 5. bump 消费者 | **各业务仓** | tag 存在后，在需要升级的仓内 bump 外层 `@actions/v…` 并走 Release PR |
 
 **开发期验证**（tag 尚未打出时）可临时 pin：
 
@@ -81,10 +82,10 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 
 ### Actions bundle tag → 各仓 bump pin
 
-1. 上一步合入 `master` 且改动了 `.github/workflows/**` 或 `.github/actions/**` 时，[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml) **自动**（**两阶段**，避免 PAT 无 `workflow` scope 时 tag push 被拒）：
-   - 取最新 `actions/v*` → **patch +1**
-   - **Phase A（tag 树）**：在 `chore/actions-bundle-*` 分支上重写 `.github/actions`、`.github/workflows`、`templates`、`docs/templates` 内全部 `@actions/v*` → 即将发布的 tag；写入 `manifest/actions-bundle.yaml` → 在该 commit 打 **annotated tag** 并 push（**caller pin 此 tag 时 nested leaf 与 tag 同版本**）。`manifest.sha` 语义为 tag peel（`git rev-list -n 1 actions/vX.Y.Z`）；**不能**用 amend 把「本 commit 自己的 SHA」写进同一 commit（对象 id 鸡生蛋，曾把悬空中间 SHA 写进 tag 树，见 #205）。打 tag 后用 **新 commit** 把 `sha` 校正为 peel，再走 Phase B 回填。
-   - **Phase B（回填）**：同一分支 idempotent 复核 nested pin → 开 PR 合入 master（含已校正的 manifest）。回填 PR **标题**须含 `[skip actions-release]`（bot 自动带上）；各 commit subject 亦含该 token。**Squash 合入**时 GitHub 用 **PR 标题**作 squash commit 的 subject、各 commit 说明进正文；`release-actions-bundle` gate **只检查 subject（首行）**，正文里历史 commit 的 `[skip actions-release]` **不会**误跳过发版（Release PR squash 正文常含此类历史行）
+1. 上一步合入 `master` 且改动了 `.github/workflows/**`、`.github/actions/**` 或 `package.json` 时，[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml) **自动**（**两阶段**，避免 PAT 无 `workflow` scope 时 tag push 被拒）：
+   - 版本取 **`package.json` `version`**（对齐 SDK：本地 bump 才发版；该版本 tag 已存在 → **跳过发版**，step summary 提示 bump；**无** auto patch+1）
+   - **Phase A（tag 树）**：在 `chore/actions-bundle-*` 分支上重写 `.github/actions`、`.github/workflows`、`templates`、`docs/templates` 内全部 `@actions/v*` → 即将发布的 tag；写入 `manifest/actions-bundle.yaml` → 在该 commit 打 **annotated tag** 并 push（**caller pin 此 tag 时 nested leaf 与 tag 同版本**）。`manifest.sha` 语义为 tag peel（`git rev-list -n 1 actions/vX.Y.Z`）；**不能**用 amend 把「本 commit 自己的 SHA」写进同一 commit（对象 id 鸡生蛋，曾把悬空中间 SHA 写进 tag 树，见 #205）。打 tag 后用 **新 commit** 把 `sha` 校正为 peel，再走 Phase B 回填。`workflow-lint` 的 `check_manifest_sha_matches_tag`：tag 在本地时校验 `sha == peel`；若 `released_at` 已写但 tag 缺失（或 sha 对象不可达），则**失败**而非 skip（防止 ephemeral tag 删除后 destin 仍声称已发布，见 #293）。
+   - **Phase B（回填）**：同一分支 idempotent 复核 nested pin → 开 PR 合入 master（含已校正的 manifest）。回填 PR **标题**须含 `[skip actions-release]`（bot 自动带上）；各 commit subject 亦含该 token。**Squash 合入**时 GitHub 用 **PR 标题**作 squash commit 的 subject、各 commit 说明进正文；**merge commit** 时首行为 `Merge pull request #N …`、PR 标题在其后首个非空行。`release-actions-bundle` gate（`tools/actions-bundle/skip-actions-release.mjs`）检查 **squash subject 或 merge 的 PR 标题行**，**不**扫描全文——正文里历史 commit 的 `[skip actions-release]` **不会**误跳过发版（Release PR squash 正文常含此类历史行）。见 #294：仅查首行时 merge 回填会误 patch+1
    - **tag push 与 Phase B 分支 push** 必须用 release-bot App installation token（`WORKFLOW_PUSH_GH_TOKEN` = mint 输出，`permission-workflows: write`；tag 树含 `.github/workflows/**`）。清掉 checkout 写入的 `includeIf.gitdir*` 后再 push。**禁止**回落 `GHA_TOKEN`（classic PAT 常无 `workflow` scope → 拒推）。未配置 `RELEASE_BOT_APP_ID`（Variable 或 Secret）+ `RELEASE_BOT_PRIVATE_KEY` 时 **显式失败**（见 docs/github-app-token-migration.md）
 2. tag push 触发 [`gh-release-on-tag.yml`](../.github/workflows/gh-release-on-tag.yml) → [`create-gh-release.yml`](../.github/workflows/create-gh-release.yml) 建 GitHub Release 页（见 [gh-release.md](./gh-release.md)）
 3. tag 推送成功后，在需要升级的 **各业务仓** bump `@actions/v…` 并走 Release PR。  
@@ -93,9 +94,9 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 **嵌套 reusable workflow / composite action（跨仓暴露路径）**：一律全路径 `@actions/vX.Y.Z`（与本 bundle 同版本）。  
 本仓 dogfood `ci.yml` / `smoke-dollar-self` 仍可用 `./` 或 `$/` 验证同仓相对路径。
 
-**手动发版**（minor/major 或指定版本）：Actions → **Release actions bundle** → Run workflow，填写 `version`（如 `0.5.0`）；留空则同样 auto patch+1。
+**手动发版**（minor/major 或应急指定版本）：Actions → **Release actions bundle** → Run workflow，填写 `version`（如 `0.5.0`）；留空则读 `package.json` `version`（该版本已发过则跳过）。
 
-**无需**本地 `git tag` / 手工合 destin→master / 在 tag 存在前改业务仓 pin。
+**无需**本地 `git tag` / 手工合 destin→master / 在 tag 存在前改业务仓 pin。发版 = 在 Release PR 里 bump `package.json` 的 `version`，tag 由 CI 打出（与 `framework_sdk_worker` 的 `package.json` → publish → `v*` tag 同一语义）。
 
 （`$/` 同仓语法须 github.com 托管 runner 或 runner ≥ 2.336.0；actionlint 1.7.x 尚不识别 `$/`，`workflow-lint` 内已有对应 ignore。）
 
@@ -108,7 +109,7 @@ uses: workers-world/worker-actions/.github/workflows/worker-sync-packages-lock.y
 | **push** 到 `dev_*` | `workflow-lint`（无 secrets；Release PR 人工开） |
 | **PR → master**（含 fork） | `workflow-lint` |
 
-**Destin 内层 pin 落后**：若 destin 上 nested `@actions/v*` 落后于最新已发布 tag（workflow-lint 同规则：仅允许 **latest** 或 **patch+1**），[`worker-destin-pin-align.yml`](../.github/workflows/worker-destin-pin-align.yml) 会定时 / 新 tag / push destin 后自动开或更新 **→ destin** 的对齐 PR（不合 master）。见 WW-303 / #144。
+**Destin 内层 pin 落后**：若 destin 上 nested `@actions/v*` 落后于最新已发布 tag（workflow-lint 同规则：仅允许 **latest** 或 **package.json `version` 待发 tag**），[`worker-destin-pin-align.yml`](../.github/workflows/worker-destin-pin-align.yml) 会定时 / 新 tag / push destin 后自动开或更新 **→ destin** 的对齐 PR（不合 master）。见 WW-303 / #144。
 
 因此：**把 master 合进正在发版的 `dev_*`（无论本地 merge 再 push，还是另开 PR base=`dev_*`）都会再跑一轮流水线**，用 PR 合并不省 OCR。
 

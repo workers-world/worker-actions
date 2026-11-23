@@ -238,6 +238,9 @@ jobs:
       # lock 为 file:../ 时 npm ci 走物化目录，不访问 Packages；sync-lock 后 lock 指向
       # npm.pkg.github.com，此处必须带 NODE_AUTH_TOKEN（.npmrc 用 ${NODE_AUTH_TOKEN}）。
       # #221 R6：cache-hit / 自托管 → --prefer-offline（仍完整 npm ci 硬门禁）；lock 变则 key 变 → 全量 ci。
+      # #292：自托管常缺 make，与 sync-lock（#291）同机；npm ci 加 --ignore-scripts，勿编译 native
+      # （doc1 tree-sitter-powershell）。lock 可解析性仍硬拦；lifecycle 由 CF Builds
+      # （correctness_on_builds）或具备工具链的托管 runner 承担。
       - name: Run npm ci
         if: steps.npm_scope.outputs.run_npm == 'true'
         run: |
@@ -246,6 +249,8 @@ jobs:
           prefer=false
           if [ "${VERIFY_ON_SELF_HOSTED}" = "true" ]; then
             prefer=true
+            # 自托管常缺 make；勿在 GHA 编译 native（#292 / #291）
+            common+=(--ignore-scripts)
           elif [ "${{ steps.node_modules_cache.outputs.cache-hit }}" = "true" ]; then
             prefer=true
           elif [ "${{ steps.setup_node.outputs.cache-hit }}" = "true" ]; then

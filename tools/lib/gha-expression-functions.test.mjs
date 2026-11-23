@@ -101,3 +101,24 @@ test('release-pr critical path jobs use GHA_RUNNER runs-on expression', () => {
     /workflow-lint:[\s\S]*?runner:\s*\$\{\{ github\.event\.repository\.private && vars\.GHA_RUNNER != '' && vars\.GHA_RUNNER \|\| 'ubuntu-latest' \}\}/,
   );
 });
+
+test('debounce_flush job uses ubuntu-latest only', () => {
+  const source = fs.readFileSync(
+    path.join(workflowsDir, 'worker-notify-release-pr-blocked.yml'),
+    'utf8',
+  );
+  const m = source.match(/debounce_flush:[\s\S]*?runs-on:\s*(.+)$/m);
+  assert.ok(m, 'expected debounce_flush job runs-on');
+  assert.equal(m[1].trim(), 'ubuntu-latest');
+});
+
+test('flush_gate falls back when debounce_first_seen_at missing (bundle skew)', () => {
+  const source = fs.readFileSync(
+    path.join(workflowsDir, 'worker-notify-release-pr-blocked.yml'),
+    'utf8',
+  );
+  assert.match(source, /first_seen="\$\{\{ steps\.meta\.outputs\.debounce_first_seen_at \}\}"/);
+  assert.match(source, /save="\$\{\{ steps\.meta\.outputs\.save_debounce_at \}\}"/);
+  assert.match(source, /first="\$\{first_seen:-\$\{save:-\$restored\}\}"/);
+  assert.match(source, /DEBOUNCE_FIRST_SEEN_MS: \$\{\{ steps\.flush_gate\.outputs\.first_seen \}\}/);
+});

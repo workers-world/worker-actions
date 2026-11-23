@@ -184,7 +184,7 @@ flowchart LR
   verifyJob --> promoteJob[promote_optional_legacy]
 ```
 
-verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁）→ **`correctness_on_builds: false`（默认）**：`npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6）→ **`correctness_on_builds: true`（#221 R7；R9 回滚 R8 npm ci 跳过）**：仍跑 setup-node / 物化 / `npm ci` / cache save，**跳过** check∥test（Builds build command）→ worker-ci 并行 **`builds-correctness-gate`**（#221 R11：首轮立即查询 + 自适应 **2s→5s→10s→cap 20s** 轮询 CF Workers Builds GitHub Check；R9 曾试固定 5s、R10 固定 20s）。
+verify 步骤摘要：sync-lock（push `dev_*` 与同仓 `pull_request`，CI heal lock + 浅层 lock 导出，**不**跑干净 `npm ci` / dry-run；#221 R4 Axis C）→ verify job：checkout（PR **head SHA**）→ setup-node **Node 24**（tarball cache；自托管关 save）→ **托管** `node_modules` restore（#221 R6）→ 物化 SDK（可选）→ **`npm ci --prefer-offline` 当 cache/自托管**（PR 硬门禁；**自托管另加 `--ignore-scripts`**，避开缺 make 时的 native 编译，#292 / sync-lock #291）→ **`correctness_on_builds: false`（默认）**：`npm run check`（与独立 `npm test` **并行**当脚本不同；#221 R5 Axis B）→ 托管 `node_modules` save（R6）→ **`correctness_on_builds: true`（#221 R7；R9 回滚 R8 npm ci 跳过）**：仍跑 setup-node / 物化 / `npm ci` / cache save，**跳过** check∥test（Builds build command）→ worker-ci 并行 **`builds-correctness-gate`**（#221 R11：首轮立即查询 + 自适应 **2s→5s→10s→cap 20s** 轮询 CF Workers Builds GitHub Check；R9 曾试固定 5s、R10 固定 20s）。
 
 | 事件 | npm ci / lock 门禁 |
 |------|-------------------|
@@ -346,8 +346,9 @@ sequenceDiagram
 
   Dev->>CI: push
   CI->>Master: Release_PR_auto-merge
-  Master->>Rel: push_paths_workflows_or_actions
-  Rel->>Rel: align_nested_pins_and_tag
+  Master->>Rel: push_paths_workflows_actions_or_version_bump
+  Rel->>Rel: read_package_json_version_and_tag
+  Note over Rel: version 未 bump（tag 已存在）则 skip
   Rel->>GHR: push_tag_event
   GHR->>GHR: create_gh_release
   Rel->>Master: open_pins_and_manifest_PR_skip_release
@@ -371,7 +372,7 @@ flowchart LR
   pushTag --> backfillPr[open_pins_manifest_PR]
 ```
 
-触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。**commit subject**（首行）含 `[skip actions-release]` 时跳过（squash 正文里的历史 skip 不触发）。
+触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。**squash subject**（首行）或 **merge commit 的 PR 标题行**含 `[skip actions-release]` 时跳过（全文/squash 正文里的历史 skip 不触发；见 #294）。
 
 来源：[`release-actions-bundle.yml`](../.github/workflows/release-actions-bundle.yml)。
 
@@ -445,13 +446,13 @@ flowchart TB
 | `planning-release.yml` | `workflow_call` | Leaf | 业务仓 `planning-release`（dispatch） | prepare → publish（Wrangler versions）；见 [planning-release.md](./planning-release.md) |
 | `worker-promote.yml` | `workflow_call` | Leaf / legacy | worker-verify, promote-gated | — |
 | `worker-promote-gated.yml` | `workflow_call` | Leaf / legacy | 遗留 caller | worker-promote |
-| `release-actions-bundle.yml` | push `master`（paths）；dispatch | 本仓发版 | — | tag + manifest PR |
+| `release-actions-bundle.yml` | push `master`（paths，含 `package.json` 版本 bump）；dispatch | 本仓发版 | — | tag + manifest PR |
 | `gh-release-on-tag.yml` | push `actions/v*` | 本仓入口 | tag push | create-gh-release |
 | `worker-consumer-actions-bump.yml` | `create` tag `actions/v*`；dispatch | 本仓入口 | annotated tag | mok1 bump PR（试点） |
 | `worker-destin-pin-align.yml` | schedule；push `dev_*`；`create` tag；dispatch | 本仓入口 | destin lag | destin 内层 pin 对齐 PR |
 | `create-gh-release.yml` | `workflow_call` | Leaf（跨仓通用） | gh-release-on-tag / 业务仓 caller | softprops Release |
 
-内层嵌套 pin 与外层入口 pin 须同版本；勿长期「外层已升、内层仍旧」。权威 tag 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml)。
+内层嵌套 pin 与外层入口 pin 须同版本；勿长期「外层已升、内层仍旧」。版本权威 = [package.json](../package.json) `version`；CI 回填的当前推荐 tag 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml)。
 
 ## 相关
 
