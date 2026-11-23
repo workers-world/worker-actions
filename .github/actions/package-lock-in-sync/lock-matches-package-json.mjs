@@ -1,56 +1,20 @@
 #!/usr/bin/env node
 /**
- * package.json 与 package-lock.json 是否已同步（SDK GitHub Packages + 根依赖 + 可安装性）。
- * exit 0 = 已同步；1 = 未同步；2 = 无 framework_sdk_worker（调用方可跳过）。
+ * package.json 与 package-lock.json 是否已同步（根依赖 + 自适应 GitHub Packages + 可安装性）。
+ * exit 0 = 已同步；1 = 未同步；2 = 无 package.json（非 Node 项目，调用方可跳过）。
  *
- * 浅层：SDK lock 路径 + lock packages[""] 与 package.json 根依赖字符串一致。
+ * 浅层：lock packages[""] 与 package.json 根依赖一致；若有 npm:@workers-world/* 则校验 lock 解析路径。
  * 深层（默认）：浅层通过后执行 npm ci --dry-run，捕获缺失/无效传递依赖（须 NODE_AUTH_TOKEN）。
  * 本地/无 token 轮询：LOCK_CHECK_SKIP_DRY_RUN=1 仅浅层（legacy wait-for-sync）。
  */
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { npmCiUsesLegacyPeerDeps } from "./npm-ci-legacy-peer-deps.mjs";
-
-function readJson(path) {
-  return JSON.parse(fs.readFileSync(path, "utf8"));
-}
-
-function wantSdkVersion(pkg) {
-  const dep = pkg.dependencies?.framework_sdk_worker ?? "";
-  const m = String(dep).match(/@([0-9]+\.[0-9]+\.[0-9]+)/);
-  return m ? m[1] : null;
-}
-
-function lockMatchesSdkVersion(lockText, wantVer) {
-  return (
-    lockText.includes("npm.pkg.github.com") &&
-    !lockText.includes('"../framework_sdk_worker"') &&
-    lockText.includes(`framework_sdk_worker/${wantVer}/`)
-  );
-}
-
-function rootDepsInSync(pkg, lock) {
-  const root = lock.packages?.[""] ?? {};
-  function same(a, b) {
-    const aa = a ?? {};
-    const bb = b ?? {};
-    const keys = new Set([...Object.keys(aa), ...Object.keys(bb)]);
-    for (const k of keys) {
-      if (String(aa[k] ?? "") !== String(bb[k] ?? "")) return false;
-    }
-    return true;
-  }
-  return (
-    same(pkg.dependencies, root.dependencies) &&
-    same(pkg.devDependencies, root.devDependencies)
-  );
-}
-
-function shallowInSync(pkg, lockText, lock) {
-  const wantVer = wantSdkVersion(pkg);
-  if (!wantVer) return false;
-  return lockMatchesSdkVersion(lockText, wantVer) && rootDepsInSync(pkg, lock);
-}
+import {
+  readJson,
+  shallowLockInSync,
+  validateWorkersWorldNpmSpecs,
+} from "./github-packages-lock.mjs";
 
 function ensureNpmrcForGithubPackages() {
   const token = process.env.NODE_AUTH_TOKEN;
@@ -105,18 +69,9 @@ function main() {
     process.exit(2);
   }
   const pkg = readJson("package.json");
-  if (
-    !String(pkg.dependencies?.framework_sdk_worker ?? "").includes(
-      "framework_sdk_worker",
-    )
-  ) {
-    process.exit(2);
-  }
-  const wantVer = wantSdkVersion(pkg);
-  if (!wantVer) {
-    console.error(
-      "package.json 中 framework_sdk_worker 须为 npm:@workers-world/framework_sdk_worker@X.Y.Z",
-    );
+  const validated = validateWorkersWorldNpmSpecs(pkg);
+  if (!validated.ok) {
+    console.error(validated.message);
     process.exit(1);
   }
   if (!fs.existsSync("package-lock.json")) {
@@ -124,7 +79,7 @@ function main() {
   }
   const lockText = fs.readFileSync("package-lock.json", "utf8");
   const lock = readJson("package-lock.json");
-  if (!shallowInSync(pkg, lockText, lock)) {
+  if (!shallowLockInSync(pkg, lockText, lock)) {
     process.exit(1);
   }
   if (!lockPassesNpmCiDryRun()) {
