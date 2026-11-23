@@ -2,6 +2,7 @@
  * Adaptive GitHub Packages / lock shallow-sync helpers (no hardcoded package names).
  */
 import fs from "node:fs";
+import path from "node:path";
 
 const WW_NPM_SPEC_RE =
   /^npm:@workers-world\/([^@]+)@([0-9]+\.[0-9]+\.[0-9]+)$/;
@@ -123,6 +124,29 @@ export function lockHasFileLinkToWorkersWorldPackages(lockText, wwDeps) {
   return false;
 }
 
-export function readJson(path) {
-  return JSON.parse(fs.readFileSync(path, "utf8"));
+/**
+ * 确保 .npmrc 含 GitHub Packages registry 与 auth 占位行。
+ * 写入 ${NODE_AUTH_TOKEN} 环境变量引用而非真实 token：.npmrc 会被 sync-lock bot
+ * git add 后 commit/push 到消费者分支，写真实值即泄漏；npm 在运行时从环境展开。
+ */
+export function ensureNpmrcForGithubPackages(cwd = process.cwd()) {
+  const line = "//npm.pkg.github.com/:_authToken=";
+  const npmrcPath = path.join(cwd, ".npmrc");
+  if (fs.existsSync(npmrcPath)) {
+    const rc = fs.readFileSync(npmrcPath, "utf8");
+    if (rc.includes("npm.pkg.github.com") && rc.includes(line)) return;
+  }
+  fs.appendFileSync(
+    npmrcPath,
+    [
+      "",
+      "@workers-world:registry=https://npm.pkg.github.com",
+      `${line}\${NODE_AUTH_TOKEN}`,
+      "",
+    ].join("\n"),
+  );
+}
+
+export function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }

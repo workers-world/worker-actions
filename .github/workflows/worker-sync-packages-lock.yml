@@ -44,7 +44,7 @@ on:
         description: lock 已与 package.json 同步（run_verify 门禁步输出）
         value: ${{ jobs.sync-lock.outputs.in_sync }}
       skip:
-        description: 无 package.json，跳过 lock 门禁
+        description: 非 Node lock 门禁（无 package.json / 无 lock），跳过 lock 门禁
         value: ${{ jobs.sync-lock.outputs.skip }}
     secrets:
       GHA_TOKEN:

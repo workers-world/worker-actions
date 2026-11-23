@@ -50,7 +50,7 @@ runs:
             exit 0
           fi
           if [ "$code" -eq 2 ]; then
-            echo "无 package.json，跳过等待"
+            echo "无 package.json / 无 lock，跳过等待"
             exit 0
           fi
           echo "lock 未就绪，等待 sync-lock bot（${attempt}/${max}，${sleep_s}s）…"

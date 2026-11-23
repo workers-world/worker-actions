@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
+  ensureNpmrcForGithubPackages,
   listWorkersWorldNpmPackageDeps,
   lockMatchesWorkersWorldPackages,
   rootDepsInSync,
@@ -63,4 +67,24 @@ test("shallowLockInSync combines root deps and github packages paths", () => {
     false,
   );
   assert.equal(rootDepsInSync(pkg, lock), true);
+});
+
+test("ensureNpmrcForGithubPackages writes ${NODE_AUTH_TOKEN} placeholder, never the token value", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "npmrc-ensure-"));
+  ensureNpmrcForGithubPackages(dir);
+  const rc = fs.readFileSync(path.join(dir, ".npmrc"), "utf8");
+  assert.ok(rc.includes("@workers-world:registry=https://npm.pkg.github.com"));
+  assert.ok(rc.includes("//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"));
+  assert.ok(!/github_pat_|ghp_/.test(rc));
+});
+
+test("ensureNpmrcForGithubPackages is idempotent when auth line already present", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "npmrc-ensure-"));
+  fs.writeFileSync(
+    path.join(dir, ".npmrc"),
+    "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n",
+  );
+  ensureNpmrcForGithubPackages(dir);
+  const rc = fs.readFileSync(path.join(dir, ".npmrc"), "utf8");
+  assert.equal(rc.split("_authToken").length - 1, 1);
 });

@@ -8,31 +8,13 @@ import { spawnSync } from "node:child_process";
 import { npmCiUsesLegacyPeerDeps } from "./npm-ci-legacy-peer-deps.mjs";
 import { reformatPackageLockFile } from "./reformat-package-lock.mjs";
 import {
+  ensureNpmrcForGithubPackages,
   listWorkersWorldNpmPackageDeps,
   lockHasFileLinkToWorkersWorldPackages,
   readJson,
   shallowLockInSync,
   validateWorkersWorldNpmSpecs,
 } from "./github-packages-lock.mjs";
-
-function ensureNpmrcForGithubPackages() {
-  const token = process.env.NODE_AUTH_TOKEN;
-  if (!token) {
-    console.error("刷新 lock 需要 NODE_AUTH_TOKEN（GHA_TOKEN / read:packages）");
-    process.exit(1);
-  }
-  if (!fs.existsSync(".npmrc") || !fs.readFileSync(".npmrc", "utf8").includes("npm.pkg.github.com")) {
-    fs.appendFileSync(
-      ".npmrc",
-      [
-        "",
-        "@workers-world:registry=https://npm.pkg.github.com",
-        `//npm.pkg.github.com/:_authToken=${token}`,
-        "",
-      ].join("\n"),
-    );
-  }
-}
 
 function main() {
   if (!fs.existsSync("package.json")) {
@@ -46,10 +28,16 @@ function main() {
     process.exit(1);
   }
   const ww = listWorkersWorldNpmPackageDeps(pkg);
-  ensureNpmrcForGithubPackages();
+  if (ww.length > 0) {
+    if (!process.env.NODE_AUTH_TOKEN) {
+      console.error("刷新 lock 需要 NODE_AUTH_TOKEN（GHA_TOKEN / read:packages）");
+      process.exit(1);
+    }
+    ensureNpmrcForGithubPackages();
+  }
 
   for (const { packageName } of ww) {
-    const mod = `node_modules/${packageName}`;
+    const mod = `node_modules/@workers-world/${packageName}`;
     if (fs.existsSync(mod)) {
       fs.rmSync(mod, { recursive: true, force: true });
     }

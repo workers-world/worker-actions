@@ -39,6 +39,35 @@ test("exit 2 when no package.json", () => {
   assert.equal(r.status, 2);
 });
 
+test("exit 2 when npm-only repo has no package-lock.json", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lock-check-"));
+  fs.writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify({ name: "plain", dependencies: { leftpad: "^1.0.0" } }, null, 2),
+  );
+  const r = runIn(dir);
+  assert.equal(r.status, 2);
+});
+
+test("exit 1 when @workers-world dep present but no package-lock.json", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lock-check-"));
+  fs.writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify(
+      {
+        name: "w",
+        dependencies: {
+          framework_sdk_worker: "npm:@workers-world/framework_sdk_worker@1.0.0",
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  const r = runIn(dir);
+  assert.equal(r.status, 1);
+});
+
 test("exit 2 is not used for CLI-only repo with lock drift", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lock-check-"));
   const depNew = "npm:@workers-world/framework_sdk_cli@0.2.12";

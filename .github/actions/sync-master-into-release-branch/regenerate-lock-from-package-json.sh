@@ -23,7 +23,7 @@ if node "$lock_check_script"; then
 fi
 code=$?
 if [ "$code" -eq 2 ]; then
-  echo "无 Node lock 门禁（无 package.json），跳过"
+  echo "无 Node lock 门禁（无 package.json / 无 lock），跳过"
   exit 0
 fi
 
