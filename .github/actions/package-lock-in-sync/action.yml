@@ -1,5 +1,5 @@
 name: Package lock in sync check
-description: 检查 package-lock.json 是否与 package.json（含 framework_sdk_worker SDK 版本）同步，并通过 npm ci --dry-run 校验 lock 可安装性
+description: 检查 package-lock.json 是否与 package.json（含根依赖与自适应 @workers-world GitHub Packages）同步，并通过 npm ci --dry-run 校验 lock 可安装性
 
 inputs:
   working-directory:
@@ -20,7 +20,7 @@ outputs:
     description: lock 已与 package.json 同步
     value: ${{ steps.check.outputs.in_sync }}
   skip:
-    description: package.json 无 framework_sdk_worker
+    description: 非 Node lock 门禁（无 package.json；或无 lock 且无 @workers-world 依赖）
     value: ${{ steps.check.outputs.skip }}
   legacy_peer_deps:
     description: caller 是否配置 legacy-peer-deps（sync-lock npm install/ci 须与此一致）
@@ -56,7 +56,7 @@ runs:
           if [ "$code" -eq 2 ]; then
             echo "in_sync=true" >> "$GITHUB_OUTPUT"
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "无 Node lock 门禁（无 package.json 或无 framework_sdk_worker），跳过"
+            echo "无 Node lock 门禁（无 package.json / 无 lock），跳过"
             exit 0
           fi
           echo "in_sync=false" >> "$GITHUB_OUTPUT"

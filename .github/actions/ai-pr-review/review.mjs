@@ -367,7 +367,7 @@ async function main() {
     }
   }
 
-  let commentBody = '';
+  let commentBody;
   let coordinatorMetrics = null;
   if (expertResults.length === 0) {
     commentBody = `## AI PR Review\n\n所有 expert 调用失败（非阻断）。语言：${language}`;
