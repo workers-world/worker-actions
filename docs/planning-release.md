@@ -34,4 +34,4 @@ with:
 | `CLOUDFLARE_API_TOKEN` | 始终 |
 | `CLOUDFLARE_ACCOUNT_ID` | 始终 |
 
-Tag 随 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml) bump；本 workflow 随 bundle 发版进入 `actions/v*`，消费者在外层 pin 升级。
+Tag 随 [package.json](../package.json) `version` bump（`manifest/actions-bundle.yaml` 为 CI 回填说明书）；本 workflow 随 bundle 发版进入 `actions/v*`，消费者在外层 pin 升级。
