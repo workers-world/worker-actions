@@ -1,0 +1,129 @@
+name: Consumer SDK pin bump
+
+# SDK fanout（deploy-tracker SdkReleaseWorkflow 06 步 dispatch；也支持手动）：
+# SDK 包 v* tag 成立后，把消费方 package.json 的 npm:@workers-world/<pkg>@x.y.z pin
+# 升到目标版本并开 PR（不自动合并；合并留给波次编排与人）。
+# 消费方清单来自 deploy-tracker GET /v1/consumers?dep=<package>&status=upgradable（WW-151）。
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "SDK 包名（framework_sdk_worker|framework_sdk_ui|framework_sdk_cli）"
+        required: true
+        type: string
+      version:
+        description: "目标版本（如 0.4.56）"
+        required: true
+        type: string
+      consumer_repo:
+        description: "可选单个消费方（owner/name）。空 = API fanout"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "只改写不推送不开 PR"
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: consumer-sdk-bump-${{ inputs.package }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_BOT_APP_ID_EFFECTIVE: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
+  CONSUMERS_API_BASE: ${{ vars.CONSUMERS_API_BASE || 'https://deploy.mailworld.uk' }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - name: Validate inputs
+        id: validate
+        run: |
+          set -euo pipefail
+          case "${{ inputs.package }}" in
+            framework_sdk_worker|framework_sdk_ui|framework_sdk_cli) ;;
+            *) echo "::error::package must be framework_sdk_worker|ui|cli, got: ${{ inputs.package }}"; exit 1 ;;
+          esac
+          if ! [[ "${{ inputs.version }}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be X.Y.Z, got: ${{ inputs.version }}"; exit 1
+          fi
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          sparse-checkout: |
+            tools/consumer-actions-bump
+            .github/actions/ensure-gh-cli
+          persist-credentials: false
+
+      - uses: ./.github/actions/ensure-gh-cli
+
+      - name: Resolve consumer matrix
+        id: resolve
+        env:
+          CONSUMER_REPO: ${{ inputs.consumer_repo }}
+          CONSUMERS_DEP: ${{ inputs.package }}
+          CONSUMERS_STATUS: upgradable
+          RULES_ADMIN_TOKEN: ${{ secrets.RULES_ADMIN_TOKEN }}
+        run: node tools/consumer-actions-bump/fetch-consumers.mjs
+
+  bump:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.matrix != ''
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    permissions:
+      contents: read
+    env:
+      SDK_PACKAGE: ${{ inputs.package }}
+      SDK_VERSION: ${{ inputs.version }}
+      DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+      CONSUMER_REPO: ${{ matrix.repo }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          sparse-checkout: |
+            tools/consumer-sdk-bump
+            .github/actions/ensure-gh-cli
+          persist-credentials: false
+
+      - uses: ./.github/actions/ensure-gh-cli
+
+      - name: Mint GitHub App token (consumer repo)
+        id: bot-token
+        if: env.DRY_RUN != 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ env.RELEASE_BOT_APP_ID_EFFECTIVE }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: workers-world
+          repositories: ${{ matrix.short_name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Validate write credentials
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::Consumer SDK bump requires release-bot App token with Contents + Pull requests write on ${CONSUMER_REPO}."
+            echo "Configure RELEASE_BOT_APP_ID (Variable or Secret) + RELEASE_BOT_PRIVATE_KEY; install workers-world-release-bot on ${CONSUMER_REPO}."
+            exit 1
+          fi
+
+      - name: Bump consumer SDK pin
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.GHA_TOKEN }}
+        run: node tools/consumer-sdk-bump/bump-sdk-consumer.mjs
