@@ -2,6 +2,9 @@ name: Create GitHub Release
 
 # 跨仓通用：tag 已存在时建/更新 GitHub Release 页面。
 # Caller 通常为 gh-release-on-tag.yml（on.push.tags）；见 docs/gh-release.md
+# body 为空时按真实 commit 生成 notes：GitHub auto notes 只认两个 tag 间
+# merge 的 PR，dev_* 直推 commit 会被吞掉，changelog 会退化成只剩
+# release 管道 PR；生成失败/为空再回退 generate_release_notes 兜底。
 on:
   workflow_call:
     inputs:
@@ -14,11 +17,15 @@ on:
         type: string
         default: ""
       generate_release_notes:
-        description: Use GitHub auto-generated release notes (ignored when body is set)
+        description: Fallback - GitHub auto release notes when commit body is empty (ignored when body is set)
         type: boolean
         default: true
+      exclude_commit_pattern:
+        description: ERE; commit subjects matching it are excluded from generated notes (empty = keep all)
+        type: string
+        default: "^(Merge |chore: release |chore: merge master )"
       body:
-        description: Custom release body (non-empty overrides generate_release_notes)
+        description: Custom release body (non-empty overrides generated notes)
         type: string
         default: ""
       draft:
@@ -39,7 +46,47 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      # 无需 checkout：softprops/action-gh-release 经 API 对 tag 建 Release（也消除 artipacked/凭据面）
+      # 仅生成 commit notes 时才 checkout（跨仓被调时 checkout 的是 caller 仓，历史即消费方自身）；
+      # softprops/action-gh-release 经 API 对 tag 建 Release（也消除 artipacked/凭据面）
+      - uses: actions/checkout@v7
+        if: inputs.body == ''
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Generate commit-based release body
+        id: notes
+        if: inputs.body == ''
+        env:
+          TAG: ${{ inputs.tag_name }}
+          EXCLUDE: ${{ inputs.exclude_commit_pattern }}
+        run: |
+          set -euo pipefail
+          # 上一个 tag 只在同 tag 家族里找（v* / actions/v*），避免跨家族误配
+          case "${TAG}" in
+            */*) MATCH="${TAG%%/*}/*" ;;
+            *) MATCH="v*" ;;
+          esac
+          PREV="$(git describe --tags --match "${MATCH}" --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -z "${PREV}" ]; then
+            echo "No previous tag reachable from ${TAG}^ (match ${MATCH}); fall back to auto release notes"
+            exit 0
+          fi
+          echo "Range: ${PREV}..${TAG}"
+          if [ -n "${EXCLUDE}" ]; then
+            git log --no-merges --format='- %s (%h)' "${PREV}..${TAG}" \
+              | grep -Ev -- "${EXCLUDE}" > release-body.md || true
+          else
+            git log --no-merges --format='- %s (%h)' "${PREV}..${TAG}" > release-body.md
+          fi
+          if [ ! -s release-body.md ]; then
+            echo "Body empty after filtering; fall back to auto release notes"
+            exit 0
+          fi
+          {
+            echo 'body<<CHANGELOG_EOF'
+            cat release-body.md
+            echo 'CHANGELOG_EOF'
+          } >> "${GITHUB_OUTPUT}"
       # 第三方 action pin full SHA（官方建议：SHA 是唯一不可变引用）；升级由 Dependabot 同步注释
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
@@ -47,7 +94,7 @@ jobs:
           token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
           tag_name: ${{ inputs.tag_name }}
           name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', inputs.tag_name) }}
-          body: ${{ inputs.body != '' && inputs.body || '' }}
-          generate_release_notes: ${{ inputs.body == '' && inputs.generate_release_notes }}
+          body: ${{ inputs.body != '' && inputs.body || steps.notes.outputs.body }}
+          generate_release_notes: ${{ inputs.body == '' && steps.notes.outputs.body == '' && inputs.generate_release_notes }}
           draft: ${{ inputs.draft }}
           prerelease: ${{ inputs.prerelease }}
