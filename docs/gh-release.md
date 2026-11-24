@@ -4,7 +4,7 @@
 
 | 层 | 文件 | 职责 |
 |----|------|------|
-| **Leaf** | [`.github/workflows/create-gh-release.yml`](../.github/workflows/create-gh-release.yml) | `workflow_call`；`softprops/action-gh-release@v2` + `generate_release_notes` |
+| **Leaf** | [`.github/workflows/create-gh-release.yml`](../.github/workflows/create-gh-release.yml) | `workflow_call`；`softprops/action-gh-release@v2` + commit-based notes（`generate_release_notes` 兜底） |
 | **Caller** | 各仓 `gh-release-on-tag.yml` | `on.push.tags` 过滤 + 传 `tag_name` |
 
 **不采用** [semantic-release](https://semantic-release.gitbook.io/)：与 `dev_* → Release PR → master` 及 `actions/v*` bundle 发版链重复；见 [actions-releases.md](./actions-releases.md)。
@@ -57,9 +57,12 @@ jobs:
 |-------|------|------|
 | `tag_name` | （必填） | 如 `v1.2.0` 或 `actions/v0.1.1` |
 | `release_name` | `Release {tag_name}` | Release 标题 |
-| `generate_release_notes` | `true` | GitHub 自动生成 notes（含 PR 链接） |
-| `body` | 空 | 非空时覆盖 auto notes |
+| `body` | 空 | 非空时覆盖自动生成的 notes |
+| `exclude_commit_pattern` | `^(Merge \|chore: release \|chore: merge master )` | 从生成的 commit notes 中剔除的 subject（ERE；空 = 全保留） |
+| `generate_release_notes` | `true` | **兜底**：commit notes 生成不出（如无上一个 tag、过滤后为空）时用 GitHub 自动生成（含 PR 链接） |
 | `draft` / `prerelease` | `false` | 草稿 / 预发布 |
+
+**Notes 生成规则**（`body` 为空时生效）：上一个 tag 在**同 tag 家族**内取（`v*` 或 `actions/v*`，按 `tag_name` 前缀推断），对区间跑 `git log --no-merges --format='- %s (%h)'` 并按 `exclude_commit_pattern` 过滤。GitHub auto notes 只认两个 tag 间 merge 的 PR，`dev_*` 直推 commit 会被吞掉、changelog 退化成只剩 release 管道 PR，故默认走 commit 列表；消费仓如需 auto notes，传非空 `body` 或把 `generate_release_notes` 配合空过滤使用。
 
 同一 tag 重跑 → softprops **update** 已有 Release（幂等）。
 
