@@ -4,7 +4,7 @@
 
 | 层 | 文件 | 职责 |
 |----|------|------|
-| **Leaf** | [`.github/workflows/create-gh-release.yml`](../.github/workflows/create-gh-release.yml) | `workflow_call`；`softprops/action-gh-release@v2` + commit-based notes（`generate_release_notes` 兜底） |
+| **Leaf** | [`.github/workflows/create-gh-release.yml`](../.github/workflows/create-gh-release.yml) | `workflow_call`；`softprops/action-gh-release@v2` + commit-based notes（`generate_release_notes` 兜底）+ **Release 成功后发发布通知邮件**（changelog + Release 链接） |
 | **Caller** | 各仓 `gh-release-on-tag.yml` | `on.push.tags` 过滤 + 传 `tag_name` |
 
 **不采用** [semantic-release](https://semantic-release.gitbook.io/)：与 `dev_* → Release PR → master` 及 `actions/v*` bundle 发版链重复；见 [actions-releases.md](./actions-releases.md)。
@@ -48,6 +48,15 @@ jobs:
 |------|------|
 | `workers-world/*` | Org `GHA_TOKEN`（`secrets: inherit`）或 `GITHUB_TOKEN` |
 | 个人仓 | `GITHUB_TOKEN`（caller 须 `permissions: contents: write`） |
+
+**发布通知邮件**
+
+Release 建立/更新成功后，经 `action-notify-email`（notify-worker 代理）发一封纯文本通知：
+`subject: [release] <repo> <tag>`，正文 = changelog（commit notes）+ Release 链接。
+
+- **绝不阻塞发布**：`fail-on-error: false` + `continue-on-error: true` 双保险，发信失败不影响 Release 结果
+- draft 不发；dedup-key `release-<repo>-<tag>` 防重跑重发；正文 >16KB 截断并指向 Release 页
+- 凭证：org 级 `NOTIFY_GHA_TOKEN` secret + `NOTIFY_WORKER_URL` var（打 tag 的仓零配置继承；缺失 = 该仓静默不发）
 
 **跨仓前提**：worker-actions 保持 Public；消费仓允许使用 public reusable workflows。
 
