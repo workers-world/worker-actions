@@ -38,6 +38,9 @@ on:
       GHA_TOKEN:
         description: Optional PAT; falls back to GITHUB_TOKEN
         required: false
+      NOTIFY_GHA_TOKEN:
+        description: notify-worker 发信 token（org secret；缺失 = 不发发布通知邮件）
+        required: false
 
 permissions:
   contents: write
@@ -89,6 +92,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
       # 第三方 action pin full SHA（官方建议：SHA 是唯一不可变引用）；升级由 Dependabot 同步注释
       - name: Create or update GitHub Release
+        id: release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           token: ${{ secrets.GHA_TOKEN || secrets.GITHUB_TOKEN }}
@@ -98,3 +102,45 @@ jobs:
           generate_release_notes: ${{ inputs.body == '' && steps.notes.outputs.body == '' && inputs.generate_release_notes }}
           draft: ${{ inputs.draft }}
           prerelease: ${{ inputs.prerelease }}
+      # 发布通知邮件：Release 成功后发（changelog + Release 链接）。纯通知，绝不阻塞发布：
+      # fail-on-error（action 内部吞错）+ continue-on-error（action 本身跑挂也不挂 job）双保险；
+      # draft 不发；dedup-key 防重跑重发；正文 >16KB 截断并指向 Release 页。
+      - name: Prepare release notify body
+        if: ${{ inputs.draft != true }}
+        env:
+          BODY: ${{ inputs.body != '' && inputs.body || steps.notes.outputs.body }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+          TAG_NAME: ${{ inputs.tag_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          tag_label="$TAG_NAME"
+          if [ "$PRERELEASE" = "true" ]; then tag_label="$tag_label (prerelease)"; fi
+          {
+            echo "repo: ${{ github.repository }}"
+            echo "tag: $tag_label"
+            if [ -n "$RELEASE_URL" ]; then echo "release: $RELEASE_URL"; fi
+            echo
+            echo "---- changelog ----"
+            if [ -n "$BODY" ]; then
+              printf '%s\n' "$BODY" | head -c 16384
+            else
+              echo "（无 commit changelog；详见 Release 页面）"
+            fi
+          } > notify-body.txt
+          if [ "$(wc -c < notify-body.txt)" -gt 20000 ]; then
+            head -c 20000 notify-body.txt > notify-body.txt.tmp && mv notify-body.txt.tmp notify-body.txt
+            printf '\n…（已截断，全文见 Release 页面）\n' >> notify-body.txt
+          fi
+      - name: Notify release by email
+        if: ${{ inputs.draft != true }}
+        uses: workers-world/action-notify-email@v1
+        with:
+          subject: "[release] ${{ github.repository }} ${{ inputs.tag_name }}"
+          body-file: notify-body.txt
+          dedup-key: release-${{ github.repository }}-${{ inputs.tag_name }}
+          fail-on-error: false
+        continue-on-error: true
+        env:
+          NOTIFY_WORKER_URL: ${{ vars.NOTIFY_WORKER_URL }}
+          NOTIFY_AUTH_TOKEN: ${{ secrets.NOTIFY_GHA_TOKEN }}
