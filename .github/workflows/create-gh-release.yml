@@ -110,11 +110,15 @@ jobs:
         env:
           BODY: ${{ inputs.body != '' && inputs.body || steps.notes.outputs.body }}
           RELEASE_URL: ${{ steps.release.outputs.url }}
+          TAG_NAME: ${{ inputs.tag_name }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
+          tag_label="$TAG_NAME"
+          if [ "$PRERELEASE" = "true" ]; then tag_label="$tag_label (prerelease)"; fi
           {
             echo "repo: ${{ github.repository }}"
-            echo "tag: ${{ inputs.tag_name }}${{ inputs.prerelease && ' (prerelease)' || '' }}"
+            echo "tag: $tag_label"
             if [ -n "$RELEASE_URL" ]; then echo "release: $RELEASE_URL"; fi
             echo
             echo "---- changelog ----"
