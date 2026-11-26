@@ -31,6 +31,16 @@ if ! remote_actions_tag_exists "$latest"; then
   exit 0
 fi
 
+bundle_backfill_branch="$(bundle_backfill_branch_name "$latest")"
+if [ -n "$WORKFLOW_PUSH_GH_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then
+  export GH_TOKEN="$WORKFLOW_PUSH_GH_TOKEN"
+  open_bundle="$(gh pr list --repo "$REPO" --head "$bundle_backfill_branch" --base "$DESTIN_BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+  if [ -n "$open_bundle" ]; then
+    echo "Skip destin align: release-actions-bundle backfill PR #${open_bundle} already open (${bundle_backfill_branch} → ${DESTIN_BRANCH})"
+    exit 0
+  fi
+fi
+
 WT="$(mktemp -d)"
 cleanup() {
   git worktree remove -f "$WT" 2>/dev/null || rm -rf "$WT"
@@ -114,6 +124,8 @@ else
 
 - \`.github/workflows\`、\`.github/actions\`、\`templates\`、\`docs/templates\`
 - \`manifest/actions-bundle.yaml\`（\`current\` / \`sha\` 与目标 tag 对齐）
+
+若 \`release-actions-bundle\` 已开同 tag 的 \`chore/actions-bundle-*\` 回填 PR，本 workflow **不会**再开第二条对齐 PR。
 
 ### 验证
 

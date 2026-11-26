@@ -369,7 +369,7 @@ flowchart LR
   pins --> commit[commit_on_chore_branch]
   commit --> tag[git_tag_actions_v]
   tag --> pushTag[push_tag]
-  pushTag --> backfillPr[open_pins_manifest_PR]
+  pushTag --> backfillPr[open_pins_manifest_PR_to_destin]
 ```
 
 触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。**squash subject**（首行）或 **merge commit 的 PR 标题行**含 `[skip actions-release]` 时跳过（全文/squash 正文里的历史 skip 不触发；见 #294）。
@@ -382,7 +382,7 @@ flowchart LR
 
 ### `worker-destin-pin-align.yml`
 
-destin（默认 `dev_*`）内层 nested pin 落后于最新 `actions/v*` 时，重写 Phase A 同款路径并开/更新 PR **base=destin**（WW-303 / #144）。触发：daily schedule、`push` → `dev_*`、annotated `actions/v*` tag `create`、`workflow_dispatch`（`dry_run`）。**不**自动合 master；与 `release-actions-bundle` / consumer bump 独立。
+destin（默认 `dev_*`）内层 nested pin 落后于最新 `actions/v*` 时，重写 Phase A 同款路径并开/更新 PR **base=destin**（WW-303 / #144）。触发：daily schedule、`push` → `dev_*`、annotated `actions/v*` tag `create`、`workflow_dispatch`（`dry_run`）。**不**自动合 master；若 `chore/actions-bundle-*` bundle 回填 PR 已开则 **跳过**（与 `release-actions-bundle` Phase B 去重）。与 consumer bump 独立。
 
 ---
 
@@ -446,7 +446,7 @@ flowchart TB
 | `planning-release.yml` | `workflow_call` | Leaf | 业务仓 `planning-release`（dispatch） | prepare → publish（Wrangler versions）；见 [planning-release.md](./planning-release.md) |
 | `worker-promote.yml` | `workflow_call` | Leaf / legacy | worker-verify, promote-gated | — |
 | `worker-promote-gated.yml` | `workflow_call` | Leaf / legacy | 遗留 caller | worker-promote |
-| `release-actions-bundle.yml` | push `master`（paths，含 `package.json` 版本 bump）；dispatch | 本仓发版 | — | tag + manifest PR |
+| `release-actions-bundle.yml` | push `master`（paths，含 `package.json` 版本 bump）；dispatch | 本仓发版 | — | tag + manifest/pin 回填 PR → destin |
 | `gh-release-on-tag.yml` | push `actions/v*` | 本仓入口 | tag push | create-gh-release |
 | `worker-consumer-actions-bump.yml` | `create` tag `actions/v*`；dispatch | 本仓入口 | annotated tag | mok1 bump PR（试点） |
 | `worker-destin-pin-align.yml` | schedule；push `dev_*`；`create` tag；dispatch | 本仓入口 | destin lag | destin 内层 pin 对齐 PR |

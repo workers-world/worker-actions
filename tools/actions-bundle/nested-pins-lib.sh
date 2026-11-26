@@ -54,6 +54,13 @@ remote_actions_tag_exists() {
   git ls-remote --tags --refs origin "refs/tags/${tag}" 2>/dev/null | grep -q .
 }
 
+# release-actions-bundle Phase B 回填分支名（与 align-destin-pins 去重检查一致）
+bundle_backfill_branch_name() {
+  local tag="$1"
+  local ver="${tag#actions/v}"
+  echo "chore/actions-bundle-${ver}"
+}
+
 # package.json version → actions/vX.Y.Z（版本权威，对齐 SDK；release-actions-bundle 据此打 tag）
 pkg_actions_tag() {
   local ver
