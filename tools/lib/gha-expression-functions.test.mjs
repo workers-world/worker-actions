@@ -59,7 +59,10 @@ test('worker-ci pure-destin-gate bash pattern stays aligned with PURE_DESTIN_BRA
 });
 
 const CRITICAL_RUNS_ON_JOBS = [
-  { file: 'worker-ci.yml', patterns: ['pure-destin-gate:', 'push-admission:', 'ci-summary:'] },
+  {
+    file: 'worker-ci.yml',
+    patterns: ['pure-destin-gate:', 'push-admission:', 'builds-correctness-gate:', 'ci-summary:'],
+  },
   {
     file: 'worker-ensure-release-pr.yml',
     patterns: ['ensure:'],
