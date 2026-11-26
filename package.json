@@ -1,6 +1,6 @@
 {
   "name": "@workers-world/worker-actions",
-  "version": "0.2.69",
+  "version": "0.2.70",
   "private": true,
   "description": "workers-world GitHub Actions bundle (tools unit tests at repo root for npm ci / box tests)",
   "scripts": {
