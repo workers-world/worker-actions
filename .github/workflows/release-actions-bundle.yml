@@ -3,7 +3,7 @@ name: Release actions bundle
 # 合入 master（且变更触及可复用 workflow/action 或版本号）后自动打不可变 tag actions/vX.Y.Z。
 # 版本权威 = package.json version（对齐 SDK：本地 bump 才发版，未 bump 跳过）。
 # 也可 workflow_dispatch 指定版本。Worker 仓 pin 该 tag，勿再用 @master。
-# 打 tag 前在 release 分支对齐内层 @actions/v* pin；manifest 经 PR 回填（master 禁止直推）。见 docs/actions-releases.md
+# 打 tag 前在 release 分支对齐内层 @actions/v* pin；manifest 经 PR 回填 destin（default dev_*，禁止直推）。见 docs/actions-releases.md
 # Phase B 鉴权：须 mint release-bot App（RELEASE_BOT_APP_ID = Variable 或 Secret + RELEASE_BOT_PRIVATE_KEY）；见 docs/github-app-token-migration.md
 on:
   push:
@@ -214,7 +214,6 @@ jobs:
           TODAY="$(date -u +%Y-%m-%d)"
           BRANCH="chore/actions-bundle-${VERSION}"
           COMMIT_MSG="chore: release actions bundle ${TAG} — align action/template pins + manifest [skip actions-release]"
-          WORKFLOW_COMMIT_MSG="chore: align remaining nested pins for ${TAG} [skip actions-release]"
 
           write_manifest() {
             local ref="$1"
@@ -282,7 +281,7 @@ jobs:
             fi
           fi
 
-          # --- Phase B: backfill PR push (App token); idempotent pin pass for drift ---
+          # --- Phase B: backfill PR → destin (default dev_*); idempotent pin pass for drift ---
           if [ -z "${WORKFLOW_PUSH_GH_TOKEN}" ]; then
             echo "::error::Phase B needs release-bot App installation token (workflows:write)."
             echo "Mint skipped/failed. Configure RELEASE_BOT_APP_ID (Org Variable or Secret) and"
@@ -291,26 +290,36 @@ jobs:
             exit 1
           fi
 
+          DESTIN_BRANCH="$(gh repo view "$REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+          echo "Bundle backfill PR base (destin): ${DESTIN_BRANCH}"
+          if ! [[ "${DESTIN_BRANCH}" =~ ^dev_ ]]; then
+            echo "::warning::Default branch ${DESTIN_BRANCH} is not dev_*; still targeting default branch for backfill"
+          fi
+          git fetch origin "$DESTIN_BRANCH"
+          git checkout -B "$BRANCH" "origin/${DESTIN_BRANCH}"
+
           rewrite_nested_pins "${TAG}" "${BUNDLE_PIN_GLOBS[@]}"
-          git add "${BUNDLE_PIN_GLOBS[@]}"
+          REF="$(git rev-list -n 1 "$TAG" 2>/dev/null || git rev-parse HEAD)"
+          write_manifest "$REF"
+          git add "${BUNDLE_PIN_GLOBS[@]}" "$MANIFEST"
           if ! git diff --cached --quiet; then
-            git commit -m "${WORKFLOW_COMMIT_MSG}"
-            echo "Phase B: extra nested pin drift committed for backfill PR"
+            git commit -m "${COMMIT_MSG}"
+            echo "Phase B: pins + manifest committed for destin backfill PR"
           else
-            echo "Phase B: nested pins already aligned on backfill branch"
+            echo "Phase B: nested pins and manifest already aligned on ${DESTIN_BRANCH}"
           fi
 
-          if [ "$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
+          if [ "$(git rev-list --count "origin/${DESTIN_BRANCH}"..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
             git_push_phase_b -u origin "HEAD:${BRANCH}" --force-with-lease
           fi
 
-          if [ "$(git rev-list --count origin/master..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
-            existing="$(gh pr list --repo "$REPO" --head "$BRANCH" --base master --state open --json number --jq '.[0].number // empty')"
+          if [ "$(git rev-list --count "origin/${DESTIN_BRANCH}"..HEAD 2>/dev/null || echo 0)" -gt 0 ]; then
+            existing="$(gh pr list --repo "$REPO" --head "$BRANCH" --base "$DESTIN_BRANCH" --state open --json number --jq '.[0].number // empty')"
             if [ -n "$existing" ]; then
-              echo "Backfill PR already open: #${existing}"
+              echo "Backfill PR already open: #${existing} (→ ${DESTIN_BRANCH})"
             else
               gh pr create --repo "$REPO" \
-                --base master \
+                --base "$DESTIN_BRANCH" \
                 --head "$BRANCH" \
                 --title "chore: actions bundle ${TAG} (pins + manifest) [skip actions-release]" \
                 --body "$(cat <<EOF
@@ -319,14 +328,15 @@ jobs:
           - Tag: \`${TAG}\`（已存在于远程；tag 树内 workflow/action/template nested pin 与 tag 一致）
           - Tag SHA: \`${REF}\`
           - tag_created_this_run: ${TAG_CREATED}
+          - Base branch: \`${DESTIN_BRANCH}\`（destin；**不会**直推 master）
 
-          两阶段发版：tag 在 **已对齐全部 nested pin**（含 \`.github/workflows/**\`）的 commit 上打出（须 release-bot App \`workflows:write\`）；本 PR 合入 \`manifest/actions-bundle.yaml\` 与 master 对齐。回填分支由 App token push（**非** \`GITHUB_TOKEN\`）。**PR 标题**与 commit subject 含 \`[skip actions-release]\`（squash subject **或** merge commit 的 PR 标题行），不会再打 tag。
+          两阶段发版：tag 在 **已对齐全部 nested pin**（含 \`.github/workflows/**\`）的 commit 上打出（须 release-bot App \`workflows:write\`）；本 PR 将 \`manifest/actions-bundle.yaml\` 与 nested pin 回填 **destin**，再经正常 destin→master Release 单向合入 master。回填分支由 App token push（**非** \`GITHUB_TOKEN\`）。**PR 标题**与 commit subject 含 \`[skip actions-release]\`（squash subject **或** merge commit 的 PR 标题行），不会再打 tag。
           EOF
           )"
-              echo "Opened backfill PR for ${TAG}"
+              echo "Opened backfill PR for ${TAG} → ${DESTIN_BRANCH}"
             fi
           else
-            echo "No diff vs origin/master; skip PR"
+            echo "No diff vs origin/${DESTIN_BRANCH}; skip PR"
           fi
 
           {
@@ -335,5 +345,5 @@ jobs:
             echo "- **Tag**: \`${TAG}\` (created_this_run=${TAG_CREATED})"
             echo "- **SHA**: \`${REF}\`"
             echo "- Worker bump: \`@${TAG}\`"
-            echo "- Backfill: PR branch \`${BRANCH}\`（勿直推 master）"
+            echo "- Backfill: PR \`${BRANCH}\` → \`${DESTIN_BRANCH}\`（勿直推 destin/master）"
           } >> "$GITHUB_STEP_SUMMARY"
