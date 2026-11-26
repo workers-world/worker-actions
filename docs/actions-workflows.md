@@ -380,9 +380,9 @@ flowchart LR
 
 `create` → annotated `actions/v*` tag 后，对试点消费者（**mok1**）克隆 default `dev_*`、重写 `.github/workflows` 外层 pin、开/更新 `chore/bump-worker-actions-pins` PR。`workflow_dispatch` + `dry_run` 可试点；**不**订阅 `release published`。详见 [consumer-actions-bump.md](./consumer-actions-bump.md)。
 
-### `worker-destin-pin-align.yml`
+### `worker-dev-pin-align.yml`
 
-destin（默认 `dev_*`）内层 nested pin 落后于最新 `actions/v*` 时，重写 Phase A 同款路径并开/更新 PR **base=destin**（WW-303 / #144）。触发：daily schedule、`push` → `dev_*`、annotated `actions/v*` tag `create`、`workflow_dispatch`（`dry_run`）。**不**自动合 master；若 `chore/actions-bundle-*` bundle 回填 PR 已开则 **跳过**（与 `release-actions-bundle` Phase B 去重）。与 consumer bump 独立。
+dev（默认 `dev_*`）内层 nested pin 落后于最新 `actions/v*` 时，重写 Phase A 同款路径并开/更新 PR **base=dev**（WW-303 / #144）。触发：daily schedule、`push` → `dev_*`、annotated `actions/v*` tag `create`、`workflow_dispatch`（`dry_run`）。**不**自动合 master；若 `chore/actions-bundle-*` bundle 回填 PR 已开则 **跳过**（与 `release-actions-bundle` Phase B 去重）。与 consumer bump 独立。
 
 ---
 
@@ -446,10 +446,10 @@ flowchart TB
 | `planning-release.yml` | `workflow_call` | Leaf | 业务仓 `planning-release`（dispatch） | prepare → publish（Wrangler versions）；见 [planning-release.md](./planning-release.md) |
 | `worker-promote.yml` | `workflow_call` | Leaf / legacy | worker-verify, promote-gated | — |
 | `worker-promote-gated.yml` | `workflow_call` | Leaf / legacy | 遗留 caller | worker-promote |
-| `release-actions-bundle.yml` | push `master`（paths，含 `package.json` 版本 bump）；dispatch | 本仓发版 | — | tag + manifest/pin 回填 PR → destin |
+| `release-actions-bundle.yml` | push `master`（paths，含 `package.json` 版本 bump）；dispatch | 本仓发版 | — | tag + manifest/pin 回填 PR → dev |
 | `gh-release-on-tag.yml` | push `actions/v*` | 本仓入口 | tag push | create-gh-release |
 | `worker-consumer-actions-bump.yml` | `create` tag `actions/v*`；dispatch | 本仓入口 | annotated tag | mok1 bump PR（试点） |
-| `worker-destin-pin-align.yml` | schedule；push `dev_*`；`create` tag；dispatch | 本仓入口 | destin lag | destin 内层 pin 对齐 PR |
+| `worker-dev-pin-align.yml` | schedule；push `dev_*`；`create` tag；dispatch | 本仓入口 | dev lag | dev 内层 pin 对齐 PR |
 | `create-gh-release.yml` | `workflow_call` | Leaf（跨仓通用） | gh-release-on-tag / 业务仓 caller | softprops Release |
 
 内层嵌套 pin 与外层入口 pin 须同版本；勿长期「外层已升、内层仍旧」。版本权威 = [package.json](../package.json) `version`；CI 回填的当前推荐 tag 见 [manifest/actions-bundle.yaml](../manifest/actions-bundle.yaml)。

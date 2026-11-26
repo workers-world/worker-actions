@@ -12,7 +12,7 @@ Phase A **只度量、不优化**发版 workflow；试点改 pipeline 属于 Pha
 
 | 路径 | 仓库 | Workflow | 含义 |
 |------|------|----------|------|
-| Bundle 发 tag | `workers-world/worker-actions` | `release-actions-bundle.yml` | master 合入后 destin→`actions/v*` tag（含 gate + tag job / step） |
+| Bundle 发 tag | `workers-world/worker-actions` | `release-actions-bundle.yml` | master 合入后 开发轨→`actions/v*` tag（含 gate + tag job / step） |
 | Tag → GH Release | 同上 | `gh-release-on-tag.yml` | tag push 后 Create GitHub Release |
 | 本仓 dogfood | 同上 | `ci.yml` | PR/push 上 workflow-lint 等 |
 | 消费者 Release PR | `workers-world/mok1`（优先） | `ci.yml` | 调用 `worker-ci` 的 verify / auto-merge 全链路 |
@@ -24,7 +24,7 @@ Docker **不**作为发版周期基线；仅允许在本地调试分析脚本时
 
 ### Calendar（与 machine 分开）
 
-**destin → 消费者可用**（含回填 PR、人工 bump、排队）：
+**dev → 消费者可用**（含回填 PR、人工 bump、排队）：
 
 1. 取 bundle `actions/v*` tag 的 commit 时间；
 2. 在消费者仓搜索引用该 tag 的 bump commit（GitHub commit search）；
@@ -96,8 +96,8 @@ node tools/release-pipeline-benchmark/analyze.mjs \
 | 目标 | 实现要点 |
 | --- | --- |
 | self-hosted 上削弱 setup-node post cache | `worker-verify`：表达式里布尔 `false` 关 cache；`npm-ci-github-packages`：读 `RUNNER_ENVIRONMENT` 在自托管上自动关 cache + `package-manager-cache`（composite 无 `vars`；托管仍可用 `cache: ""` 关，勿传字符串 `false`） |
-| Release PR vs destin push 并发 | `worker-ci` 分 `release-pr-*` / `destin-push-*` group（互不 cancel）；destin push 仍 cancel-in-progress 合并同分支噪声 run |
-| 噪声 destin push 跳过 sync-lock | `push-ci-admission` composite + `worker-ci` push-admission job |
+| Release PR vs dev push 并发 | `worker-ci` 分 `release-pr-*` / `dev-push-*` group（互不 cancel）；dev push 仍 cancel-in-progress 合并同分支噪声 run |
+| 噪声 dev push 跳过 sync-lock | `push-ci-admission` composite + `worker-ci` push-admission job |
 | 非 Packages 门禁 job | 私有 caller + `GHA_RUNNER`：`worker-ci` gate/admission/summary、workflow-lint runner、ensure/merge/notify/failure-comment；verify/sync-lock/lock-precheck 同表达式；公开仓仍 `ubuntu-latest` |
 
 Runner 保活与 grokbot-box 台数仍为 DevOps 范畴；验收对比 grokbot-box job queue p95 与 verify `Post setup-node` step p95。

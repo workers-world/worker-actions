@@ -13,7 +13,7 @@
       "repo": "worker-actions",
       "file": "release-actions-bundle.yml",
       "label": "Release actions bundle",
-      "machine_lane": "destin_to_tag",
+      "machine_lane": "dev_to_tag",
       "sampled": 22
     },
     {

@@ -14,7 +14,7 @@ test("skips when squash subject contains [skip actions-release]", () => {
 test("does not skip real release squash whose body embeds historical skip tokens", () => {
   assert.equal(
     shouldSkipActionsRelease(
-      "release: destin → master (#284)\n\n* chore: release actions bundle actions/v0.2.64 — align pins [skip actions-release]\n* fix: something else",
+      "release: 开发轨 → master (#284)\n\n* chore: release actions bundle actions/v0.2.64 — align pins [skip actions-release]\n* fix: something else",
     ),
     false,
   );
@@ -32,7 +32,7 @@ test("skips merge commit when PR title line contains [skip actions-release] (#29
 test("does not skip merge commit when PR title lacks skip token", () => {
   assert.equal(
     shouldSkipActionsRelease(
-      "Merge pull request #284 from workers-world/dev_00_03_00\n\nrelease: destin → master",
+      "Merge pull request #284 from workers-world/dev_00_03_00\n\nrelease: 开发轨 → master",
     ),
     false,
   );

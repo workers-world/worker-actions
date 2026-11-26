@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { findUnsupportedMatchesCalls, GHA_RUNNER_RUNS_ON_EXPR } from './gha-expression-functions.mjs';
-import { PURE_DESTIN_BRANCH_BASH_RE } from './pure-destin-branch.mjs';
+import { PURE_DEV_BRANCH_BASH_RE } from './pure-dev-branch.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workflowsDir = path.join(root, '.github/workflows');
@@ -24,7 +24,7 @@ jobs:
 test('findUnsupportedMatchesCalls ignores comment-only matches mentions', () => {
   const sample = `
     # GHA expressions have no matches(); use bash gate.
-    if: needs.pure-destin-gate.outputs.release_track == 'true'
+    if: needs.pure-dev-gate.outputs.release_track == 'true'
 `;
   assert.deepEqual(findUnsupportedMatchesCalls(sample), []);
 });
@@ -46,22 +46,22 @@ test('workflow YAML must not call unsupported matches()', () => {
   assert.deepEqual(all, [], `unsupported matches() in workflows:\n${all.join('\n')}`);
 });
 
-test('worker-ci pure-destin-gate bash pattern stays aligned with PURE_DESTIN_BRANCH_BASH_RE', () => {
+test('worker-ci pure-dev-gate bash pattern stays aligned with PURE_DEV_BRANCH_BASH_RE', () => {
   const source = fs.readFileSync(path.join(workflowsDir, 'worker-ci.yml'), 'utf8');
   assert.match(
     source,
     new RegExp(
-      String.raw`\[\[ "\$\{BRANCH\}" =~ ${PURE_DESTIN_BRANCH_BASH_RE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \]\]`,
+      String.raw`\[\[ "\$\{BRANCH\}" =~ ${PURE_DEV_BRANCH_BASH_RE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \]\]`,
     ),
   );
-  assert.match(source, /pure-destin-gate:/);
+  assert.match(source, /pure-dev-gate:/);
   assert.doesNotMatch(source, /^\s+if:.*\bmatches\s*\(/m);
 });
 
 const CRITICAL_RUNS_ON_JOBS = [
   {
     file: 'worker-ci.yml',
-    patterns: ['pure-destin-gate:', 'push-admission:', 'builds-correctness-gate:', 'ci-summary:'],
+    patterns: ['pure-dev-gate:', 'push-admission:', 'builds-correctness-gate:', 'ci-summary:'],
   },
   {
     file: 'worker-ensure-release-pr.yml',

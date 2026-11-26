@@ -1,7 +1,7 @@
-name: Destin actions pin align
+name: Dev-track actions pin align
 
-# WW-303 / #144: when destin (default dev_*) inner @actions/v* pins lag the latest published tag,
-# open or update a PR into destin (not master). Same allow-list as workflow-lint: latest tag or package.json pending tag.
+# WW-303 / #144: when 开发轨 (default dev_*) inner @actions/v* pins lag the latest published tag,
+# open or update a PR into 开发轨 (not master). Same allow-list as workflow-lint.
 # See docs/actions-releases.md
 on:
   schedule:
@@ -12,8 +12,8 @@ on:
   create:
   workflow_dispatch:
     inputs:
-      destin_branch:
-        description: "Destin branch (empty = repo default branch)"
+      dev_branch:
+        description: "开发轨 branch (empty = repo default branch)"
         required: false
         type: string
         default: ""
@@ -26,13 +26,14 @@ on:
 permissions: {}
 
 concurrency:
-  group: destin-pin-align
+  group: dev-pin-align
   cancel-in-progress: false
 
 jobs:
   align:
     runs-on: ubuntu-latest
     if: >
+      vars.DEV_PIN_AUTO_ALIGN != 'false' &&
       vars.DESTIN_PIN_AUTO_ALIGN != 'false' &&
       (
         github.event_name == 'schedule' ||
@@ -53,7 +54,7 @@ jobs:
     env:
       RELEASE_BOT_APP_ID_EFFECTIVE: ${{ vars.RELEASE_BOT_APP_ID || secrets.RELEASE_BOT_APP_ID }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
-      DESTIN_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.destin_branch || '' }}
+      DEV_BRANCH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_branch || '' }}
       REPO: ${{ github.repository }}
     steps:
       - name: Mint GitHub App token
@@ -74,16 +75,16 @@ jobs:
 
       - uses: ./.github/actions/ensure-gh-cli
 
-      - name: Resolve destin branch
-        id: destin
+      - name: Resolve 开发轨 branch
+        id: dev_track
         env:
           GH_TOKEN: ${{ github.token }}
-          DESTIN_BRANCH_INPUT: ${{ env.DESTIN_BRANCH_INPUT }}
+          DEV_BRANCH_INPUT: ${{ env.DEV_BRANCH_INPUT }}
           REPO: ${{ env.REPO }}
         run: |
           set -euo pipefail
-          if [ -n "${DESTIN_BRANCH_INPUT}" ]; then
-            branch="${DESTIN_BRANCH_INPUT}"
+          if [ -n "${DEV_BRANCH_INPUT}" ]; then
+            branch="${DEV_BRANCH_INPUT}"
           else
             branch="$(gh repo view "$REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')"
           fi
@@ -91,12 +92,12 @@ jobs:
             echo "::warning::Default branch ${branch} is not dev_*; still attempting align"
           fi
           echo "branch=${branch}" >> "$GITHUB_OUTPUT"
-          echo "Destin branch: ${branch}"
+          echo "开发轨 branch: ${branch}"
 
-      - name: Align nested pins on destin
+      - name: Align nested pins on 开发轨
         env:
           REPO: ${{ env.REPO }}
-          DESTIN_BRANCH: ${{ steps.destin.outputs.branch }}
+          DESTIN_BRANCH: ${{ steps.dev_track.outputs.branch }}
           DRY_RUN: ${{ env.DRY_RUN }}
           WORKFLOW_PUSH_GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-        run: bash tools/actions-bundle/align-destin-pins.sh
+        run: bash tools/actions-bundle/align-dev-pins.sh

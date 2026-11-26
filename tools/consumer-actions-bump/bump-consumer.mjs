@@ -293,7 +293,7 @@ export async function bumpConsumerRepo(repo, tagName, options = {}) {
     );
 
     const workflowsDir = path.join(tmp, ".github", "workflows");
-    const maxDestinPin = maxOuterWorkflowPinTag(workflowsDir);
+    const maxDevPin = maxOuterWorkflowPinTag(workflowsDir);
 
     const listOpenBumpPrs = () =>
       JSON.parse(
@@ -342,7 +342,7 @@ export async function bumpConsumerRepo(repo, tagName, options = {}) {
       }
     };
 
-    if (maxDestinPin && compareActionsTags(tagName, maxDestinPin) < 0) {
+    if (maxDevPin && compareActionsTags(tagName, maxDevPin) < 0) {
       const bumpPrs = listOpenBumpPrs();
       for (const pr of bumpPrs) {
         const prTag = parseBumpTitleTag(pr.title);
@@ -350,17 +350,17 @@ export async function bumpConsumerRepo(repo, tagName, options = {}) {
           disposition: "obsolete_downgrade",
           targetTag: tagName,
           prTitleTag: prTag || undefined,
-          maxDestinPin,
+          maxDevPin,
         });
         closeBumpPrWithDisposition(repo, pr.number, body);
       }
-      const msg = `Skip ${repo}: fanout target ${tagName} is below destin max outer pin ${maxDestinPin} (would downgrade)`;
+      const msg = `Skip ${repo}: fanout target ${tagName} is below dev max outer pin ${maxDevPin} (would downgrade)`;
       warning(msg);
       appendSummary([`### Skip: ${repo}`, "", msg]);
       return {
         status: "skipped",
-        reason: "would_downgrade_destin",
-        maxDestinPin,
+        reason: "would_downgrade_dev",
+        maxDevPin,
         defaultBranch,
       };
     }

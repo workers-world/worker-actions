@@ -54,7 +54,7 @@ remote_actions_tag_exists() {
   git ls-remote --tags --refs origin "refs/tags/${tag}" 2>/dev/null | grep -q .
 }
 
-# release-actions-bundle Phase B 回填分支名（与 align-destin-pins 去重检查一致）
+# release-actions-bundle Phase B 回填分支名（与 align-dev-pins 去重检查一致）
 bundle_backfill_branch_name() {
   local tag="$1"
   local ver="${tag#actions/v}"
@@ -69,7 +69,7 @@ pkg_actions_tag() {
 }
 
 # Exit 0 when inner pins satisfy workflow-lint (single version = latest tag or package.json pending tag).
-destin_pins_lint_aligned() {
+dev_pins_lint_aligned() {
   local latest="$1"
   local versions
   versions="$(collect_inner_pin_versions)"
@@ -115,7 +115,7 @@ update_manifest_for_tag() {
     echo "sha: \"${ref}\""
     echo "released_at: \"${today}\""
     echo "notes: |"
-    echo "  Destin auto-align nested pins to published tag (WW-303)."
+    echo "  Dev auto-align nested pins to published tag (WW-303)."
   } > "$manifest"
   echo "Updated ${manifest} → current=${tag} sha=${ref}"
 }

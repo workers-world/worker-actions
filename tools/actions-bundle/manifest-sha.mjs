@@ -4,7 +4,7 @@
  * `git rev-list -n 1 <tag>` in a commit *after* the tagged tree (WW-451 / #205).
  *
  * Also rejects “published” claims when the tag is gone or sha is unreachable
- * (#293 / ephemeral tag race after destin pin-align).
+ * (#293 / ephemeral tag race after dev pin-align).
  */
 
 /**
@@ -86,7 +86,7 @@ export function checkManifestReleaseConsistency(manifest, ctx) {
 
   if (!tagPresent) {
     // #293: current + released_at claim a published release; missing tag must fail
-    // (destin pin-align race: tag briefly existed then deleted).
+    // (dev pin-align race: tag briefly existed then deleted).
     if (claimsPublished) {
       if (shaReachable === false) {
         return {

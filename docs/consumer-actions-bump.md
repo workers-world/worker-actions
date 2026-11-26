@@ -1,6 +1,6 @@
 # 消费者 actions/v* 自动 bump（WW-150 / #101）
 
-**Org 扇出**：新 **annotated** `actions/v*` tag 后，从 deploy-tracker **consumers API** 拉取 `upgradable` 消费者列表，对每个仓 **开/更新 PR**；**Phase 2（fleet Gate P2）** 在 PR 打开或 force-update 后打 `fleet:ready` 并启用 GitHub **auto-merge（squash）**，待 required checks 绿后自动合入 destin。单仓调试仍可用 `CONSUMER_REPO` / dispatch `consumer_repo` 覆盖。
+**Org 扇出**：新 **annotated** `actions/v*` tag 后，从 deploy-tracker **consumers API** 拉取 `upgradable` 消费者列表，对每个仓 **开/更新 PR**；**Phase 2（fleet Gate P2）** 在 PR 打开或 force-update 后打 `fleet:ready` 并启用 GitHub **auto-merge（squash）**，待 required checks 绿后自动合入开发轨。单仓调试仍可用 `CONSUMER_REPO` / dispatch `consumer_repo` 覆盖。
 
 ## 触发
 
@@ -24,11 +24,11 @@ Kill switch：仓库或 Org Variable **`ACTIONS_AUTO_BUMP=false`** 时整个 wor
 | 情况 | 行为 | Label |
 |------|------|-------|
 | open bump PR 使用非 `chore/bump-worker-actions-pins` head | 留言 `disposition: superseded` 后 **关闭** | `fleet:superseded` |
-| fanout 目标 tag **低于** destin 上已有最大外层 pin（会 downgrade） | 关闭相关 bump PR | `fleet:superseded` |
+| fanout 目标 tag **低于** dev 上已有最大外层 pin（会 downgrade） | 关闭相关 bump PR | `fleet:superseded` |
 | noop 时 canonical head PR 标题 tag **早于** 本次 fanout 目标 | 关闭 superseded | `fleet:superseded` |
 | 检查绿 + mergeable | auto-merge 排队 | `fleet:ready` |
 
-Org 策略（2026-10-27）：**按仓**在 targeting **最新已对齐 tag** 且 CI 绿时 auto-merge 到 destin；superseded / obsolete 由 bump bot 自动关 PR。
+Org 策略（2026-10-27）：**按仓**在 targeting **最新已对齐 tag** 且 CI 绿时 auto-merge 到 dev；superseded / obsolete 由 bump bot 自动关 PR。
 
 ## 消费者列表（deploy-tracker / WW-151）
 

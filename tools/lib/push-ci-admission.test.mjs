@@ -185,7 +185,7 @@ test('zero before covers full new-ref changeset when tip is noise-only (#297)', 
   git(dir, ['add', 'package.json', 'README.md']);
   git(dir, ['commit', '-m', 'base on default']);
 
-  // New destin: earlier commit bumps package.json; tip only touches docs (noise).
+  // New dev: earlier commit bumps package.json; tip only touches docs (noise).
   git(dir, ['checkout', '-b', 'dev_00_99_00']);
   writeFileSync(join(dir, 'package.json'), '{"name":"x","version":"1.0.1"}\n');
   git(dir, ['add', 'package.json']);

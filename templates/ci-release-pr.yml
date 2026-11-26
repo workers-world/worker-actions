@@ -17,7 +17,7 @@ on:
       - "**/*.md"
       - "docs/**"
   pull_request:
-    # master：Release PR；dev_*：feature→destin 走 verify（correctness_on_builds 时 GHA 跳过 npm ci/check∥test）
+    # master：Release PR；dev_*：feature→开发轨 走 verify（correctness_on_builds 时 GHA 跳过 npm ci/check∥test）
     branches: ["master", "dev_*"]
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
