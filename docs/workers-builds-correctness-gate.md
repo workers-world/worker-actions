@@ -44,7 +44,7 @@ Release PR 路径上，把 **`npm run check` ∥ `npm test`** 从 GHA `worker-ve
 | 仓 | verify runner | gate runner | 备注 |
 |----|---------------|-------------|------|
 | **mok1**（公开） | verify：`ubuntu-latest` | `builds-correctness-gate`：`ubuntu-latest` | 须在 CF 配好 preview + build command；公开仓可用 GitHub **required checks** API |
-| **sch1**（私有自托管） | verify：`GHA_RUNNER` | gate 仍托管（仅 API 轮询） | 同样须在 CF 配 preview；若无法用 UI 设 required check，依赖 **`builds-correctness-gate` fail-closed** 挡 merge |
+| **sch1**（私有自托管） | verify：`GHA_RUNNER` | `builds-correctness-gate`：`GHA_RUNNER` | 同样须在 CF 配 preview；若无法用 UI 设 required check，依赖 **`builds-correctness-gate` fail-closed** 挡 merge |
 
 ## Required checks 尚未可配时
 

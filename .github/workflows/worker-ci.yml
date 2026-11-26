@@ -276,7 +276,7 @@ jobs:
       contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) &&
       github.base_ref == 'master' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.repository.private && vars.GHA_RUNNER != '' && vars.GHA_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: ${{ inputs.builds_gate_timeout_minutes }}
     permissions:
       checks: read
