@@ -369,7 +369,7 @@ flowchart LR
   pins --> commit[commit_on_chore_branch]
   commit --> tag[git_tag_actions_v]
   tag --> pushTag[push_tag]
-  pushTag --> backfillPr[open_pins_manifest_PR_to_destin]
+  pushTag --> backfillPr[open_pins_manifest_PR_to_dev]
 ```
 
 触发：`push` → `master` 且 paths 含 `.github/workflows/**` 或 `.github/actions/**`；或 `workflow_dispatch`（可指定 `version`）。**squash subject**（首行）或 **merge commit 的 PR 标题行**含 `[skip actions-release]` 时跳过（全文/squash 正文里的历史 skip 不触发；见 #294）。

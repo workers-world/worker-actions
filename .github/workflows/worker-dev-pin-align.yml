@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       vars.DEV_PIN_AUTO_ALIGN != 'false' &&
-      vars.DESTIN_PIN_AUTO_ALIGN != 'false' &&
+      vars.DEV_PIN_AUTO_ALIGN != 'false' &&
       (
         github.event_name == 'schedule' ||
         github.event_name == 'workflow_dispatch' ||
@@ -97,7 +97,7 @@ jobs:
       - name: Align nested pins on 开发轨
         env:
           REPO: ${{ env.REPO }}
-          DESTIN_BRANCH: ${{ steps.dev_track.outputs.branch }}
+          DEV_BRANCH: ${{ steps.dev_track.outputs.branch }}
           DRY_RUN: ${{ env.DRY_RUN }}
           WORKFLOW_PUSH_GH_TOKEN: ${{ steps.bot-token.outputs.token }}
         run: bash tools/actions-bundle/align-dev-pins.sh

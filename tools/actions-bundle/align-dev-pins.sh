@@ -4,7 +4,7 @@
 set -euo pipefail
 
 REPO="${REPO:?REPO required}"
-DESTIN_BRANCH="${DEV_BRANCH:-${DESTIN_BRANCH:?DEV_BRANCH or DESTIN_BRANCH required}}"
+DEV_BRANCH="${DEV_BRANCH:?DEV_BRANCH required}"
 DRY_RUN="${DRY_RUN:-false}"
 WORKFLOW_PUSH_GH_TOKEN="${WORKFLOW_PUSH_GH_TOKEN:-}"
 ALIGN_BRANCH="${ALIGN_BRANCH:-chore/dev-align-nested-pins}"
@@ -17,7 +17,7 @@ source "${ROOT}/tools/actions-bundle/nested-pins-lib.sh"
 cd "$ROOT"
 
 # --prune-tags：已删除的 ephemeral tag（如误打后删掉的 actions/v*）不得再被当作 latest（#293）
-git fetch origin "$DESTIN_BRANCH" --tags --prune --prune-tags
+git fetch origin "$DEV_BRANCH" --tags --prune --prune-tags
 
 latest="$(latest_actions_tag)"
 if [ -z "$latest" ]; then
@@ -34,9 +34,9 @@ fi
 bundle_backfill_branch="$(bundle_backfill_branch_name "$latest")"
 if [ -n "$WORKFLOW_PUSH_GH_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then
   export GH_TOKEN="$WORKFLOW_PUSH_GH_TOKEN"
-  open_bundle="$(gh pr list --repo "$REPO" --head "$bundle_backfill_branch" --base "$DESTIN_BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+  open_bundle="$(gh pr list --repo "$REPO" --head "$bundle_backfill_branch" --base "$DEV_BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
   if [ -n "$open_bundle" ]; then
-    echo "Skip dev align: release-actions-bundle backfill PR #${open_bundle} already open (${bundle_backfill_branch} → ${DESTIN_BRANCH})"
+    echo "Skip dev align: release-actions-bundle backfill PR #${open_bundle} already open (${bundle_backfill_branch} → ${DEV_BRANCH})"
     exit 0
   fi
 fi
@@ -47,14 +47,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git worktree add -f "$WT" "origin/${DESTIN_BRANCH}"
+git worktree add -f "$WT" "origin/${DEV_BRANCH}"
 cd "$WT"
 
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
 if dev_pins_lint_aligned "$latest"; then
-  echo "Dev ${DESTIN_BRANCH} inner pins already satisfy workflow-lint; no-op"
+  echo "Dev ${DEV_BRANCH} inner pins already satisfy workflow-lint; no-op"
   exit 0
 fi
 
@@ -73,8 +73,8 @@ COMMIT_MSG="chore: align dev nested pins to ${latest} (WW-303)"
 git commit -m "$COMMIT_MSG"
 
 if [ "$DRY_RUN" = "true" ]; then
-  echo "dry_run: would push ${ALIGN_BRANCH} and open PR → ${DESTIN_BRANCH}"
-  git diff "origin/${DESTIN_BRANCH}"..HEAD --stat
+  echo "dry_run: would push ${ALIGN_BRANCH} and open PR → ${DEV_BRANCH}"
+  git diff "origin/${DEV_BRANCH}"..HEAD --stat
   exit 0
 fi
 
@@ -101,22 +101,22 @@ git -C "$ROOT" remote set-url origin "https://x-access-token:${WORKFLOW_PUSH_GH_
 git push -u origin "${ALIGN_BRANCH}" --force-with-lease
 
 export GH_TOKEN="$WORKFLOW_PUSH_GH_TOKEN"
-existing="$(gh pr list --repo "$REPO" --head "$ALIGN_BRANCH" --base "$DESTIN_BRANCH" --state open --json number --jq '.[0].number // empty')"
+existing="$(gh pr list --repo "$REPO" --head "$ALIGN_BRANCH" --base "$DEV_BRANCH" --state open --json number --jq '.[0].number // empty')"
 if [ -n "$existing" ]; then
-  echo "Updated existing align PR #${existing} (${ALIGN_BRANCH} → ${DESTIN_BRANCH})"
+  echo "Updated existing align PR #${existing} (${ALIGN_BRANCH} → ${DEV_BRANCH})"
 else
   gh pr create --repo "$REPO" \
-    --base "$DESTIN_BRANCH" \
+    --base "$DEV_BRANCH" \
     --head "$ALIGN_BRANCH" \
     --title "chore: align dev nested pins to ${latest} (WW-303)" \
     --body "$(cat <<EOF
 ## Dev nested pin auto-align
 
 - **Target tag**: \`${latest}\`（与 workflow-lint 要求的「最新已发布 tag」一致）
-- **Base branch**: \`${DESTIN_BRANCH}\`（dev；**不会**自动合入 \`master\`）
+- **Base branch**: \`${DEV_BRANCH}\`（dev；**不会**自动合入 \`master\`）
 - **Tracking**: ${ISSUE_REF}
 
-本 PR 由 [\`worker-dev-pin-align.yml\`](../blob/${DESTIN_BRANCH}/.github/workflows/worker-dev-pin-align.yml) 在检测到 dev 内层 \`@actions/v*\` 落后于最新 tag 时自动开/更新。
+本 PR 由 [\`worker-dev-pin-align.yml\`](../blob/${DEV_BRANCH}/.github/workflows/worker-dev-pin-align.yml) 在检测到 dev 内层 \`@actions/v*\` 落后于最新 tag 时自动开/更新。
 
 ### 范围
 
@@ -133,5 +133,5 @@ else
 - 手动：Actions → **Dev actions pin align** → \`dry_run: true\` 查看是否 would-change。
 EOF
 )"
-  echo "Opened dev align PR (${ALIGN_BRANCH} → ${DESTIN_BRANCH})"
+  echo "Opened dev align PR (${ALIGN_BRANCH} → ${DEV_BRANCH})"
 fi
